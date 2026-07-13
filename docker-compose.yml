@@ -1,0 +1,46 @@
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: hify_root_dev
+      MYSQL_DATABASE: hify
+      MYSQL_USER: hify
+      MYSQL_PASSWORD: hify_dev
+    ports:
+      # Host 3306 is already taken by a native mysqld on this machine, so
+      # Hify's container is exposed on 3307 instead (container-internal
+      # port is still 3306).
+      - "3307:3306"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+00:00
+      - --max-connections=200
+    volumes:
+      - hify_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-phify_root_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      # Host 6379 is already taken by another project's redis container on
+      # this machine, so Hify's is exposed on 6380 instead.
+      - "6380:6379"
+    volumes:
+      - hify_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  hify_mysql_data:
+  hify_redis_data:

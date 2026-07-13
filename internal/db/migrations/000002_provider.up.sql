@@ -1,0 +1,41 @@
+CREATE TABLE model_providers (
+    id CHAR(36) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    adapter_type VARCHAR(32) NOT NULL DEFAULT 'openai_compatible',
+    base_url VARCHAR(500) NOT NULL,
+    auth_type VARCHAR(16) NOT NULL DEFAULT 'api_key',
+    api_key_encrypted VARBINARY(512) NULL,
+    extra_headers JSON NULL,
+    extra_config JSON NULL,
+    last_tested_at DATETIME(3) NULL,
+    last_test_status VARCHAR(16) NOT NULL DEFAULT 'unknown',
+    last_test_error TEXT NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_by CHAR(36) NOT NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_model_providers_name (name),
+    KEY idx_model_providers_created_by (created_by),
+    CONSTRAINT chk_model_providers_adapter_type CHECK (adapter_type IN ('openai_compatible')),
+    CONSTRAINT chk_model_providers_auth_type CHECK (auth_type IN ('api_key', 'none')),
+    CONSTRAINT chk_model_providers_last_test_status CHECK (last_test_status IN ('unknown', 'success', 'failed'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC;
+
+CREATE TABLE provider_models (
+    id CHAR(36) NOT NULL,
+    provider_id CHAR(36) NOT NULL,
+    model_name VARCHAR(255) NOT NULL,
+    capability VARCHAR(16) NOT NULL,
+    context_window INT NULL,
+    max_output_tokens INT NULL,
+    embedding_dimension INT NULL,
+    is_default TINYINT(1) NOT NULL DEFAULT 0,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_provider_models_provider_model (provider_id, model_name),
+    KEY idx_provider_models_provider_capability (provider_id, capability),
+    CONSTRAINT chk_provider_models_capability CHECK (capability IN ('chat', 'embedding'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC;
