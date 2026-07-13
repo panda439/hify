@@ -21,8 +21,10 @@ import (
 	mysqlmigrate "github.com/golang-migrate/migrate/v4/database/mysql"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 
+	"hify/internal/agent"
 	"hify/internal/auth"
 	"hify/internal/config"
+	"hify/internal/conversation"
 	hifydb "hify/internal/db"
 	"hify/internal/platform"
 	"hify/internal/provider"
@@ -117,6 +119,18 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, func(), erro
 	}
 	providerHandler := provider.NewHandler(providerSvc)
 	provider.RegisterRoutes(v1, providerHandler, cfg.JWTSecret)
+
+	// Layer 2
+	agentRepo := agent.NewRepository(db)
+	agentSvc := agent.NewService(agentRepo, providerSvc)
+	agentHandler := agent.NewHandler(agentSvc)
+	agent.RegisterRoutes(v1, agentHandler, cfg.JWTSecret)
+
+	// Layer 3
+	conversationRepo := conversation.NewRepository(db)
+	conversationSvc := conversation.NewService(conversationRepo, agentSvc, providerSvc)
+	conversationHandler := conversation.NewHandler(conversationSvc)
+	conversation.RegisterRoutes(v1, conversationHandler, cfg.JWTSecret)
 
 	return router, cleanup, nil
 }

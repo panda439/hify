@@ -1,0 +1,39 @@
+package conversation
+
+import (
+	"database/sql"
+
+	"github.com/gin-gonic/gin"
+
+	"hify/internal/agent"
+	"hify/internal/db/gen"
+	"hify/internal/platform/httperr"
+	"hify/internal/provider"
+	"hify/internal/server/middleware"
+)
+
+func NewRepository(db *sql.DB) *Repository {
+	return &Repository{queries: gen.New(db)}
+}
+
+func NewService(repo *Repository, agentSvc agent.Service, providerSvc provider.Service) Service {
+	return &service{repo: repo, agentSvc: agentSvc, providerSvc: providerSvc}
+}
+
+func NewHandler(svc Service) *Handler {
+	return &Handler{service: svc}
+}
+
+// RegisterRoutes wires conversations onto "/api/v1/conversations" — every
+// authenticated user manages only their own conversations; ownership is
+// enforced inside service.go (see the privacy note in errors.go), not by a
+// route-level gate, since it's per-row not per-role.
+func RegisterRoutes(v1 *gin.RouterGroup, h *Handler, jwtSecret string) {
+	conversations := v1.Group("/conversations")
+	conversations.Use(middleware.RequireAuth(jwtSecret))
+
+	conversations.POST("", httperr.Wrap(h.Create))
+	conversations.GET("", httperr.Wrap(h.List))
+	conversations.GET("/:id/messages", httperr.Wrap(h.ListMessages))
+	conversations.POST("/:id/messages", httperr.Wrap(h.SendMessage))
+}

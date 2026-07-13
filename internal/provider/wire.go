@@ -48,4 +48,9 @@ func RegisterRoutes(v1 *gin.RouterGroup, h *Handler, jwtSecret string) {
 	providers.POST("/:id/models", httperr.Wrap(h.AddModel))
 	providers.GET("/:id/models", httperr.Wrap(h.ListModels))
 	providers.PUT("/:id/models/:modelId", httperr.Wrap(h.UpdateModel))
+
+	// Any authenticated user (not just admins) needs to browse chat models
+	// to create an Agent — narrower than provider management, so it's
+	// registered outside the admin-gated "providers" group above.
+	v1.GET("/models", middleware.RequireAuth(jwtSecret), httperr.Wrap(h.ListModelsByCapability))
 }

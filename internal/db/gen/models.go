@@ -10,6 +10,42 @@ import (
 	"time"
 )
 
+type Agent struct {
+	ID           string          `json:"id"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description"`
+	ModelID      string          `json:"model_id"`
+	SystemPrompt string          `json:"system_prompt"`
+	Temperature  string          `json:"temperature"`
+	MaxTokens    sql.NullInt32   `json:"max_tokens"`
+	TopP         sql.NullString  `json:"top_p"`
+	ExtraParams  json.RawMessage `json:"extra_params"`
+	IsActive     bool            `json:"is_active"`
+	CreatedBy    string          `json:"created_by"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
+}
+
+type Conversation struct {
+	ID        string    `json:"id"`
+	AgentID   string    `json:"agent_id"`
+	UserID    string    `json:"user_id"`
+	Title     string    `json:"title"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type Message struct {
+	ID             string          `json:"id"`
+	ConversationID string          `json:"conversation_id"`
+	Role           string          `json:"role"`
+	Content        string          `json:"content"`
+	ToolCalls      json.RawMessage `json:"tool_calls"`
+	ToolCallID     sql.NullString  `json:"tool_call_id"`
+	TokenCount     int32           `json:"token_count"`
+	CreatedAt      time.Time       `json:"created_at"`
+}
+
 type ModelProvider struct {
 	ID              string          `json:"id"`
 	Name            string          `json:"name"`

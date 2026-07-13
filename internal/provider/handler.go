@@ -135,6 +135,27 @@ func (h *Handler) ListModels(c *gin.Context) error {
 	return nil
 }
 
+// ListModelsByCapability backs the model picker in the Agent form — any
+// authenticated user needs this (not just admins), unlike the rest of this
+// module's routes, since creating an Agent requires choosing a chat model
+// but doesn't require managing providers.
+func (h *Handler) ListModelsByCapability(c *gin.Context) error {
+	capability := c.Query("capability")
+	if capability != CapabilityChat && capability != CapabilityEmbedding {
+		return ErrInvalidRequest
+	}
+	models, err := h.service.ListModelsByCapability(c.Request.Context(), capability)
+	if err != nil {
+		return err
+	}
+	items := make([]modelResponse, 0, len(models))
+	for _, m := range models {
+		items = append(items, toModelResponse(m))
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items})
+	return nil
+}
+
 func (h *Handler) UpdateModel(c *gin.Context) error {
 	var req updateModelRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

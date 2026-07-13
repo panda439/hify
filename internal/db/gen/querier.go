@@ -10,24 +10,47 @@ import (
 )
 
 type Querier interface {
+	CountAgents(ctx context.Context) (int64, error)
+	CountConversationsByUser(ctx context.Context, userID string) (int64, error)
 	CountProviders(ctx context.Context) (int64, error)
 	CountUsers(ctx context.Context) (int64, error)
+	CreateAgent(ctx context.Context, arg CreateAgentParams) error
+	CreateConversation(ctx context.Context, arg CreateConversationParams) error
+	CreateMessage(ctx context.Context, arg CreateMessageParams) error
 	CreateProvider(ctx context.Context, arg CreateProviderParams) error
 	CreateProviderModel(ctx context.Context, arg CreateProviderModelParams) error
 	CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) error
 	DeleteExpiredRefreshTokens(ctx context.Context, revokedAt sql.NullTime) (int64, error)
+	GetAgentByID(ctx context.Context, id string) (Agent, error)
+	GetConversationByID(ctx context.Context, id string) (Conversation, error)
 	GetProviderByID(ctx context.Context, id string) (ModelProvider, error)
 	GetProviderModelByID(ctx context.Context, id string) (ProviderModel, error)
 	GetRefreshTokenByHash(ctx context.Context, tokenHash string) (RefreshToken, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id string) (User, error)
 	ListActiveModelsByCapability(ctx context.Context, capability string) ([]ProviderModel, error)
+	ListAgents(ctx context.Context, arg ListAgentsParams) ([]Agent, error)
+	ListConversationsByUser(ctx context.Context, arg ListConversationsByUserParams) ([]Conversation, error)
+	// Keyset page for "load more" history, strictly older than the given
+	// (created_at, id) cursor — same index as ListRecentMessagesByConversation.
+	// Written as an OR-expansion rather than a (created_at, id) < (?, ?) row
+	// constructor: sqlc's mysql parser doesn't reliably detect placeholders
+	// inside a tuple comparison (it silently generated a 2-arg function for a
+	// 4-placeholder query when tried), so this is the safe form.
+	ListMessagesByConversationBeforeCursor(ctx context.Context, arg ListMessagesByConversationBeforeCursorParams) ([]Message, error)
 	ListProviderModelsByProvider(ctx context.Context, providerID string) ([]ProviderModel, error)
 	ListProviders(ctx context.Context, arg ListProvidersParams) ([]ModelProvider, error)
+	// Most recent N messages, newest first. Used both for context assembly
+	// (caller re-orders chronologically and truncates by token budget) and for
+	// the first page of a conversation's history in the UI — always bounded by
+	// conversation_id per CLAUDE.md's large-table rule (never an unfiltered scan).
+	ListRecentMessagesByConversation(ctx context.Context, arg ListRecentMessagesByConversationParams) ([]Message, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	RevokeAllUserRefreshTokens(ctx context.Context, userID string) error
 	RevokeRefreshToken(ctx context.Context, id string) error
+	TouchConversation(ctx context.Context, arg TouchConversationParams) error
+	UpdateAgent(ctx context.Context, arg UpdateAgentParams) error
 	UpdateProvider(ctx context.Context, arg UpdateProviderParams) error
 	UpdateProviderAPIKey(ctx context.Context, arg UpdateProviderAPIKeyParams) error
 	UpdateProviderModel(ctx context.Context, arg UpdateProviderModelParams) error

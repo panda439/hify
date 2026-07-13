@@ -18,6 +18,7 @@ type Service interface {
 	TestConnection(ctx context.Context, id string) error
 
 	AddModel(ctx context.Context, providerID string, input CreateModelInput) (Model, error)
+	GetModel(ctx context.Context, id string) (Model, error)
 	ListModels(ctx context.Context, providerID string) ([]Model, error)
 	ListModelsByCapability(ctx context.Context, capability string) ([]Model, error)
 	UpdateModel(ctx context.Context, id string, input UpdateModelInput) (Model, error)
@@ -154,6 +155,14 @@ func (s *service) TestConnection(ctx context.Context, id string) error {
 		return err
 	}
 	return wrappedErr
+}
+
+// GetModel is what agent.Service uses to validate a model_id at
+// create/update time (must resolve, and the caller checks
+// Capability/IsActive itself — this method doesn't enforce a capability,
+// callers with different needs use it differently).
+func (s *service) GetModel(ctx context.Context, id string) (Model, error) {
+	return s.repo.getModel(ctx, id)
 }
 
 func (s *service) AddModel(ctx context.Context, providerID string, input CreateModelInput) (Model, error) {

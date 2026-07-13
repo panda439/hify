@@ -26,6 +26,12 @@ export function setAccessToken(token: string | null): void {
   accessToken = token;
 }
 
+// Used by lib/sse.ts, which can't go through request() above since it needs
+// the raw fetch Response body as a stream, not a parsed JSON value.
+export function getAccessToken(): string | null {
+  return accessToken;
+}
+
 interface ErrorBody {
   error?: { code?: string; message?: string };
 }
