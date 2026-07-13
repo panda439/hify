@@ -4,6 +4,10 @@ Hify 是一个简化版 Dify（Go + React 单体应用）。这份文档是项�
 
 技术栈：Go + Gin，MySQL 8.x（业务数据）+ Redis（缓存/限流/asynq 任务队列），React + Vite + TS + Tailwind + shadcn/ui，最终打包成单个 Go 二进制（go:embed 内嵌前端静态资源）。
 
+## 开发流程
+
+新功能/新模块/新 Phase 按 `/feature-workflow` 这个 skill 里的完整流程走（规划→后端→前端→验证→验收→git 提交，含常见坑），这里只放一句话核心顺序方便速查：**migration → sqlc → 模块内 `model→errors→repository→service→dto→handler→wire.go` 固定顺序 → 接入 buildApp → 前端 hook→组件 → `/smoke-test` 冒烟验证 → git commit**。项目没有自动化测试，`/smoke-test` 和真实 HTTP 请求验证是唯一的安全网，不能省。
+
 ## 统一响应 / 分页 / 业务异常 / 全局异常处理
 
 - **响应体不包壳（REST 风格）**：成功响应直接返回资源 JSON（`GET /agents/:id` → `{"id":"...",...}`），HTTP 状态码承载真实语义（200/404/409/400...），不搞 Java 那种 `{"code":0,"data":{...}}` 恒 200 包装。错误响应固定 `{"error":{"code":"...","message":"..."}}` 结构。
