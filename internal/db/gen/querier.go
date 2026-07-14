@@ -18,6 +18,8 @@ type Querier interface {
 	CountMCPServers(ctx context.Context) (int64, error)
 	CountProviders(ctx context.Context) (int64, error)
 	CountUsers(ctx context.Context) (int64, error)
+	CountWorkflowRuns(ctx context.Context, workflowID string) (int64, error)
+	CountWorkflows(ctx context.Context) (int64, error)
 	CreateAgent(ctx context.Context, arg CreateAgentParams) error
 	CreateAgentKnowledgeBase(ctx context.Context, arg CreateAgentKnowledgeBaseParams) error
 	CreateAgentMCPTool(ctx context.Context, arg CreateAgentMCPToolParams) error
@@ -31,6 +33,12 @@ type Querier interface {
 	CreateProviderModel(ctx context.Context, arg CreateProviderModelParams) error
 	CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) error
+	CreateWorkflow(ctx context.Context, arg CreateWorkflowParams) error
+	// output/error_message have no MySQL-level default (TEXT columns can't
+	// carry one) and aren't known yet at run start — literal '' here, filled
+	// in for real by FinishWorkflowRun.
+	CreateWorkflowRun(ctx context.Context, arg CreateWorkflowRunParams) error
+	CreateWorkflowRunStep(ctx context.Context, arg CreateWorkflowRunStepParams) error
 	// Called before re-inserting the full set on update — see
 	// agent.Service's replace-all semantics for this association.
 	DeleteAgentKnowledgeBases(ctx context.Context, agentID string) error
@@ -38,6 +46,7 @@ type Querier interface {
 	DeleteChunksByDocument(ctx context.Context, documentID string) error
 	DeleteDocument(ctx context.Context, id string) error
 	DeleteExpiredRefreshTokens(ctx context.Context, revokedAt sql.NullTime) (int64, error)
+	FinishWorkflowRun(ctx context.Context, arg FinishWorkflowRunParams) error
 	GetAgentByID(ctx context.Context, id string) (Agent, error)
 	GetConversationByID(ctx context.Context, id string) (Conversation, error)
 	GetDocumentByID(ctx context.Context, id string) (Document, error)
@@ -49,6 +58,8 @@ type Querier interface {
 	GetRefreshTokenByHash(ctx context.Context, tokenHash string) (RefreshToken, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id string) (User, error)
+	GetWorkflowByID(ctx context.Context, id string) (Workflow, error)
+	GetWorkflowRunByID(ctx context.Context, id string) (WorkflowRun, error)
 	ListActiveModelsByCapability(ctx context.Context, capability string) ([]ProviderModel, error)
 	// Reverse lookup for "which Agents use this knowledge base" — surfaced in
 	// the knowledge base management UI before disabling one.
@@ -90,6 +101,9 @@ type Querier interface {
 	// conversation_id per CLAUDE.md's large-table rule (never an unfiltered scan).
 	ListRecentMessagesByConversation(ctx context.Context, arg ListRecentMessagesByConversationParams) ([]Message, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
+	ListWorkflowRunSteps(ctx context.Context, workflowRunID string) ([]WorkflowRunStep, error)
+	ListWorkflowRuns(ctx context.Context, arg ListWorkflowRunsParams) ([]WorkflowRun, error)
+	ListWorkflows(ctx context.Context, arg ListWorkflowsParams) ([]Workflow, error)
 	RevokeAllUserRefreshTokens(ctx context.Context, userID string) error
 	RevokeRefreshToken(ctx context.Context, id string) error
 	TouchConversation(ctx context.Context, arg TouchConversationParams) error
@@ -110,6 +124,7 @@ type Querier interface {
 	UpdateProviderTestResult(ctx context.Context, arg UpdateProviderTestResultParams) error
 	UpdateUser(ctx context.Context, arg UpdateUserParams) error
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
+	UpdateWorkflow(ctx context.Context, arg UpdateWorkflowParams) error
 	// Sync is idempotent: re-running it against the same server just refreshes
 	// description/input_schema for tools that still exist and reactivates a
 	// tool that had previously disappeared and come back.

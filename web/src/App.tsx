@@ -6,12 +6,13 @@ import { Toaster } from "@/components/ui/sonner";
 import { LoginPage } from "@/routes/login";
 import { ProtectedRoute } from "@/routes/protected-route";
 import { AppShell } from "@/routes/app-shell";
-import { PlaceholderPage } from "@/routes/placeholder-page";
 import { ChatPage } from "@/routes/chat";
 import { ModelsPage } from "@/routes/models";
 import { AgentsPage } from "@/routes/agents";
 import { KnowledgePage } from "@/routes/knowledge";
 import { McpPage } from "@/routes/mcp";
+import { WorkflowsPage } from "@/routes/workflows";
+import { WorkflowEditorPage } from "@/routes/workflow-editor";
 import { restoreSession } from "@/lib/session";
 
 const queryClient = new QueryClient({
@@ -45,7 +46,9 @@ function App() {
             <Route path="agents" element={<AgentsPage />} />
             <Route path="knowledge" element={<KnowledgePage />} />
             <Route path="mcp" element={<McpPage />} />
-            <Route path="workflows" element={<PlaceholderPage title="工作流" />} />
+            <Route path="workflows" element={<WorkflowsPage />} />
+            <Route path="workflows/new" element={<WorkflowEditorPage />} />
+            <Route path="workflows/:id" element={<WorkflowEditorPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

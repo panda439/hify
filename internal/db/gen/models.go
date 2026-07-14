@@ -178,3 +178,39 @@ type User struct {
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
+
+type Workflow struct {
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Definition  json.RawMessage `json:"definition"`
+	IsActive    bool            `json:"is_active"`
+	CreatedBy   string          `json:"created_by"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+}
+
+type WorkflowRun struct {
+	ID           string       `json:"id"`
+	WorkflowID   string       `json:"workflow_id"`
+	Status       string       `json:"status"`
+	Input        string       `json:"input"`
+	Output       string       `json:"output"`
+	ErrorMessage string       `json:"error_message"`
+	StartedAt    time.Time    `json:"started_at"`
+	FinishedAt   sql.NullTime `json:"finished_at"`
+	CreatedBy    string       `json:"created_by"`
+}
+
+type WorkflowRunStep struct {
+	ID            string       `json:"id"`
+	WorkflowRunID string       `json:"workflow_run_id"`
+	StepID        string       `json:"step_id"`
+	StepType      string       `json:"step_type"`
+	Status        string       `json:"status"`
+	Input         string       `json:"input"`
+	Output        string       `json:"output"`
+	ErrorMessage  string       `json:"error_message"`
+	StartedAt     time.Time    `json:"started_at"`
+	FinishedAt    sql.NullTime `json:"finished_at"`
+}

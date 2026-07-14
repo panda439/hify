@@ -33,6 +33,7 @@ import (
 	"hify/internal/provider"
 	"hify/internal/server"
 	"hify/internal/user"
+	"hify/internal/workflow"
 )
 
 func main() {
@@ -151,6 +152,12 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 	conversationSvc := conversation.NewService(conversationRepo, agentSvc, providerSvc, knowledgeSvc, mcpSvc)
 	conversationHandler := conversation.NewHandler(conversationSvc)
 	conversation.RegisterRoutes(v1, conversationHandler, cfg.JWTSecret)
+
+	// Layer 5
+	workflowRepo := workflow.NewRepository(db)
+	workflowSvc := workflow.NewService(workflowRepo, providerSvc, knowledgeSvc, mcpSvc)
+	workflowHandler := workflow.NewHandler(workflowSvc)
+	workflow.RegisterRoutes(v1, workflowHandler, cfg.JWTSecret)
 
 	// The worker runs in this same process (per the plan's deployment
 	// architecture: "Hify 二进制...Gin API + asynq worker...同一个进程").
