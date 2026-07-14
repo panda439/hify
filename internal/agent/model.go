@@ -23,6 +23,12 @@ type Agent struct {
 	CreatedBy    string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+	// KnowledgeBaseIDs backs RAG retrieval — conversation's context
+	// assembly reads this off the Agent it already fetched instead of a
+	// separate cross-module call. agent depends on knowledge (not the
+	// reverse) specifically so this field can be validated here — see
+	// CLAUDE.md's note on the agent/knowledge layer correction.
+	KnowledgeBaseIDs []string
 }
 
 // CreateAgentInput and UpdateAgentInput share the same optional-field
@@ -30,25 +36,27 @@ type Agent struct {
 // "not provided" (defaulted) apart from an explicit zero value — see
 // CLAUDE.md's note on this exact bug with float/int JSON fields.
 type CreateAgentInput struct {
-	Name         string
-	Description  string
-	ModelID      string
-	SystemPrompt string
-	Temperature  *float64
-	MaxTokens    *int
-	TopP         *float64
-	ExtraParams  map[string]any
-	CreatedBy    string
+	Name             string
+	Description      string
+	ModelID          string
+	SystemPrompt     string
+	Temperature      *float64
+	MaxTokens        *int
+	TopP             *float64
+	ExtraParams      map[string]any
+	KnowledgeBaseIDs []string
+	CreatedBy        string
 }
 
 type UpdateAgentInput struct {
-	Name         string
-	Description  string
-	ModelID      string
-	SystemPrompt string
-	Temperature  *float64
-	MaxTokens    *int
-	TopP         *float64
-	ExtraParams  map[string]any
-	IsActive     bool
+	Name             string
+	Description      string
+	ModelID          string
+	SystemPrompt     string
+	Temperature      *float64
+	MaxTokens        *int
+	TopP             *float64
+	ExtraParams      map[string]any
+	KnowledgeBaseIDs []string
+	IsActive         bool
 }

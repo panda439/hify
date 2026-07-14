@@ -22,15 +22,16 @@ func (h *Handler) Create(c *gin.Context) error {
 	}
 
 	a, err := h.service.CreateAgent(c.Request.Context(), CreateAgentInput{
-		Name:         req.Name,
-		Description:  req.Description,
-		ModelID:      req.ModelID,
-		SystemPrompt: req.SystemPrompt,
-		Temperature:  req.Temperature,
-		MaxTokens:    req.MaxTokens,
-		TopP:         req.TopP,
-		ExtraParams:  req.ExtraParams,
-		CreatedBy:    middleware.UserIDFrom(c),
+		Name:             req.Name,
+		Description:      req.Description,
+		ModelID:          req.ModelID,
+		SystemPrompt:     req.SystemPrompt,
+		Temperature:      req.Temperature,
+		MaxTokens:        req.MaxTokens,
+		TopP:             req.TopP,
+		ExtraParams:      req.ExtraParams,
+		KnowledgeBaseIDs: req.KnowledgeBaseIDs,
+		CreatedBy:        middleware.UserIDFrom(c),
 	})
 	if err != nil {
 		return err
@@ -90,15 +91,16 @@ func (h *Handler) Update(c *gin.Context) error {
 		middleware.UserIDFrom(c),
 		middleware.RoleFrom(c),
 		UpdateAgentInput{
-			Name:         req.Name,
-			Description:  req.Description,
-			ModelID:      req.ModelID,
-			SystemPrompt: req.SystemPrompt,
-			Temperature:  req.Temperature,
-			MaxTokens:    req.MaxTokens,
-			TopP:         req.TopP,
-			ExtraParams:  req.ExtraParams,
-			IsActive:     req.IsActive,
+			Name:             req.Name,
+			Description:      req.Description,
+			ModelID:          req.ModelID,
+			SystemPrompt:     req.SystemPrompt,
+			Temperature:      req.Temperature,
+			MaxTokens:        req.MaxTokens,
+			TopP:             req.TopP,
+			ExtraParams:      req.ExtraParams,
+			KnowledgeBaseIDs: req.KnowledgeBaseIDs,
+			IsActive:         req.IsActive,
 		},
 	)
 	if err != nil {

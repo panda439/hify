@@ -116,7 +116,14 @@ func (h *Handler) SendMessage(c *gin.Context) error {
 			return false
 		}
 		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, payload)
-		return event.Type == EventDelta
+		// Keep reading until a terminal event — done/error are the only
+		// ones that end the stream; retrieval (RAG debug info) and delta
+		// are both non-terminal. A stray "== EventDelta" check here would
+		// stop the loop dead on the very first non-delta event, which is
+		// exactly what happened when EventRetrieval was added: retrieval
+		// always arrives before any delta, so the stream silently ended
+		// after just that one frame.
+		return event.Type != EventDone && event.Type != EventError
 	})
 	return nil
 }

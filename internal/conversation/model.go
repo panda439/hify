@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"hify/internal/knowledge"
 )
 
 // Conversation is scoped to a single owning user — unlike Agent, it is
@@ -40,15 +42,45 @@ type Message struct {
 // the stream has started, even a failure surfaces as an Error-typed event,
 // never a second HTTP response — see conversation/handler.go.
 type StreamEvent struct {
-	Type    string `json:"type"`
-	Content string `json:"content,omitempty"`
-	Error   string `json:"error,omitempty"`
+	Type      string               `json:"type"`
+	Content   string               `json:"content,omitempty"`
+	Error     string               `json:"error,omitempty"`
+	Retrieved []RetrievedChunkInfo `json:"retrieved,omitempty"`
+}
+
+// RetrievedChunkInfo is what the debug panel actually needs from a
+// knowledge.RetrievedChunk — deliberately not the domain type itself
+// (wrong JSON shape: no tags, PascalCase; and it carries the full
+// embedding vector, which has zero UI value and would bloat every
+// retrieval event for nothing).
+type RetrievedChunkInfo struct {
+	KnowledgeBaseID string  `json:"knowledge_base_id"`
+	DocumentID      string  `json:"document_id"`
+	Content         string  `json:"content"`
+	Score           float64 `json:"score"`
+}
+
+func toRetrievedChunkInfo(chunks []knowledge.RetrievedChunk) []RetrievedChunkInfo {
+	out := make([]RetrievedChunkInfo, 0, len(chunks))
+	for _, c := range chunks {
+		out = append(out, RetrievedChunkInfo{
+			KnowledgeBaseID: c.KnowledgeBaseID,
+			DocumentID:      c.DocumentID,
+			Content:         c.Content,
+			Score:           c.Score,
+		})
+	}
+	return out
 }
 
 const (
-	EventDelta = "delta"
-	EventDone  = "done"
-	EventError = "error"
+	// EventRetrieval fires once, before the first delta, only when the
+	// Agent has knowledge bases attached and retrieval found something —
+	// backs the chat UI's debug panel (see the plan's RAG design).
+	EventRetrieval = "retrieval"
+	EventDelta     = "delta"
+	EventDone      = "done"
+	EventError     = "error"
 )
 
 // MessageCursor is the keyset cursor for paging a conversation's message

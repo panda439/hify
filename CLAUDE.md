@@ -53,17 +53,20 @@ internal/<module>/
 10. 方法返回值统一转换成 model.go 的领域类型再返回给 service 层（不把 sqlc 生成类型直接暴露给 service），转换逻辑写在 repository.go 里。
 11. 不允许出现业务规则判断（权限检查、状态机校验、跨表业务一致性判断），只做纯粹的 CRUD/查询组装。业务判断一律放 service.go。
 
-### 跨模块依赖方向（禁止环依赖，分 5 层，只能自上而下依赖）
+### 跨模块依赖方向（禁止环依赖，分 6 层，只能自上而下依赖）
 
 ```
 第0层  internal/platform, internal/config, internal/db/gen, internal/user   — 不依赖任何业务模块
 第1层  auth, provider, mcp                                                   — 只能依赖第0层
-第2层  agent, knowledge                                                      — 只能依赖第0、1层
-第3层  conversation                                                          — 只能依赖第0、1、2层
-第4层  workflow                                                              — 可依赖第0~3层所有模块
+第2层  knowledge                                                             — 只能依赖第0、1层
+第3层  agent                                                                 — 只能依赖第0~2层
+第4层  conversation                                                          — 只能依赖第0~3层
+第5层  workflow                                                              — 可依赖第0~4层所有模块
 ```
 
 `user` 单独下沉到第0层，不是笔误：登录/鉴权要读 `users` 表校验密码，如果 auth 和 user 同层，会直接违反"禁止同层模块互相依赖"（第12条）。`user` 承载的是被几乎所有模块引用的基础身份数据（`created_by` 之类的字段到处都要用到），把它当作和 `platform` 一样的基础设施对待，比人为拆出一个"auth 专用的用户读路径"更干净。`user` 模块本身仍然遵守第0层"不依赖任何业务模块"的约束，只是被业务模块依赖的位置更靠前。
+
+**Phase 3 设计知识库时发现的修正**：`agent`/`knowledge` 最初被划在同一层（都只依赖 provider），但 `agent_knowledge_bases` 关联表要求 agent 创建/编辑时校验 `knowledge_base_id` 合法（调 `knowledge.Service`），这就是第12条说的"同层模块必须互相调用"——按规则把 `knowledge` 下沉一层，`agent` 相应上移，`conversation`/`workflow` 跟着顺延。这个方向不是任意的：`agent` 本质上是"组合 provider 的模型 + knowledge 的知识库（以后还有 mcp 的工具）"的配置层，天然应该排在这些被组合的资源模块之上，不是反过来。
 
 12. 只能依赖更低层模块的 `Service` 接口，禁止反向依赖，禁止同层模块互相依赖。如果同层两个模块发现必须互相调用，说明分层分错了——要么合并成一个模块，要么把其中一个下沉一层，不允许绕过规则用事件/回调之类的手段"假装"没有循环依赖。
 13. 模块间真正共享、和具体业务无关的类型（分页参数、通用错误码枚举等）放 `internal/platform`，不放在某个业务模块里让别人 import。

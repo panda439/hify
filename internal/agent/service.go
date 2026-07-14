@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 
+	"hify/internal/knowledge"
 	"hify/internal/platform"
 	"hify/internal/provider"
 	"hify/internal/user"
@@ -17,17 +18,21 @@ type Service interface {
 	UpdateAgent(ctx context.Context, id, userID, role string, input UpdateAgentInput) (Agent, error)
 }
 
-// service is constructed via NewService in wire.go. providerSvc is
-// depended on only through its Service interface, per the layering rule —
-// agent (layer 2) may call provider (layer 1) this way but never touch its
-// repository.
+// service is constructed via NewService in wire.go. providerSvc/knowledgeSvc
+// are depended on only through their Service interfaces, per the layering
+// rule — agent (layer 3) may call provider (layer 1) and knowledge (layer
+// 2) this way but never touch their repositories.
 type service struct {
-	repo        *Repository
-	providerSvc provider.Service
+	repo         *Repository
+	providerSvc  provider.Service
+	knowledgeSvc knowledge.Service
 }
 
 func (s *service) CreateAgent(ctx context.Context, input CreateAgentInput) (Agent, error) {
 	if err := s.validateModel(ctx, input.ModelID); err != nil {
+		return Agent{}, err
+	}
+	if err := s.validateKnowledgeBases(ctx, input.KnowledgeBaseIDs); err != nil {
 		return Agent{}, err
 	}
 
@@ -45,6 +50,9 @@ func (s *service) CreateAgent(ctx context.Context, input CreateAgentInput) (Agen
 		CreatedBy:    input.CreatedBy,
 	}
 	if err := s.repo.createAgent(ctx, a); err != nil {
+		return Agent{}, err
+	}
+	if err := s.repo.setKnowledgeBases(ctx, a.ID, input.KnowledgeBaseIDs); err != nil {
 		return Agent{}, err
 	}
 	return s.repo.getAgent(ctx, a.ID)
@@ -80,8 +88,12 @@ func (s *service) UpdateAgent(ctx context.Context, id, userID, role string, inpu
 
 	// Re-validate the model every time, not just when model_id changed —
 	// this call is cheap (single indexed lookup) and avoids relying on the
-	// assumption that "it was valid when first saved" still holds.
+	// assumption that "it was valid when first saved" still holds. Same
+	// reasoning applies to the knowledge base set below.
 	if err := s.validateModel(ctx, input.ModelID); err != nil {
+		return Agent{}, err
+	}
+	if err := s.validateKnowledgeBases(ctx, input.KnowledgeBaseIDs); err != nil {
 		return Agent{}, err
 	}
 
@@ -98,7 +110,26 @@ func (s *service) UpdateAgent(ctx context.Context, id, userID, role string, inpu
 	if err := s.repo.updateAgent(ctx, existing); err != nil {
 		return Agent{}, err
 	}
+	if err := s.repo.setKnowledgeBases(ctx, id, input.KnowledgeBaseIDs); err != nil {
+		return Agent{}, err
+	}
 	return s.repo.getAgent(ctx, id)
+}
+
+// validateKnowledgeBases enforces "every attached knowledge base must
+// exist and be active" — the empty case is normal (an Agent doesn't need
+// any knowledge bases), so this is a no-op then, not an error.
+func (s *service) validateKnowledgeBases(ctx context.Context, knowledgeBaseIDs []string) error {
+	for _, id := range knowledgeBaseIDs {
+		kb, err := s.knowledgeSvc.GetKnowledgeBase(ctx, id)
+		if err != nil {
+			return err
+		}
+		if !kb.IsActive {
+			return ErrInvalidKnowledgeBase
+		}
+	}
+	return nil
 }
 
 // validateModel enforces the agent-specific rule that a model must both

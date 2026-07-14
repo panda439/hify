@@ -26,6 +26,24 @@ type Agent struct {
 	UpdatedAt    time.Time       `json:"updated_at"`
 }
 
+type AgentKnowledgeBase struct {
+	AgentID         string    `json:"agent_id"`
+	KnowledgeBaseID string    `json:"knowledge_base_id"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+type Chunk struct {
+	ID                 string          `json:"id"`
+	KnowledgeBaseID    string          `json:"knowledge_base_id"`
+	DocumentID         string          `json:"document_id"`
+	ChunkIndex         int32           `json:"chunk_index"`
+	Content            string          `json:"content"`
+	ContentLength      int32           `json:"content_length"`
+	Embedding          json.RawMessage `json:"embedding"`
+	EmbeddingDimension int32           `json:"embedding_dimension"`
+	CreatedAt          time.Time       `json:"created_at"`
+}
+
 type Conversation struct {
 	ID        string    `json:"id"`
 	AgentID   string    `json:"agent_id"`
@@ -33,6 +51,34 @@ type Conversation struct {
 	Title     string    `json:"title"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type Document struct {
+	ID              string         `json:"id"`
+	KnowledgeBaseID string         `json:"knowledge_base_id"`
+	FileName        string         `json:"file_name"`
+	FileType        string         `json:"file_type"`
+	FileSize        int32          `json:"file_size"`
+	StoragePath     string         `json:"storage_path"`
+	Status          string         `json:"status"`
+	ErrorMessage    sql.NullString `json:"error_message"`
+	ChunkCount      int32          `json:"chunk_count"`
+	CreatedBy       string         `json:"created_by"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+}
+
+type KnowledgeBase struct {
+	ID               string    `json:"id"`
+	Name             string    `json:"name"`
+	Description      string    `json:"description"`
+	EmbeddingModelID string    `json:"embedding_model_id"`
+	ChunkSize        int32     `json:"chunk_size"`
+	ChunkOverlap     int32     `json:"chunk_overlap"`
+	IsActive         bool      `json:"is_active"`
+	CreatedBy        string    `json:"created_by"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 type Message struct {

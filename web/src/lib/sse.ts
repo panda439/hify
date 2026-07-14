@@ -8,10 +8,18 @@ import { useCallback, useRef, useState } from "react";
 import { createParser } from "eventsource-parser";
 import { getAccessToken, refreshAccessToken } from "@/lib/api";
 
+export interface RetrievedChunkInfo {
+  knowledge_base_id: string;
+  document_id: string;
+  content: string;
+  score: number;
+}
+
 export interface StreamEvent {
-  type: "delta" | "done" | "error";
+  type: "retrieval" | "delta" | "done" | "error";
   content?: string;
   error?: string;
+  retrieved?: RetrievedChunkInfo[];
 }
 
 interface ErrorBody {

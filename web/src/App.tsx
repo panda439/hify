@@ -10,6 +10,7 @@ import { PlaceholderPage } from "@/routes/placeholder-page";
 import { ChatPage } from "@/routes/chat";
 import { ModelsPage } from "@/routes/models";
 import { AgentsPage } from "@/routes/agents";
+import { KnowledgePage } from "@/routes/knowledge";
 import { restoreSession } from "@/lib/session";
 
 const queryClient = new QueryClient({
@@ -41,7 +42,7 @@ function App() {
             <Route index element={<ChatPage />} />
             <Route path="models" element={<ModelsPage />} />
             <Route path="agents" element={<AgentsPage />} />
-            <Route path="knowledge" element={<PlaceholderPage title="知识库" />} />
+            <Route path="knowledge" element={<KnowledgePage />} />
             <Route path="mcp" element={<PlaceholderPage title="MCP 工具" />} />
             <Route path="workflows" element={<PlaceholderPage title="工作流" />} />
           </Route>

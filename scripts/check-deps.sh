@@ -16,9 +16,10 @@ layer_of() {
   case "$1" in
     user) echo 0 ;;
     auth|provider|mcp) echo 1 ;;
-    agent|knowledge) echo 2 ;;
-    conversation) echo 3 ;;
-    workflow) echo 4 ;;
+    knowledge) echo 2 ;;
+    agent) echo 3 ;;
+    conversation) echo 4 ;;
+    workflow) echo 5 ;;
     *) echo "" ;;
   esac
 }

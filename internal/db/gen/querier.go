@@ -11,26 +11,48 @@ import (
 
 type Querier interface {
 	CountAgents(ctx context.Context) (int64, error)
+	CountChunksByKnowledgeBase(ctx context.Context, knowledgeBaseID string) (int64, error)
 	CountConversationsByUser(ctx context.Context, userID string) (int64, error)
+	CountDocumentsByKnowledgeBase(ctx context.Context, knowledgeBaseID string) (int64, error)
+	CountKnowledgeBases(ctx context.Context) (int64, error)
 	CountProviders(ctx context.Context) (int64, error)
 	CountUsers(ctx context.Context) (int64, error)
 	CreateAgent(ctx context.Context, arg CreateAgentParams) error
+	CreateAgentKnowledgeBase(ctx context.Context, arg CreateAgentKnowledgeBaseParams) error
+	CreateChunk(ctx context.Context, arg CreateChunkParams) error
 	CreateConversation(ctx context.Context, arg CreateConversationParams) error
+	CreateDocument(ctx context.Context, arg CreateDocumentParams) error
+	CreateKnowledgeBase(ctx context.Context, arg CreateKnowledgeBaseParams) error
 	CreateMessage(ctx context.Context, arg CreateMessageParams) error
 	CreateProvider(ctx context.Context, arg CreateProviderParams) error
 	CreateProviderModel(ctx context.Context, arg CreateProviderModelParams) error
 	CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) error
+	// Called before re-inserting the full set on update — see
+	// agent.Service's replace-all semantics for this association.
+	DeleteAgentKnowledgeBases(ctx context.Context, agentID string) error
+	DeleteChunksByDocument(ctx context.Context, documentID string) error
+	DeleteDocument(ctx context.Context, id string) error
 	DeleteExpiredRefreshTokens(ctx context.Context, revokedAt sql.NullTime) (int64, error)
 	GetAgentByID(ctx context.Context, id string) (Agent, error)
 	GetConversationByID(ctx context.Context, id string) (Conversation, error)
+	GetDocumentByID(ctx context.Context, id string) (Document, error)
+	GetKnowledgeBaseByID(ctx context.Context, id string) (KnowledgeBase, error)
 	GetProviderByID(ctx context.Context, id string) (ModelProvider, error)
 	GetProviderModelByID(ctx context.Context, id string) (ProviderModel, error)
 	GetRefreshTokenByHash(ctx context.Context, tokenHash string) (RefreshToken, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id string) (User, error)
 	ListActiveModelsByCapability(ctx context.Context, capability string) ([]ProviderModel, error)
+	// Reverse lookup for "which Agents use this knowledge base" — surfaced in
+	// the knowledge base management UI before disabling one.
+	ListAgentIDsByKnowledgeBase(ctx context.Context, knowledgeBaseID string) ([]string, error)
 	ListAgents(ctx context.Context, arg ListAgentsParams) ([]Agent, error)
+	// Used to (re)build the per-knowledge-base embedding-matrix cache — always
+	// bounded by knowledge_base_id per CLAUDE.md's large-table rule, no LIMIT
+	// since the caller wants the full set (soft-capped at upload time, not
+	// read time).
+	ListChunksByKnowledgeBase(ctx context.Context, knowledgeBaseID string) ([]Chunk, error)
 	// last_message backs the sidebar preview snippet — a correlated subquery
 	// against messages is fine here because conversations is a small,
 	// offset-paginated table (per CLAUDE.md's pagination rules) and each
@@ -40,6 +62,9 @@ type Querier interface {
 	// subquery return SQL NULL, and sqlc generates a plain non-nullable string
 	// field for it — scanning a real NULL into that panics at runtime.
 	ListConversationsByUser(ctx context.Context, arg ListConversationsByUserParams) ([]ListConversationsByUserRow, error)
+	ListDocumentsByKnowledgeBase(ctx context.Context, arg ListDocumentsByKnowledgeBaseParams) ([]Document, error)
+	ListKnowledgeBaseIDsByAgent(ctx context.Context, agentID string) ([]string, error)
+	ListKnowledgeBases(ctx context.Context, arg ListKnowledgeBasesParams) ([]KnowledgeBase, error)
 	// Keyset page for "load more" history, strictly older than the given
 	// (created_at, id) cursor — same index as ListRecentMessagesByConversation.
 	// Written as an OR-expansion rather than a (created_at, id) < (?, ?) row
@@ -59,6 +84,13 @@ type Querier interface {
 	RevokeRefreshToken(ctx context.Context, id string) error
 	TouchConversation(ctx context.Context, arg TouchConversationParams) error
 	UpdateAgent(ctx context.Context, arg UpdateAgentParams) error
+	// Written by the asynq worker as it moves a document through
+	// pending -> processing -> ready|failed.
+	UpdateDocumentStatus(ctx context.Context, arg UpdateDocumentStatusParams) error
+	// embedding_model_id/chunk_size/chunk_overlap are deliberately not
+	// updatable here — see the "创建后不可修改" note in the plan's
+	// knowledge_bases design.
+	UpdateKnowledgeBase(ctx context.Context, arg UpdateKnowledgeBaseParams) error
 	UpdateProvider(ctx context.Context, arg UpdateProviderParams) error
 	UpdateProviderAPIKey(ctx context.Context, arg UpdateProviderAPIKeyParams) error
 	UpdateProviderModel(ctx context.Context, arg UpdateProviderModelParams) error

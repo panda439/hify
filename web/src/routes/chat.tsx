@@ -16,7 +16,7 @@ import {
   useMessages,
   type Message,
 } from "@/lib/conversations";
-import { useChatStream } from "@/lib/sse";
+import { useChatStream, type RetrievedChunkInfo } from "@/lib/sse";
 import { NewConversationDialog } from "@/routes/new-conversation-dialog";
 
 // A message shown in the transcript while it's still in flight — not yet
@@ -24,12 +24,15 @@ import { NewConversationDialog } from "@/routes/new-conversation-dialog";
 // renders (see Message in lib/conversations.ts for the persisted shape).
 // error is set when the stream fails (request-level failure or an in-band
 // "error" event) — the bubble stays on screen showing whatever content did
-// stream in, plus the error, rather than disappearing.
+// stream in, plus the error, rather than disappearing. retrieved is set
+// once, before any delta, when the Agent has knowledge bases attached and
+// retrieval found something — backs the debug panel.
 interface PendingMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   error?: string;
+  retrieved?: RetrievedChunkInfo[];
 }
 
 function formatRelativeTime(iso: string): string {
@@ -95,7 +98,11 @@ export function ChatPage() {
     ]);
 
     await send(conversationId, content, async (event) => {
-      if (event.type === "delta") {
+      if (event.type === "retrieval") {
+        setPending((prev) =>
+          prev.map((m) => (m.id === "pending-assistant" ? { ...m, retrieved: event.retrieved } : m)),
+        );
+      } else if (event.type === "delta") {
         setPending((prev) =>
           prev.map((m) => (m.id === "pending-assistant" ? { ...m, content: m.content + (event.content ?? "") } : m)),
         );
@@ -238,6 +245,7 @@ function MessageBubble({ message }: { message: Message | PendingMessage }) {
   const isUser = message.role === "user";
   const isPendingAssistant = message.id === "pending-assistant";
   const error = isPendingAssistant ? (message as PendingMessage).error : undefined;
+  const retrieved = isPendingAssistant ? (message as PendingMessage).retrieved : undefined;
   // "pending-assistant" is the id handleSend seeds before any delta has
   // arrived — empty content at that point means "waiting for the first
   // chunk," not an actual empty reply, so show a loading indicator instead
@@ -245,7 +253,7 @@ function MessageBubble({ message }: { message: Message | PendingMessage }) {
   const isWaitingForFirstChunk = isPendingAssistant && message.content === "" && !error;
 
   return (
-    <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
+    <div className={cn("flex flex-col gap-1", isUser ? "items-end" : "items-start")}>
       <div
         className={cn(
           "max-w-[80%] rounded-lg px-4 py-2 text-sm",
@@ -272,7 +280,29 @@ function MessageBubble({ message }: { message: Message | PendingMessage }) {
           </>
         )}
       </div>
+      {retrieved && retrieved.length > 0 && <RetrievalDebugPanel chunks={retrieved} />}
     </div>
+  );
+}
+
+// Shows what the RAG retrieval step found for this turn — only ever
+// available while the message is still "pending" (the persisted Message
+// row has no such field, this is live-stream-only debug info, see
+// StreamEvent's retrieval event). Collapsed by default so it doesn't
+// dominate the transcript.
+function RetrievalDebugPanel({ chunks }: { chunks: RetrievedChunkInfo[] }) {
+  return (
+    <details className="max-w-[80%] rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
+      <summary className="cursor-pointer select-none">检索详情（{chunks.length} 个片段）</summary>
+      <div className="mt-2 grid gap-2">
+        {chunks.map((c, i) => (
+          <div key={i} className="rounded-md bg-muted/50 p-2">
+            <div className="mb-1 font-medium">相似度 {c.score.toFixed(3)}</div>
+            <div className="line-clamp-3 whitespace-pre-wrap">{c.content}</div>
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 

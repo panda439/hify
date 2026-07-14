@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"hify/internal/agent"
+	"hify/internal/knowledge"
 	"hify/internal/platform"
 	"hify/internal/provider"
 )
@@ -26,14 +27,15 @@ type Service interface {
 	StreamMessage(ctx context.Context, userID, conversationID, content string) (<-chan StreamEvent, error)
 }
 
-// service is constructed via NewService in wire.go. agentSvc/providerSvc
-// are depended on only through their Service interfaces, per the layering
-// rule — conversation (layer 3) may call agent/provider (layers 1-2) this
-// way but never touch their repositories.
+// service is constructed via NewService in wire.go. agentSvc/providerSvc/
+// knowledgeSvc are depended on only through their Service interfaces, per
+// the layering rule — conversation (layer 4) may call agent/provider/
+// knowledge (layers 1-3) this way but never touch their repositories.
 type service struct {
-	repo        *Repository
-	agentSvc    agent.Service
-	providerSvc provider.Service
+	repo         *Repository
+	agentSvc     agent.Service
+	providerSvc  provider.Service
+	knowledgeSvc knowledge.Service
 }
 
 func (s *service) CreateConversation(ctx context.Context, userID, agentID string) (Conversation, error) {
@@ -125,7 +127,7 @@ func (s *service) StreamMessage(ctx context.Context, userID, conversationID, con
 		slog.Warn("conversation: touch after user message failed", "err", err, "conversation_id", conversationID)
 	}
 
-	chatMessages, err := s.assembleContext(ctx, conversationID, ag, model)
+	chatMessages, retrieved, err := s.assembleContext(ctx, conversationID, ag, model, content)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +141,7 @@ func (s *service) StreamMessage(ctx context.Context, userID, conversationID, con
 	}
 
 	events := make(chan StreamEvent)
-	go s.runStream(ctx, client, req, conversationID, events)
+	go s.runStream(ctx, client, req, conversationID, retrieved, events)
 	return events, nil
 }
 
@@ -149,8 +151,12 @@ func (s *service) StreamMessage(ctx context.Context, userID, conversationID, con
 // whatever content was generated using a fresh background context — the
 // request ctx passed to ChatStream may already be canceled by the time we
 // get here, but a disconnect must not lose the partial reply.
-func (s *service) runStream(ctx context.Context, client provider.Client, req provider.ChatRequest, conversationID string, events chan<- StreamEvent) {
+func (s *service) runStream(ctx context.Context, client provider.Client, req provider.ChatRequest, conversationID string, retrieved []knowledge.RetrievedChunk, events chan<- StreamEvent) {
 	defer close(events)
+
+	if len(retrieved) > 0 {
+		events <- StreamEvent{Type: EventRetrieval, Retrieved: toRetrievedChunkInfo(retrieved)}
+	}
 
 	chunks, err := client.ChatStream(ctx, req)
 	if err != nil {

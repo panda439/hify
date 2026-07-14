@@ -17,9 +17,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ApiError } from "@/lib/api";
 import { useChatModels, useCreateAgent, useUpdateAgent, type Agent } from "@/lib/agents";
+import { useKnowledgeBases } from "@/lib/knowledge";
 
 const formSchema = z.object({
   name: z.string().min(1, "请输入 Agent 名称"),
@@ -29,6 +31,7 @@ const formSchema = z.object({
   temperature: z.number().optional(),
   max_tokens: z.number().optional(),
   top_p: z.number().optional(),
+  knowledge_base_ids: z.array(z.string()),
   is_active: z.boolean(),
 });
 
@@ -50,9 +53,14 @@ export function AgentFormDialog({
 }) {
   const isEdit = agent !== null;
   const { data: modelsData, isLoading: modelsLoading } = useChatModels();
+  const { data: kbData } = useKnowledgeBases();
   const createAgent = useCreateAgent();
   const updateAgent = useUpdateAgent();
   const models = modelsData?.items ?? [];
+  // Only active knowledge bases are offered — a disabled one is already
+  // skipped at retrieval time (see knowledge/service.go), so listing it
+  // here would just be a confusing dead option.
+  const knowledgeBases = (kbData?.items ?? []).filter((kb) => kb.is_active);
 
   const {
     register,
@@ -69,11 +77,21 @@ export function AgentFormDialog({
       model_id: "",
       system_prompt: "",
       temperature: 0.7,
+      knowledge_base_ids: [],
       is_active: true,
     },
   });
 
   const modelId = watch("model_id");
+  const selectedKnowledgeBaseIds = watch("knowledge_base_ids");
+
+  const toggleKnowledgeBase = (kbId: string, checked: boolean) => {
+    const current = selectedKnowledgeBaseIds;
+    setValue(
+      "knowledge_base_ids",
+      checked ? [...current, kbId] : current.filter((id) => id !== kbId),
+    );
+  };
 
   useEffect(() => {
     if (open) {
@@ -87,6 +105,7 @@ export function AgentFormDialog({
               temperature: agent.temperature,
               max_tokens: agent.max_tokens ?? undefined,
               top_p: agent.top_p ?? undefined,
+              knowledge_base_ids: agent.knowledge_base_ids ?? [],
               is_active: agent.is_active,
             }
           : {
@@ -95,6 +114,7 @@ export function AgentFormDialog({
               model_id: "",
               system_prompt: "",
               temperature: 0.7,
+              knowledge_base_ids: [],
               is_active: true,
             },
       );
@@ -114,6 +134,7 @@ export function AgentFormDialog({
             temperature: values.temperature,
             max_tokens: values.max_tokens,
             top_p: values.top_p,
+            knowledge_base_ids: values.knowledge_base_ids,
             is_active: values.is_active,
           },
         });
@@ -127,6 +148,7 @@ export function AgentFormDialog({
           temperature: values.temperature,
           max_tokens: values.max_tokens,
           top_p: values.top_p,
+          knowledge_base_ids: values.knowledge_base_ids,
         });
         toast.success("Agent 已创建");
       }
@@ -187,6 +209,28 @@ export function AgentFormDialog({
               placeholder="留空则为通用助手"
               {...register("system_prompt")}
             />
+          </div>
+
+          <div className="grid gap-2">
+            <Label>关联知识库</Label>
+            {knowledgeBases.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                还没有可用的知识库，去「知识库」页面创建一个后可以在这里勾选
+              </p>
+            ) : (
+              <div className="grid max-h-40 gap-2 overflow-y-auto rounded-md border p-2">
+                {knowledgeBases.map((kb) => (
+                  <label key={kb.id} className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={selectedKnowledgeBaseIds.includes(kb.id)}
+                      onCheckedChange={(checked) => toggleKnowledgeBase(kb.id, checked === true)}
+                    />
+                    {kb.name}
+                  </label>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">对话时会检索勾选的知识库，把相关内容作为参考资料注入上下文</p>
           </div>
 
           <div className="grid grid-cols-3 gap-4">

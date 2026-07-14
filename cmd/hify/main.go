@@ -20,12 +20,14 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	mysqlmigrate "github.com/golang-migrate/migrate/v4/database/mysql"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/hibiken/asynq"
 
 	"hify/internal/agent"
 	"hify/internal/auth"
 	"hify/internal/config"
 	"hify/internal/conversation"
 	hifydb "hify/internal/db"
+	"hify/internal/knowledge"
 	"hify/internal/platform"
 	"hify/internal/provider"
 	"hify/internal/server"
@@ -73,12 +75,14 @@ func main() {
 
 // buildApp wires every module (repository -> service -> handler, in layer
 // order) onto the shared engine, per CLAUDE.md's DI convention. The
-// returned cleanup func closes the DB pool and Redis client; callers must
-// defer it.
-func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, func(), error) {
+// returned asynq.Server is configured with the document-processing task
+// handler but not yet started — runServe starts/stops it alongside the
+// HTTP server. The returned cleanup func closes the DB pool, Redis client,
+// and asynq client; callers must defer it.
+func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Server, func(), error) {
 	db, err := platform.NewMySQLPool(cfg.MySQLDSN)
 	if err != nil {
-		return nil, nil, fmt.Errorf("connect mysql: %w", err)
+		return nil, nil, nil, fmt.Errorf("connect mysql: %w", err)
 	}
 
 	rdb := platform.NewRedisClient(platform.RedisConfig{
@@ -87,9 +91,13 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, func(), erro
 		DB:       cfg.RedisDB,
 	})
 
+	redisCfg := platform.RedisConfig{Addr: cfg.RedisAddr, Password: cfg.RedisPassword, DB: cfg.RedisDB}
+	asynqClient := platform.NewAsynqClient(redisCfg)
+
 	cleanup := func() {
 		db.Close()
 		rdb.Close()
+		asynqClient.Close()
 	}
 
 	router, v1 := server.New(server.Config{
@@ -115,32 +123,53 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, func(), erro
 	providerSvc, err := provider.NewService(providerRepo, cfg.EncryptionKey, rdb)
 	if err != nil {
 		cleanup()
-		return nil, nil, fmt.Errorf("build provider service: %w", err)
+		return nil, nil, nil, fmt.Errorf("build provider service: %w", err)
 	}
 	providerHandler := provider.NewHandler(providerSvc)
 	provider.RegisterRoutes(v1, providerHandler, cfg.JWTSecret)
 
 	// Layer 2
+	knowledgeRepo := knowledge.NewRepository(db)
+	knowledgeSvc := knowledge.NewService(knowledgeRepo, providerSvc, asynqClient, cfg.KnowledgeStorageDir)
+	knowledgeHandler := knowledge.NewHandler(knowledgeSvc)
+	knowledge.RegisterRoutes(v1, knowledgeHandler, cfg.JWTSecret)
+
+	// Layer 3
 	agentRepo := agent.NewRepository(db)
-	agentSvc := agent.NewService(agentRepo, providerSvc)
+	agentSvc := agent.NewService(agentRepo, providerSvc, knowledgeSvc)
 	agentHandler := agent.NewHandler(agentSvc)
 	agent.RegisterRoutes(v1, agentHandler, cfg.JWTSecret)
 
-	// Layer 3
+	// Layer 4
 	conversationRepo := conversation.NewRepository(db)
-	conversationSvc := conversation.NewService(conversationRepo, agentSvc, providerSvc)
+	conversationSvc := conversation.NewService(conversationRepo, agentSvc, providerSvc, knowledgeSvc)
 	conversationHandler := conversation.NewHandler(conversationSvc)
 	conversation.RegisterRoutes(v1, conversationHandler, cfg.JWTSecret)
 
-	return router, cleanup, nil
+	// The worker runs in this same process (per the plan's deployment
+	// architecture: "Hify 二进制...Gin API + asynq worker...同一个进程").
+	// Start is non-blocking; runServe owns calling Shutdown() during
+	// graceful shutdown, which is what actually waits for in-flight tasks
+	// to finish — asynq.Server's own lifecycle satisfies CLAUDE.md's "谁负责
+	// 等待 goroutine 结束" rule, no separate WaitGroup needed.
+	mux := asynq.NewServeMux()
+	mux.Handle(knowledge.TaskTypeProcessDocument, knowledge.NewTaskHandler(knowledgeSvc))
+	asynqServer := platform.NewAsynqServer(redisCfg, cfg.AsynqConcurrency)
+	if err := asynqServer.Start(mux); err != nil {
+		cleanup()
+		return nil, nil, nil, fmt.Errorf("start asynq worker: %w", err)
+	}
+
+	return router, asynqServer, cleanup, nil
 }
 
 func runServe(cfg config.Config, logger *slog.Logger) error {
-	router, cleanup, err := buildApp(cfg, logger)
+	router, asynqServer, cleanup, err := buildApp(cfg, logger)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
+	defer asynqServer.Shutdown()
 
 	httpServer := &http.Server{
 		Addr:    cfg.HTTPAddr,

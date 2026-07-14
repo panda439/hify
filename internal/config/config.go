@@ -31,22 +31,39 @@ type Config struct {
 	// subcommand, not by serve/migrate — validated there, not here.
 	AdminEmail    string
 	AdminPassword string
+
+	// KnowledgeStorageDir is where uploaded knowledge-base documents are
+	// written to local disk — see the plan's known limitation that this
+	// isn't multi-instance safe (fine at Hify's current single-instance
+	// deployment scale).
+	KnowledgeStorageDir string
+	// AsynqConcurrency caps the background worker so document processing
+	// can't starve the online API request path running in the same
+	// process (see "已知性能风险" #3).
+	AsynqConcurrency int
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		Env:           getEnv("HIFY_ENV", "development"),
-		HTTPAddr:      getEnv("HIFY_HTTP_ADDR", ":8080"),
-		MySQLDSN:      os.Getenv("HIFY_MYSQL_DSN"),
-		RedisAddr:     getEnv("HIFY_REDIS_ADDR", "127.0.0.1:6379"),
-		RedisPassword: os.Getenv("HIFY_REDIS_PASSWORD"),
-		JWTSecret:     os.Getenv("HIFY_JWT_SECRET"),
-		EncryptionKey: os.Getenv("HIFY_ENCRYPTION_KEY"),
-		AdminEmail:    os.Getenv("ADMIN_EMAIL"),
-		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
+		Env:                 getEnv("HIFY_ENV", "development"),
+		HTTPAddr:            getEnv("HIFY_HTTP_ADDR", ":8080"),
+		MySQLDSN:            os.Getenv("HIFY_MYSQL_DSN"),
+		RedisAddr:           getEnv("HIFY_REDIS_ADDR", "127.0.0.1:6379"),
+		RedisPassword:       os.Getenv("HIFY_REDIS_PASSWORD"),
+		JWTSecret:           os.Getenv("HIFY_JWT_SECRET"),
+		EncryptionKey:       os.Getenv("HIFY_ENCRYPTION_KEY"),
+		AdminEmail:          os.Getenv("ADMIN_EMAIL"),
+		AdminPassword:       os.Getenv("ADMIN_PASSWORD"),
+		KnowledgeStorageDir: getEnv("HIFY_KNOWLEDGE_STORAGE_DIR", "./data/knowledge"),
 	}
 
 	cfg.CORSAllowedOrigins = splitAndTrim(getEnv("HIFY_CORS_ALLOWED_ORIGINS", "http://localhost:5173"))
+
+	asynqConcurrency, err := strconv.Atoi(getEnv("HIFY_ASYNQ_CONCURRENCY", "2"))
+	if err != nil {
+		return Config{}, fmt.Errorf("config: parse HIFY_ASYNQ_CONCURRENCY: %w", err)
+	}
+	cfg.AsynqConcurrency = asynqConcurrency
 
 	redisDB, err := strconv.Atoi(getEnv("HIFY_REDIS_DB", "0"))
 	if err != nil {

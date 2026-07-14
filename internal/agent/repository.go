@@ -9,10 +9,12 @@ import (
 	"strconv"
 
 	"hify/internal/db/gen"
+	"hify/internal/platform"
 )
 
 // Repository is constructed via NewRepository in wire.go.
 type Repository struct {
+	db      *sql.DB
 	queries *gen.Queries
 }
 
@@ -48,9 +50,24 @@ func (r *Repository) getAgent(ctx context.Context, id string) (Agent, error) {
 		}
 		return Agent{}, fmt.Errorf("agent: get by id: %w", err)
 	}
-	return toDomainAgent(row)
+	a, err := toDomainAgent(row)
+	if err != nil {
+		return Agent{}, err
+	}
+	kbIDs, err := r.queries.ListKnowledgeBaseIDsByAgent(ctx, id)
+	if err != nil {
+		return Agent{}, fmt.Errorf("agent: list knowledge base ids: %w", err)
+	}
+	a.KnowledgeBaseIDs = kbIDs
+	return a, nil
 }
 
+// listAgents populates KnowledgeBaseIDs per row (one extra query each) —
+// the frontend's edit form reuses list rows to prefill instead of a
+// separate GET (see agents.tsx), so the list response needs the same
+// fields getAgent returns. Acceptable N+1 on this small, offset-paginated
+// table, same tradeoff as knowledge's TotalChunks and conversation's
+// last_message preview.
 func (r *Repository) listAgents(ctx context.Context, limit, offset int) ([]Agent, error) {
 	rows, err := r.queries.ListAgents(ctx, gen.ListAgentsParams{
 		Limit:  int32(limit),
@@ -65,9 +82,35 @@ func (r *Repository) listAgents(ctx context.Context, limit, offset int) ([]Agent
 		if err != nil {
 			return nil, err
 		}
+		kbIDs, err := r.queries.ListKnowledgeBaseIDsByAgent(ctx, a.ID)
+		if err != nil {
+			return nil, fmt.Errorf("agent: list knowledge base ids: %w", err)
+		}
+		a.KnowledgeBaseIDs = kbIDs
 		out = append(out, a)
 	}
 	return out, nil
+}
+
+// setKnowledgeBases replaces the full set of knowledge bases associated
+// with agentID — delete-then-reinsert inside a transaction, matching the
+// "replace-all semantics" the query file documents.
+func (r *Repository) setKnowledgeBases(ctx context.Context, agentID string, knowledgeBaseIDs []string) error {
+	return platform.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+		q := r.queries.WithTx(tx)
+		if err := q.DeleteAgentKnowledgeBases(ctx, agentID); err != nil {
+			return fmt.Errorf("agent: clear knowledge base associations: %w", err)
+		}
+		for _, kbID := range knowledgeBaseIDs {
+			if err := q.CreateAgentKnowledgeBase(ctx, gen.CreateAgentKnowledgeBaseParams{
+				AgentID:         agentID,
+				KnowledgeBaseID: kbID,
+			}); err != nil {
+				return fmt.Errorf("agent: associate knowledge base: %w", err)
+			}
+		}
+		return nil
+	})
 }
 
 func (r *Repository) countAgents(ctx context.Context) (int, error) {
