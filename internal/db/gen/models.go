@@ -32,6 +32,12 @@ type AgentKnowledgeBase struct {
 	CreatedAt       time.Time `json:"created_at"`
 }
 
+type AgentMcpTool struct {
+	AgentID   string    `json:"agent_id"`
+	McpToolID string    `json:"mcp_tool_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 type Chunk struct {
 	ID                 string          `json:"id"`
 	KnowledgeBaseID    string          `json:"knowledge_base_id"`
@@ -79,6 +85,35 @@ type KnowledgeBase struct {
 	CreatedBy        string    `json:"created_by"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+type McpServer struct {
+	ID           string          `json:"id"`
+	Name         string          `json:"name"`
+	Transport    string          `json:"transport"`
+	Command      sql.NullString  `json:"command"`
+	Args         json.RawMessage `json:"args"`
+	Env          json.RawMessage `json:"env"`
+	Url          sql.NullString  `json:"url"`
+	Headers      json.RawMessage `json:"headers"`
+	Status       string          `json:"status"`
+	LastSyncedAt sql.NullTime    `json:"last_synced_at"`
+	LastError    sql.NullString  `json:"last_error"`
+	IsActive     bool            `json:"is_active"`
+	CreatedBy    string          `json:"created_by"`
+	CreatedAt    time.Time       `json:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at"`
+}
+
+type McpTool struct {
+	ID          string          `json:"id"`
+	McpServerID string          `json:"mcp_server_id"`
+	ToolName    string          `json:"tool_name"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"input_schema"`
+	IsActive    bool            `json:"is_active"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
 }
 
 type Message struct {

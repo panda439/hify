@@ -59,6 +59,11 @@ func (r *Repository) getAgent(ctx context.Context, id string) (Agent, error) {
 		return Agent{}, fmt.Errorf("agent: list knowledge base ids: %w", err)
 	}
 	a.KnowledgeBaseIDs = kbIDs
+	toolIDs, err := r.queries.ListMCPToolIDsByAgent(ctx, id)
+	if err != nil {
+		return Agent{}, fmt.Errorf("agent: list mcp tool ids: %w", err)
+	}
+	a.MCPToolIDs = toolIDs
 	return a, nil
 }
 
@@ -87,6 +92,11 @@ func (r *Repository) listAgents(ctx context.Context, limit, offset int) ([]Agent
 			return nil, fmt.Errorf("agent: list knowledge base ids: %w", err)
 		}
 		a.KnowledgeBaseIDs = kbIDs
+		toolIDs, err := r.queries.ListMCPToolIDsByAgent(ctx, a.ID)
+		if err != nil {
+			return nil, fmt.Errorf("agent: list mcp tool ids: %w", err)
+		}
+		a.MCPToolIDs = toolIDs
 		out = append(out, a)
 	}
 	return out, nil
@@ -107,6 +117,26 @@ func (r *Repository) setKnowledgeBases(ctx context.Context, agentID string, know
 				KnowledgeBaseID: kbID,
 			}); err != nil {
 				return fmt.Errorf("agent: associate knowledge base: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
+// setMCPTools replaces the full set of MCP tools associated with agentID —
+// same replace-all semantics as setKnowledgeBases.
+func (r *Repository) setMCPTools(ctx context.Context, agentID string, mcpToolIDs []string) error {
+	return platform.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+		q := r.queries.WithTx(tx)
+		if err := q.DeleteAgentMCPTools(ctx, agentID); err != nil {
+			return fmt.Errorf("agent: clear mcp tool associations: %w", err)
+		}
+		for _, toolID := range mcpToolIDs {
+			if err := q.CreateAgentMCPTool(ctx, gen.CreateAgentMCPToolParams{
+				AgentID:   agentID,
+				McpToolID: toolID,
+			}); err != nil {
+				return fmt.Errorf("agent: associate mcp tool: %w", err)
 			}
 		}
 		return nil

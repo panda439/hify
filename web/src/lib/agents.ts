@@ -12,6 +12,7 @@ export interface Agent {
   top_p: number | null;
   extra_params: Record<string, unknown> | null;
   knowledge_base_ids: string[] | null;
+  mcp_tool_ids: string[] | null;
   is_active: boolean;
   created_by: string;
   created_at: string;
@@ -37,6 +38,7 @@ export interface CreateAgentInput {
   max_tokens?: number;
   top_p?: number;
   knowledge_base_ids?: string[];
+  mcp_tool_ids?: string[];
 }
 
 // The backend replaces the whole row on update (no partial patch), so
@@ -50,6 +52,7 @@ export interface UpdateAgentInput {
   max_tokens?: number;
   top_p?: number;
   knowledge_base_ids?: string[];
+  mcp_tool_ids?: string[];
   is_active: boolean;
 }
 

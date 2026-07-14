@@ -15,11 +15,20 @@ export interface RetrievedChunkInfo {
   score: number;
 }
 
+// Fires twice per MCP tool invocation within a turn (running, then
+// done|error) — see internal/conversation/model.go's ToolCallInfo.
+export interface ToolCallInfo {
+  name: string;
+  status: "running" | "done" | "error";
+  result?: string;
+}
+
 export interface StreamEvent {
-  type: "retrieval" | "delta" | "done" | "error";
+  type: "retrieval" | "tool_call" | "delta" | "done" | "error";
   content?: string;
   error?: string;
   retrieved?: RetrievedChunkInfo[];
+  tool_call?: ToolCallInfo;
 }
 
 interface ErrorBody {

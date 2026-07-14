@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"hify/internal/knowledge"
+	"hify/internal/mcp"
 	"hify/internal/platform"
 	"hify/internal/provider"
 	"hify/internal/user"
@@ -18,14 +19,15 @@ type Service interface {
 	UpdateAgent(ctx context.Context, id, userID, role string, input UpdateAgentInput) (Agent, error)
 }
 
-// service is constructed via NewService in wire.go. providerSvc/knowledgeSvc
-// are depended on only through their Service interfaces, per the layering
-// rule — agent (layer 3) may call provider (layer 1) and knowledge (layer
-// 2) this way but never touch their repositories.
+// service is constructed via NewService in wire.go. providerSvc/knowledgeSvc/
+// mcpSvc are depended on only through their Service interfaces, per the
+// layering rule — agent (layer 3) may call provider/mcp (layer 1) and
+// knowledge (layer 2) this way but never touch their repositories.
 type service struct {
 	repo         *Repository
 	providerSvc  provider.Service
 	knowledgeSvc knowledge.Service
+	mcpSvc       mcp.Service
 }
 
 func (s *service) CreateAgent(ctx context.Context, input CreateAgentInput) (Agent, error) {
@@ -33,6 +35,9 @@ func (s *service) CreateAgent(ctx context.Context, input CreateAgentInput) (Agen
 		return Agent{}, err
 	}
 	if err := s.validateKnowledgeBases(ctx, input.KnowledgeBaseIDs); err != nil {
+		return Agent{}, err
+	}
+	if err := s.validateMCPTools(ctx, input.MCPToolIDs); err != nil {
 		return Agent{}, err
 	}
 
@@ -53,6 +58,9 @@ func (s *service) CreateAgent(ctx context.Context, input CreateAgentInput) (Agen
 		return Agent{}, err
 	}
 	if err := s.repo.setKnowledgeBases(ctx, a.ID, input.KnowledgeBaseIDs); err != nil {
+		return Agent{}, err
+	}
+	if err := s.repo.setMCPTools(ctx, a.ID, input.MCPToolIDs); err != nil {
 		return Agent{}, err
 	}
 	return s.repo.getAgent(ctx, a.ID)
@@ -96,6 +104,9 @@ func (s *service) UpdateAgent(ctx context.Context, id, userID, role string, inpu
 	if err := s.validateKnowledgeBases(ctx, input.KnowledgeBaseIDs); err != nil {
 		return Agent{}, err
 	}
+	if err := s.validateMCPTools(ctx, input.MCPToolIDs); err != nil {
+		return Agent{}, err
+	}
 
 	existing.Name = input.Name
 	existing.Description = input.Description
@@ -113,6 +124,9 @@ func (s *service) UpdateAgent(ctx context.Context, id, userID, role string, inpu
 	if err := s.repo.setKnowledgeBases(ctx, id, input.KnowledgeBaseIDs); err != nil {
 		return Agent{}, err
 	}
+	if err := s.repo.setMCPTools(ctx, id, input.MCPToolIDs); err != nil {
+		return Agent{}, err
+	}
 	return s.repo.getAgent(ctx, id)
 }
 
@@ -127,6 +141,21 @@ func (s *service) validateKnowledgeBases(ctx context.Context, knowledgeBaseIDs [
 		}
 		if !kb.IsActive {
 			return ErrInvalidKnowledgeBase
+		}
+	}
+	return nil
+}
+
+// validateMCPTools enforces "every attached MCP tool must exist and be
+// active" — same shape as validateKnowledgeBases.
+func (s *service) validateMCPTools(ctx context.Context, mcpToolIDs []string) error {
+	for _, id := range mcpToolIDs {
+		t, err := s.mcpSvc.GetTool(ctx, id)
+		if err != nil {
+			return err
+		}
+		if !t.IsActive {
+			return ErrInvalidMCPTool
 		}
 	}
 	return nil

@@ -28,6 +28,7 @@ import (
 	"hify/internal/conversation"
 	hifydb "hify/internal/db"
 	"hify/internal/knowledge"
+	"hify/internal/mcp"
 	"hify/internal/platform"
 	"hify/internal/provider"
 	"hify/internal/server"
@@ -128,6 +129,11 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 	providerHandler := provider.NewHandler(providerSvc)
 	provider.RegisterRoutes(v1, providerHandler, cfg.JWTSecret)
 
+	mcpRepo := mcp.NewRepository(db)
+	mcpSvc := mcp.NewService(mcpRepo)
+	mcpHandler := mcp.NewHandler(mcpSvc)
+	mcp.RegisterRoutes(v1, mcpHandler, cfg.JWTSecret)
+
 	// Layer 2
 	knowledgeRepo := knowledge.NewRepository(db)
 	knowledgeSvc := knowledge.NewService(knowledgeRepo, providerSvc, asynqClient, cfg.KnowledgeStorageDir)
@@ -136,13 +142,13 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 
 	// Layer 3
 	agentRepo := agent.NewRepository(db)
-	agentSvc := agent.NewService(agentRepo, providerSvc, knowledgeSvc)
+	agentSvc := agent.NewService(agentRepo, providerSvc, knowledgeSvc, mcpSvc)
 	agentHandler := agent.NewHandler(agentSvc)
 	agent.RegisterRoutes(v1, agentHandler, cfg.JWTSecret)
 
 	// Layer 4
 	conversationRepo := conversation.NewRepository(db)
-	conversationSvc := conversation.NewService(conversationRepo, agentSvc, providerSvc, knowledgeSvc)
+	conversationSvc := conversation.NewService(conversationRepo, agentSvc, providerSvc, knowledgeSvc, mcpSvc)
 	conversationHandler := conversation.NewHandler(conversationSvc)
 	conversation.RegisterRoutes(v1, conversationHandler, cfg.JWTSecret)
 

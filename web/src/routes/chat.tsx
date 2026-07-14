@@ -16,7 +16,7 @@ import {
   useMessages,
   type Message,
 } from "@/lib/conversations";
-import { useChatStream, type RetrievedChunkInfo } from "@/lib/sse";
+import { useChatStream, type RetrievedChunkInfo, type ToolCallInfo } from "@/lib/sse";
 import { NewConversationDialog } from "@/routes/new-conversation-dialog";
 
 // A message shown in the transcript while it's still in flight — not yet
@@ -26,13 +26,17 @@ import { NewConversationDialog } from "@/routes/new-conversation-dialog";
 // "error" event) — the bubble stays on screen showing whatever content did
 // stream in, plus the error, rather than disappearing. retrieved is set
 // once, before any delta, when the Agent has knowledge bases attached and
-// retrieval found something — backs the debug panel.
+// retrieval found something — backs the debug panel. toolCalls accumulates
+// across the whole tool-calling loop (see conversation/service.go's
+// runStream) — a turn can call several tools, and the same tool can appear
+// more than once (e.g. a retry), so it's an ordered list, not a map.
 interface PendingMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   error?: string;
   retrieved?: RetrievedChunkInfo[];
+  toolCalls?: ToolCallInfo[];
 }
 
 function formatRelativeTime(iso: string): string {
@@ -101,6 +105,25 @@ export function ChatPage() {
       if (event.type === "retrieval") {
         setPending((prev) =>
           prev.map((m) => (m.id === "pending-assistant" ? { ...m, retrieved: event.retrieved } : m)),
+        );
+      } else if (event.type === "tool_call" && event.tool_call) {
+        const call = event.tool_call;
+        setPending((prev) =>
+          prev.map((m) => {
+            if (m.id !== "pending-assistant") return m;
+            const calls = m.toolCalls ?? [];
+            if (call.status === "running") {
+              return { ...m, toolCalls: [...calls, call] };
+            }
+            // done/error pairs with the most recent still-running entry —
+            // events arrive strictly in running→done|error order per tool
+            // invocation, see ToolCallInfo's doc comment.
+            const lastRunning = calls.map((c) => c.status).lastIndexOf("running");
+            if (lastRunning === -1) return { ...m, toolCalls: [...calls, call] };
+            const updated = [...calls];
+            updated[lastRunning] = call;
+            return { ...m, toolCalls: updated };
+          }),
         );
       } else if (event.type === "delta") {
         setPending((prev) =>
@@ -246,11 +269,13 @@ function MessageBubble({ message }: { message: Message | PendingMessage }) {
   const isPendingAssistant = message.id === "pending-assistant";
   const error = isPendingAssistant ? (message as PendingMessage).error : undefined;
   const retrieved = isPendingAssistant ? (message as PendingMessage).retrieved : undefined;
+  const toolCalls = isPendingAssistant ? (message as PendingMessage).toolCalls : undefined;
   // "pending-assistant" is the id handleSend seeds before any delta has
   // arrived — empty content at that point means "waiting for the first
   // chunk," not an actual empty reply, so show a loading indicator instead
   // of a blank bubble.
-  const isWaitingForFirstChunk = isPendingAssistant && message.content === "" && !error;
+  const isWaitingForFirstChunk =
+    isPendingAssistant && message.content === "" && !error && !(toolCalls && toolCalls.length > 0);
 
   return (
     <div className={cn("flex flex-col gap-1", isUser ? "items-end" : "items-start")}>
@@ -280,7 +305,31 @@ function MessageBubble({ message }: { message: Message | PendingMessage }) {
           </>
         )}
       </div>
+      {toolCalls && toolCalls.length > 0 && <ToolCallTracePanel calls={toolCalls} />}
       {retrieved && retrieved.length > 0 && <RetrievalDebugPanel chunks={retrieved} />}
+    </div>
+  );
+}
+
+// Shows the MCP tool calls made during this turn's tool-calling loop (see
+// conversation/service.go's runStream) — live-stream-only, same as the
+// retrieval panel: the persisted Message only has tool_calls/tool_call_id
+// as raw storage, not this display shape. Expanded by default (unlike the
+// retrieval panel) since watching a tool actually run is the point of
+// exposing this, not a debug-only detail.
+function ToolCallTracePanel({ calls }: { calls: ToolCallInfo[] }) {
+  return (
+    <div className="grid max-w-[80%] gap-1 rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
+      {calls.map((call, i) => (
+        <div key={i} className="flex items-start gap-2">
+          <span>{call.status === "running" ? "⏳" : call.status === "error" ? "⚠️" : "✅"}</span>
+          <div className="min-w-0">
+            <span className="font-medium text-foreground">{call.name}</span>
+            {call.status === "running" && " 调用中..."}
+            {call.result && <div className="line-clamp-2 whitespace-pre-wrap">{call.result}</div>}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

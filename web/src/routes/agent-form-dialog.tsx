@@ -22,6 +22,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ApiError } from "@/lib/api";
 import { useChatModels, useCreateAgent, useUpdateAgent, type Agent } from "@/lib/agents";
 import { useKnowledgeBases } from "@/lib/knowledge";
+import { useActiveMcpTools } from "@/lib/mcp";
 
 const formSchema = z.object({
   name: z.string().min(1, "请输入 Agent 名称"),
@@ -32,6 +33,7 @@ const formSchema = z.object({
   max_tokens: z.number().optional(),
   top_p: z.number().optional(),
   knowledge_base_ids: z.array(z.string()),
+  mcp_tool_ids: z.array(z.string()),
   is_active: z.boolean(),
 });
 
@@ -54,6 +56,7 @@ export function AgentFormDialog({
   const isEdit = agent !== null;
   const { data: modelsData, isLoading: modelsLoading } = useChatModels();
   const { data: kbData } = useKnowledgeBases();
+  const { data: mcpToolsData } = useActiveMcpTools();
   const createAgent = useCreateAgent();
   const updateAgent = useUpdateAgent();
   const models = modelsData?.items ?? [];
@@ -61,6 +64,10 @@ export function AgentFormDialog({
   // skipped at retrieval time (see knowledge/service.go), so listing it
   // here would just be a confusing dead option.
   const knowledgeBases = (kbData?.items ?? []).filter((kb) => kb.is_active);
+  // /mcp-tools already only returns tools from active servers that are
+  // themselves active (see mcp.Service.ListActiveTools) — no extra filter
+  // needed here, unlike knowledge bases above.
+  const mcpTools = mcpToolsData?.items ?? [];
 
   const {
     register,
@@ -78,18 +85,28 @@ export function AgentFormDialog({
       system_prompt: "",
       temperature: 0.7,
       knowledge_base_ids: [],
+      mcp_tool_ids: [],
       is_active: true,
     },
   });
 
   const modelId = watch("model_id");
   const selectedKnowledgeBaseIds = watch("knowledge_base_ids");
+  const selectedMcpToolIds = watch("mcp_tool_ids");
 
   const toggleKnowledgeBase = (kbId: string, checked: boolean) => {
     const current = selectedKnowledgeBaseIds;
     setValue(
       "knowledge_base_ids",
       checked ? [...current, kbId] : current.filter((id) => id !== kbId),
+    );
+  };
+
+  const toggleMcpTool = (toolId: string, checked: boolean) => {
+    const current = selectedMcpToolIds;
+    setValue(
+      "mcp_tool_ids",
+      checked ? [...current, toolId] : current.filter((id) => id !== toolId),
     );
   };
 
@@ -106,6 +123,7 @@ export function AgentFormDialog({
               max_tokens: agent.max_tokens ?? undefined,
               top_p: agent.top_p ?? undefined,
               knowledge_base_ids: agent.knowledge_base_ids ?? [],
+              mcp_tool_ids: agent.mcp_tool_ids ?? [],
               is_active: agent.is_active,
             }
           : {
@@ -115,6 +133,7 @@ export function AgentFormDialog({
               system_prompt: "",
               temperature: 0.7,
               knowledge_base_ids: [],
+              mcp_tool_ids: [],
               is_active: true,
             },
       );
@@ -135,6 +154,7 @@ export function AgentFormDialog({
             max_tokens: values.max_tokens,
             top_p: values.top_p,
             knowledge_base_ids: values.knowledge_base_ids,
+            mcp_tool_ids: values.mcp_tool_ids,
             is_active: values.is_active,
           },
         });
@@ -149,6 +169,7 @@ export function AgentFormDialog({
           max_tokens: values.max_tokens,
           top_p: values.top_p,
           knowledge_base_ids: values.knowledge_base_ids,
+          mcp_tool_ids: values.mcp_tool_ids,
         });
         toast.success("Agent 已创建");
       }
@@ -231,6 +252,29 @@ export function AgentFormDialog({
               </div>
             )}
             <p className="text-xs text-muted-foreground">对话时会检索勾选的知识库，把相关内容作为参考资料注入上下文</p>
+          </div>
+
+          <div className="grid gap-2">
+            <Label>关联 MCP 工具</Label>
+            {mcpTools.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                还没有可用的工具，去「MCP 工具」页面添加服务器并同步后可以在这里勾选
+              </p>
+            ) : (
+              <div className="grid max-h-40 gap-2 overflow-y-auto rounded-md border p-2">
+                {mcpTools.map((tool) => (
+                  <label key={tool.id} className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={selectedMcpToolIds.includes(tool.id)}
+                      onCheckedChange={(checked) => toggleMcpTool(tool.id, checked === true)}
+                    />
+                    {tool.tool_name}
+                    {tool.description && <span className="text-xs text-muted-foreground">— {tool.description}</span>}
+                  </label>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">对话中模型可以自主决定是否调用勾选的工具</p>
           </div>
 
           <div className="grid grid-cols-3 gap-4">

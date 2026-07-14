@@ -26,7 +26,17 @@ type Message struct {
 	ToolCallID string
 }
 
+// ToolCall represents one function call, either fully resolved (a
+// finished assistant message) or one fragment of a call still streaming
+// in. Index is only meaningful in the latter case — the OpenAI streaming
+// protocol splits a single tool call's arguments across many chunks, and
+// with multiple tool calls in flight at once, Index (not ID, which is
+// only present on a call's first chunk) is the only thing identifying
+// which call a given fragment belongs to. See
+// conversation/service.go's mergeToolCallDeltas for the accumulation
+// logic this field exists to support.
 type ToolCall struct {
+	Index     *int
 	ID        string
 	Name      string
 	Arguments json.RawMessage

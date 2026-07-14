@@ -14,6 +14,7 @@ type createAgentRequest struct {
 	TopP             *float64       `json:"top_p"`
 	ExtraParams      map[string]any `json:"extra_params"`
 	KnowledgeBaseIDs []string       `json:"knowledge_base_ids"`
+	MCPToolIDs       []string       `json:"mcp_tool_ids"`
 }
 
 type updateAgentRequest struct {
@@ -26,6 +27,7 @@ type updateAgentRequest struct {
 	TopP             *float64       `json:"top_p"`
 	ExtraParams      map[string]any `json:"extra_params"`
 	KnowledgeBaseIDs []string       `json:"knowledge_base_ids"`
+	MCPToolIDs       []string       `json:"mcp_tool_ids"`
 	IsActive         bool           `json:"is_active"`
 }
 
@@ -40,6 +42,7 @@ type agentResponse struct {
 	TopP             *float64       `json:"top_p"`
 	ExtraParams      map[string]any `json:"extra_params"`
 	KnowledgeBaseIDs []string       `json:"knowledge_base_ids"`
+	MCPToolIDs       []string       `json:"mcp_tool_ids"`
 	IsActive         bool           `json:"is_active"`
 	CreatedBy        string         `json:"created_by"`
 	CreatedAt        time.Time      `json:"created_at"`
@@ -58,6 +61,7 @@ func toAgentResponse(a Agent) agentResponse {
 		TopP:             a.TopP,
 		ExtraParams:      a.ExtraParams,
 		KnowledgeBaseIDs: a.KnowledgeBaseIDs,
+		MCPToolIDs:       a.MCPToolIDs,
 		IsActive:         a.IsActive,
 		CreatedBy:        a.CreatedBy,
 		CreatedAt:        a.CreatedAt,

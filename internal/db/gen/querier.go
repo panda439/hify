@@ -15,14 +15,17 @@ type Querier interface {
 	CountConversationsByUser(ctx context.Context, userID string) (int64, error)
 	CountDocumentsByKnowledgeBase(ctx context.Context, knowledgeBaseID string) (int64, error)
 	CountKnowledgeBases(ctx context.Context) (int64, error)
+	CountMCPServers(ctx context.Context) (int64, error)
 	CountProviders(ctx context.Context) (int64, error)
 	CountUsers(ctx context.Context) (int64, error)
 	CreateAgent(ctx context.Context, arg CreateAgentParams) error
 	CreateAgentKnowledgeBase(ctx context.Context, arg CreateAgentKnowledgeBaseParams) error
+	CreateAgentMCPTool(ctx context.Context, arg CreateAgentMCPToolParams) error
 	CreateChunk(ctx context.Context, arg CreateChunkParams) error
 	CreateConversation(ctx context.Context, arg CreateConversationParams) error
 	CreateDocument(ctx context.Context, arg CreateDocumentParams) error
 	CreateKnowledgeBase(ctx context.Context, arg CreateKnowledgeBaseParams) error
+	CreateMCPServer(ctx context.Context, arg CreateMCPServerParams) error
 	CreateMessage(ctx context.Context, arg CreateMessageParams) error
 	CreateProvider(ctx context.Context, arg CreateProviderParams) error
 	CreateProviderModel(ctx context.Context, arg CreateProviderModelParams) error
@@ -31,6 +34,7 @@ type Querier interface {
 	// Called before re-inserting the full set on update — see
 	// agent.Service's replace-all semantics for this association.
 	DeleteAgentKnowledgeBases(ctx context.Context, agentID string) error
+	DeleteAgentMCPTools(ctx context.Context, agentID string) error
 	DeleteChunksByDocument(ctx context.Context, documentID string) error
 	DeleteDocument(ctx context.Context, id string) error
 	DeleteExpiredRefreshTokens(ctx context.Context, revokedAt sql.NullTime) (int64, error)
@@ -38,6 +42,8 @@ type Querier interface {
 	GetConversationByID(ctx context.Context, id string) (Conversation, error)
 	GetDocumentByID(ctx context.Context, id string) (Document, error)
 	GetKnowledgeBaseByID(ctx context.Context, id string) (KnowledgeBase, error)
+	GetMCPServerByID(ctx context.Context, id string) (McpServer, error)
+	GetMCPToolByID(ctx context.Context, id string) (McpTool, error)
 	GetProviderByID(ctx context.Context, id string) (ModelProvider, error)
 	GetProviderModelByID(ctx context.Context, id string) (ProviderModel, error)
 	GetRefreshTokenByHash(ctx context.Context, tokenHash string) (RefreshToken, error)
@@ -47,6 +53,7 @@ type Querier interface {
 	// Reverse lookup for "which Agents use this knowledge base" — surfaced in
 	// the knowledge base management UI before disabling one.
 	ListAgentIDsByKnowledgeBase(ctx context.Context, knowledgeBaseID string) ([]string, error)
+	ListAgentIDsByMCPTool(ctx context.Context, mcpToolID string) ([]string, error)
 	ListAgents(ctx context.Context, arg ListAgentsParams) ([]Agent, error)
 	// Used to (re)build the per-knowledge-base embedding-matrix cache — always
 	// bounded by knowledge_base_id per CLAUDE.md's large-table rule, no LIMIT
@@ -65,6 +72,9 @@ type Querier interface {
 	ListDocumentsByKnowledgeBase(ctx context.Context, arg ListDocumentsByKnowledgeBaseParams) ([]Document, error)
 	ListKnowledgeBaseIDsByAgent(ctx context.Context, agentID string) ([]string, error)
 	ListKnowledgeBases(ctx context.Context, arg ListKnowledgeBasesParams) ([]KnowledgeBase, error)
+	ListMCPServers(ctx context.Context, arg ListMCPServersParams) ([]McpServer, error)
+	ListMCPToolIDsByAgent(ctx context.Context, agentID string) ([]string, error)
+	ListMCPToolsByServer(ctx context.Context, mcpServerID string) ([]McpTool, error)
 	// Keyset page for "load more" history, strictly older than the given
 	// (created_at, id) cursor — same index as ListRecentMessagesByConversation.
 	// Written as an OR-expansion rather than a (created_at, id) < (?, ?) row
@@ -91,12 +101,19 @@ type Querier interface {
 	// updatable here — see the "创建后不可修改" note in the plan's
 	// knowledge_bases design.
 	UpdateKnowledgeBase(ctx context.Context, arg UpdateKnowledgeBaseParams) error
+	UpdateMCPServer(ctx context.Context, arg UpdateMCPServerParams) error
+	UpdateMCPServerSyncResult(ctx context.Context, arg UpdateMCPServerSyncResultParams) error
+	UpdateMCPToolActive(ctx context.Context, arg UpdateMCPToolActiveParams) error
 	UpdateProvider(ctx context.Context, arg UpdateProviderParams) error
 	UpdateProviderAPIKey(ctx context.Context, arg UpdateProviderAPIKeyParams) error
 	UpdateProviderModel(ctx context.Context, arg UpdateProviderModelParams) error
 	UpdateProviderTestResult(ctx context.Context, arg UpdateProviderTestResultParams) error
 	UpdateUser(ctx context.Context, arg UpdateUserParams) error
 	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
+	// Sync is idempotent: re-running it against the same server just refreshes
+	// description/input_schema for tools that still exist and reactivates a
+	// tool that had previously disappeared and come back.
+	UpsertMCPTool(ctx context.Context, arg UpsertMCPToolParams) error
 }
 
 var _ Querier = (*Queries)(nil)

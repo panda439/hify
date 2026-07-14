@@ -7,6 +7,7 @@ import (
 
 	"hify/internal/db/gen"
 	"hify/internal/knowledge"
+	"hify/internal/mcp"
 	"hify/internal/platform/httperr"
 	"hify/internal/provider"
 	"hify/internal/server/middleware"
@@ -16,8 +17,8 @@ func NewRepository(db *sql.DB) *Repository {
 	return &Repository{db: db, queries: gen.New(db)}
 }
 
-func NewService(repo *Repository, providerSvc provider.Service, knowledgeSvc knowledge.Service) Service {
-	return &service{repo: repo, providerSvc: providerSvc, knowledgeSvc: knowledgeSvc}
+func NewService(repo *Repository, providerSvc provider.Service, knowledgeSvc knowledge.Service, mcpSvc mcp.Service) Service {
+	return &service{repo: repo, providerSvc: providerSvc, knowledgeSvc: knowledgeSvc, mcpSvc: mcpSvc}
 }
 
 func NewHandler(svc Service) *Handler {

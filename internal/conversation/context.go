@@ -38,18 +38,27 @@ const (
 	minContextBudgetTokens = 500
 )
 
+// assembledContext bundles everything StreamMessage needs to start (and,
+// for tool calls, continue) one ChatStream conversation turn.
+type assembledContext struct {
+	Messages     []provider.Message
+	Retrieved    []knowledge.RetrievedChunk
+	Tools        []provider.ToolDefinition
+	ToolNameToID map[string]string // provider.ToolCall.Name -> mcp_tools.id, for CallTool lookups
+}
+
 // assembleContext builds the message list for one ChatStream call: the
 // agent's system prompt (if any), then — if the Agent has knowledge bases
 // attached — a second system message with retrieved reference material,
-// then as much recent history as fits the token budget. Returns the
-// retrieved chunks too, purely for the debug-panel StreamEvent; retrieval
-// failure is logged and skipped rather than failing the whole turn — a RAG
-// hiccup shouldn't take down a conversation that would otherwise work fine
-// without it.
-func (s *service) assembleContext(ctx context.Context, conversationID string, ag agent.Agent, model provider.Model, latestUserMessage string) ([]provider.Message, []knowledge.RetrievedChunk, error) {
+// then as much recent history as fits the token budget. Also resolves the
+// Agent's MCP tools into provider.ToolDefinitions. Both RAG retrieval and
+// tool loading are best-effort: a failure there is logged and the turn
+// continues without that piece, rather than failing outright — a RAG or
+// MCP hiccup shouldn't take down a conversation that would otherwise work.
+func (s *service) assembleContext(ctx context.Context, conversationID string, ag agent.Agent, model provider.Model, latestUserMessage string) (assembledContext, error) {
 	rows, err := s.repo.listRecentMessages(ctx, conversationID, maxContextFetchMessages)
 	if err != nil {
-		return nil, nil, err
+		return assembledContext{}, err
 	}
 	reverseMessages(rows) // DB gives newest-first; we want chronological order
 
@@ -65,6 +74,8 @@ func (s *service) assembleContext(ctx context.Context, conversationID string, ag
 		}
 	}
 
+	tools, toolNameToID := s.loadTools(ctx, ag.MCPToolIDs)
+
 	out := make([]provider.Message, 0, len(kept)+2)
 	if ag.SystemPrompt != "" {
 		out = append(out, provider.Message{Role: provider.RoleSystem, Content: ag.SystemPrompt})
@@ -75,7 +86,32 @@ func (s *service) assembleContext(ctx context.Context, conversationID string, ag
 	for _, m := range kept {
 		out = append(out, provider.Message{Role: provider.Role(m.Role), Content: m.Content})
 	}
-	return out, retrieved, nil
+	return assembledContext{Messages: out, Retrieved: retrieved, Tools: tools, ToolNameToID: toolNameToID}, nil
+}
+
+// loadTools resolves the Agent's configured MCP tool IDs into the shape
+// the provider adapter needs. A tool that's disappeared or been disabled
+// since it was attached to the Agent is silently skipped (logged) rather
+// than failing the turn — see assembleContext's doc comment.
+func (s *service) loadTools(ctx context.Context, mcpToolIDs []string) ([]provider.ToolDefinition, map[string]string) {
+	if len(mcpToolIDs) == 0 {
+		return nil, nil
+	}
+	defs := make([]provider.ToolDefinition, 0, len(mcpToolIDs))
+	nameToID := make(map[string]string, len(mcpToolIDs))
+	for _, id := range mcpToolIDs {
+		t, err := s.mcpSvc.GetTool(ctx, id)
+		if err != nil {
+			slog.Warn("conversation: load mcp tool failed, skipping", "err", err, "mcp_tool_id", id)
+			continue
+		}
+		if !t.IsActive {
+			continue
+		}
+		defs = append(defs, provider.ToolDefinition{Name: t.ToolName, Description: t.Description, InputSchema: t.InputSchema})
+		nameToID[t.ToolName] = t.ID
+	}
+	return defs, nameToID
 }
 
 // formatRetrievedContext turns retrieved chunks into a system message the

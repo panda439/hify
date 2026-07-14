@@ -229,8 +229,9 @@ func toOpenAIToolCalls(calls []ToolCall) []openai.ToolCall {
 	out := make([]openai.ToolCall, len(calls))
 	for i, c := range calls {
 		out[i] = openai.ToolCall{
-			ID:   c.ID,
-			Type: openai.ToolTypeFunction,
+			Index: c.Index,
+			ID:    c.ID,
+			Type:  openai.ToolTypeFunction,
 			Function: openai.FunctionCall{
 				Name:      c.Name,
 				Arguments: string(c.Arguments),
@@ -247,6 +248,7 @@ func fromOpenAIToolCalls(calls []openai.ToolCall) []ToolCall {
 	out := make([]ToolCall, len(calls))
 	for i, c := range calls {
 		out[i] = ToolCall{
+			Index:     c.Index,
 			ID:        c.ID,
 			Name:      c.Function.Name,
 			Arguments: []byte(c.Function.Arguments),

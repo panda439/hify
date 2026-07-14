@@ -46,6 +46,15 @@ type StreamEvent struct {
 	Content   string               `json:"content,omitempty"`
 	Error     string               `json:"error,omitempty"`
 	Retrieved []RetrievedChunkInfo `json:"retrieved,omitempty"`
+	ToolCall  *ToolCallInfo        `json:"tool_call,omitempty"`
+}
+
+// ToolCallInfo backs the chat UI's "工具调用过程" display — a running/done/
+// error trace of one MCP tool invocation within the current turn.
+type ToolCallInfo struct {
+	Name   string `json:"name"`
+	Status string `json:"status"` // running | done | error
+	Result string `json:"result,omitempty"`
 }
 
 // RetrievedChunkInfo is what the debug panel actually needs from a
@@ -78,9 +87,12 @@ const (
 	// Agent has knowledge bases attached and retrieval found something —
 	// backs the chat UI's debug panel (see the plan's RAG design).
 	EventRetrieval = "retrieval"
-	EventDelta     = "delta"
-	EventDone      = "done"
-	EventError     = "error"
+	// EventToolCall fires twice per tool invocation (status=running, then
+	// status=done|error) — backs the chat UI's tool-call trace.
+	EventToolCall = "tool_call"
+	EventDelta    = "delta"
+	EventDone     = "done"
+	EventError    = "error"
 )
 
 // MessageCursor is the keyset cursor for paging a conversation's message
