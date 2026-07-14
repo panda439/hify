@@ -55,7 +55,7 @@ func (r *Repository) listConversationsByUser(ctx context.Context, userID string,
 	}
 	out := make([]Conversation, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, toDomainConversation(row))
+		out = append(out, toDomainConversationWithPreview(row))
 	}
 	return out, nil
 }
@@ -147,6 +147,33 @@ func toDomainConversation(row gen.Conversation) Conversation {
 		Title:     row.Title,
 		CreatedAt: row.CreatedAt,
 		UpdatedAt: row.UpdatedAt,
+	}
+}
+
+// toDomainConversationWithPreview handles ListConversationsByUserRow, whose
+// last_message column sqlc can't type as a plain string (the COALESCE'd
+// correlated subquery defeats its MySQL type inference) — it comes back as
+// any, holding a []byte from the driver in practice.
+func toDomainConversationWithPreview(row gen.ListConversationsByUserRow) Conversation {
+	return Conversation{
+		ID:          row.ID,
+		AgentID:     row.AgentID,
+		UserID:      row.UserID,
+		Title:       row.Title,
+		CreatedAt:   row.CreatedAt,
+		UpdatedAt:   row.UpdatedAt,
+		LastMessage: anyToString(row.LastMessage),
+	}
+}
+
+func anyToString(v any) string {
+	switch s := v.(type) {
+	case string:
+		return s
+	case []byte:
+		return string(s)
+	default:
+		return ""
 	}
 }
 

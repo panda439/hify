@@ -63,10 +63,13 @@ func (q *Queries) GetConversationByID(ctx context.Context, id string) (Conversat
 }
 
 const listConversationsByUser = `-- name: ListConversationsByUser :many
-SELECT id, agent_id, user_id, title, created_at, updated_at
-FROM conversations
-WHERE user_id = ?
-ORDER BY updated_at DESC
+SELECT c.id, c.agent_id, c.user_id, c.title, c.created_at, c.updated_at,
+       COALESCE((SELECT m.content FROM messages m
+        WHERE m.conversation_id = c.id
+        ORDER BY m.created_at DESC, m.id DESC LIMIT 1), '') AS last_message
+FROM conversations c
+WHERE c.user_id = ?
+ORDER BY c.updated_at DESC
 LIMIT ? OFFSET ?
 `
 
@@ -76,15 +79,33 @@ type ListConversationsByUserParams struct {
 	Offset int32  `json:"offset"`
 }
 
-func (q *Queries) ListConversationsByUser(ctx context.Context, arg ListConversationsByUserParams) ([]Conversation, error) {
+type ListConversationsByUserRow struct {
+	ID          string      `json:"id"`
+	AgentID     string      `json:"agent_id"`
+	UserID      string      `json:"user_id"`
+	Title       string      `json:"title"`
+	CreatedAt   time.Time   `json:"created_at"`
+	UpdatedAt   time.Time   `json:"updated_at"`
+	LastMessage interface{} `json:"last_message"`
+}
+
+// last_message backs the sidebar preview snippet — a correlated subquery
+// against messages is fine here because conversations is a small,
+// offset-paginated table (per CLAUDE.md's pagination rules) and each
+// lookup hits idx_messages_conversation_created with LIMIT 1. COALESCE to
+// ” matters: a conversation with no messages yet (the gap between
+// creating it and sending the first message) would otherwise make this
+// subquery return SQL NULL, and sqlc generates a plain non-nullable string
+// field for it — scanning a real NULL into that panics at runtime.
+func (q *Queries) ListConversationsByUser(ctx context.Context, arg ListConversationsByUserParams) ([]ListConversationsByUserRow, error) {
 	rows, err := q.db.QueryContext(ctx, listConversationsByUser, arg.UserID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Conversation{}
+	items := []ListConversationsByUserRow{}
 	for rows.Next() {
-		var i Conversation
+		var i ListConversationsByUserRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.AgentID,
@@ -92,6 +113,7 @@ func (q *Queries) ListConversationsByUser(ctx context.Context, arg ListConversat
 			&i.Title,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.LastMessage,
 		); err != nil {
 			return nil, err
 		}

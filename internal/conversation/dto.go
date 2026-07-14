@@ -7,20 +7,22 @@ type createConversationRequest struct {
 }
 
 type conversationResponse struct {
-	ID        string    `json:"id"`
-	AgentID   string    `json:"agent_id"`
-	Title     string    `json:"title"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID          string    `json:"id"`
+	AgentID     string    `json:"agent_id"`
+	Title       string    `json:"title"`
+	LastMessage string    `json:"last_message"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func toConversationResponse(c Conversation) conversationResponse {
 	return conversationResponse{
-		ID:        c.ID,
-		AgentID:   c.AgentID,
-		Title:     c.Title,
-		CreatedAt: c.CreatedAt,
-		UpdatedAt: c.UpdatedAt,
+		ID:          c.ID,
+		AgentID:     c.AgentID,
+		Title:       c.Title,
+		LastMessage: c.LastMessage,
+		CreatedAt:   c.CreatedAt,
+		UpdatedAt:   c.UpdatedAt,
 	}
 }
 

@@ -16,6 +16,10 @@ type Conversation struct {
 	Title     string
 	CreatedAt time.Time
 	UpdatedAt time.Time
+	// LastMessage is the sidebar preview snippet — only populated by
+	// ListConversations (a per-row subquery), empty on every other path
+	// (Create/Get) since those don't need it and it'd cost an extra query.
+	LastMessage string
 }
 
 // Message is one turn in a Conversation. ToolCalls/ToolCallID are wired

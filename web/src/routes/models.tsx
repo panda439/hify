@@ -5,14 +5,25 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/page-header";
 import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ApiError } from "@/lib/api";
-import { useProviders, useTestConnection, type Provider } from "@/lib/providers";
+import { useProviders, useTestConnection, useUpdateProvider, type Provider } from "@/lib/providers";
 import { ProviderFormDialog } from "@/routes/provider-form-dialog";
 import { ProviderModelsDialog } from "@/routes/provider-models-dialog";
 
 function statusBadge(provider: Provider) {
+  if (!provider.is_active) return <Badge variant="outline">已禁用</Badge>;
   switch (provider.last_test_status) {
     case "success":
       return (
@@ -30,11 +41,13 @@ function statusBadge(provider: Provider) {
 export function ModelsPage() {
   const { data, isLoading } = useProviders();
   const testConnection = useTestConnection();
+  const updateProvider = useUpdateProvider();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Provider | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [modelsDialogOpen, setModelsDialogOpen] = useState(false);
   const [managingModels, setManagingModels] = useState<Provider | null>(null);
+  const [deleting, setDeleting] = useState<Provider | null>(null);
 
   const providers = data?.items ?? [];
 
@@ -62,6 +75,30 @@ export function ModelsPage() {
       toast.error(err instanceof ApiError ? err.message : "连接测试失败");
     } finally {
       setTestingId(null);
+    }
+  };
+
+  // There's no hard-delete endpoint — model_providers is a main-data table
+  // and uses the project-wide soft-delete convention (is_active), same as
+  // agents. "删除" in the UI maps to disabling, not a DB row deletion, so
+  // provider_models/agents that still reference this row don't end up
+  // pointing at nothing.
+  const handleConfirmDelete = async () => {
+    if (!deleting) return;
+    try {
+      await updateProvider.mutateAsync({
+        id: deleting.id,
+        input: {
+          name: deleting.name,
+          base_url: deleting.base_url,
+          auth_type: deleting.auth_type,
+          is_active: false,
+        },
+      });
+      toast.success(`${deleting.name} 已删除`);
+      setDeleting(null);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "删除失败");
     }
   };
 
@@ -93,41 +130,63 @@ export function ModelsPage() {
       )}
 
       {providers.length > 0 && (
-        <div className="grid gap-3">
-          {providers.map((p) => (
-            <Card key={p.id}>
-              <CardContent className="flex items-center justify-between gap-4 py-4">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{p.name}</span>
-                    {statusBadge(p)}
-                    {!p.is_active && <Badge variant="outline">已禁用</Badge>}
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>名称</TableHead>
+              <TableHead>Base URL</TableHead>
+              <TableHead>状态</TableHead>
+              <TableHead className="text-right">操作</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {providers.map((p) => (
+              <TableRow key={p.id}>
+                <TableCell className="font-medium">{p.name}</TableCell>
+                <TableCell className="max-w-xs truncate text-muted-foreground">{p.base_url}</TableCell>
+                <TableCell>{statusBadge(p)}</TableCell>
+                <TableCell className="text-right">
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" size="sm" onClick={() => handleTest(p)} disabled={testingId === p.id}>
+                      <RefreshCw className={testingId === p.id ? "animate-spin" : ""} />
+                      测试连接
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => openModels(p)}>
+                      管理模型
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => openEdit(p)}>
+                      编辑
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => setDeleting(p)}>
+                      删除
+                    </Button>
                   </div>
-                  <p className="mt-1 truncate text-sm text-muted-foreground">{p.base_url}</p>
-                  {p.last_test_status === "failed" && p.last_test_error && (
-                    <p className="mt-1 text-sm text-destructive">{p.last_test_error}</p>
-                  )}
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => handleTest(p)} disabled={testingId === p.id}>
-                    <RefreshCw className={testingId === p.id ? "animate-spin" : ""} />
-                    测试连接
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => openModels(p)}>
-                    管理模型
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => openEdit(p)}>
-                    编辑
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       )}
 
       <ProviderFormDialog open={dialogOpen} onOpenChange={setDialogOpen} provider={editing} />
       <ProviderModelsDialog open={modelsDialogOpen} onOpenChange={setModelsDialogOpen} provider={managingModels} />
+
+      <AlertDialog open={deleting !== null} onOpenChange={(open) => !open && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除供应商「{deleting?.name}」？</AlertDialogTitle>
+            <AlertDialogDescription>
+              删除后该供应商会被禁用，不再出现在可选列表里；已经引用它的 Agent 不受影响，历史数据不会丢失。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={handleConfirmDelete} disabled={updateProvider.isPending}>
+              删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

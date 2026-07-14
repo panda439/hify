@@ -52,6 +52,8 @@ func describeAdapterError(ae *adapterError) string {
 		return "鉴权失败，请检查 API Key 是否正确"
 	case ae.status == http.StatusNotFound:
 		return "供应商地址不正确或接口不存在"
+	case ae.status == http.StatusPaymentRequired:
+		return "供应商账户余额不足，请前往供应商官网充值后重试"
 	case ae.status == http.StatusTooManyRequests:
 		return "供应商限流，请稍后重试"
 	case ae.status >= 500:

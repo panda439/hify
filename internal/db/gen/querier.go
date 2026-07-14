@@ -31,7 +31,15 @@ type Querier interface {
 	GetUserByID(ctx context.Context, id string) (User, error)
 	ListActiveModelsByCapability(ctx context.Context, capability string) ([]ProviderModel, error)
 	ListAgents(ctx context.Context, arg ListAgentsParams) ([]Agent, error)
-	ListConversationsByUser(ctx context.Context, arg ListConversationsByUserParams) ([]Conversation, error)
+	// last_message backs the sidebar preview snippet — a correlated subquery
+	// against messages is fine here because conversations is a small,
+	// offset-paginated table (per CLAUDE.md's pagination rules) and each
+	// lookup hits idx_messages_conversation_created with LIMIT 1. COALESCE to
+	// '' matters: a conversation with no messages yet (the gap between
+	// creating it and sending the first message) would otherwise make this
+	// subquery return SQL NULL, and sqlc generates a plain non-nullable string
+	// field for it — scanning a real NULL into that panics at runtime.
+	ListConversationsByUser(ctx context.Context, arg ListConversationsByUserParams) ([]ListConversationsByUserRow, error)
 	// Keyset page for "load more" history, strictly older than the given
 	// (created_at, id) cursor — same index as ListRecentMessagesByConversation.
 	// Written as an OR-expansion rather than a (created_at, id) < (?, ?) row
