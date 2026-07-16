@@ -1,6 +1,6 @@
 module hify
 
-go 1.23.5
+go 1.25.0
 
 require (
 	github.com/avast/retry-go/v4 v4.7.0
@@ -11,15 +11,15 @@ require (
 	github.com/golang-migrate/migrate/v4 v4.18.1
 	github.com/google/uuid v1.6.0
 	github.com/hibiken/asynq v0.24.1
-	github.com/jackc/pgx/v5 v5.7.4
+	github.com/jackc/pgx/v5 v5.10.0
 	github.com/lib/pq v1.10.9
 	github.com/mark3labs/mcp-go v0.48.0
-	github.com/pgvector/pgvector-go v0.3.0
+	github.com/pgvector/pgvector-go v0.4.0
 	github.com/redis/go-redis/v9 v9.7.0
 	github.com/sashabaranov/go-openai v1.41.2
 	github.com/sony/gobreaker v1.0.0
 	golang.org/x/crypto v0.37.0
-	golang.org/x/sync v0.13.0
+	golang.org/x/sync v0.17.0
 	rsc.io/pdf v0.1.1
 )
 
@@ -61,7 +61,7 @@ require (
 	golang.org/x/arch v0.8.0 // indirect
 	golang.org/x/net v0.29.0 // indirect
 	golang.org/x/sys v0.32.0 // indirect
-	golang.org/x/text v0.24.0 // indirect
+	golang.org/x/text v0.29.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
