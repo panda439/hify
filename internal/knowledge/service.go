@@ -39,8 +39,8 @@ type Service interface {
 
 	// Retrieve embeds query against each knowledgeBaseID's configured
 	// model (grouped so a query is only embedded once per distinct
-	// model), scores every cached chunk by cosine similarity, and returns
-	// the topK highest across all of them.
+	// model), lets pgvector score and rank chunks in-database, and
+	// returns the topK highest across all of them.
 	Retrieve(ctx context.Context, knowledgeBaseIDs []string, query string, topK int) ([]RetrievedChunk, error)
 }
 
@@ -51,7 +51,6 @@ type service struct {
 	providerSvc provider.Service
 	asynqClient *asynq.Client
 	storageDir  string
-	cache       *chunkCache
 }
 
 func (s *service) CreateKnowledgeBase(ctx context.Context, input CreateKnowledgeBaseInput) (KnowledgeBase, error) {
@@ -251,7 +250,6 @@ func (s *service) DeleteDocument(ctx context.Context, id, userID, role string) e
 	if err := s.repo.deleteDocument(ctx, id); err != nil {
 		return err
 	}
-	s.cache.invalidate(doc.KnowledgeBaseID)
 	// Best-effort: an orphaned file on disk is a cleanup nuisance, not a
 	// correctness problem, so its error isn't propagated to the caller.
 	if err := os.Remove(doc.StoragePath); err != nil {
@@ -306,8 +304,9 @@ func (s *service) ProcessDocument(ctx context.Context, documentID string) error 
 		return s.failDocument(ctx, documentID, fmt.Errorf("向量生成数量（%d）与分块数量（%d）不一致", len(result.Embeddings), len(pieces)))
 	}
 
+	chunks := make([]Chunk, 0, len(pieces))
 	for i, piece := range pieces {
-		chunk := Chunk{
+		chunks = append(chunks, Chunk{
 			ID:                 platform.NewID(),
 			KnowledgeBaseID:    doc.KnowledgeBaseID,
 			DocumentID:         documentID,
@@ -316,17 +315,13 @@ func (s *service) ProcessDocument(ctx context.Context, documentID string) error 
 			ContentLength:      len([]rune(piece)),
 			Embedding:          result.Embeddings[i],
 			EmbeddingDimension: result.Dimension,
-		}
-		if err := s.repo.createChunk(ctx, chunk); err != nil {
-			return s.failDocument(ctx, documentID, err)
-		}
+		})
+	}
+	if err := s.repo.createChunks(ctx, chunks); err != nil {
+		return s.failDocument(ctx, documentID, err)
 	}
 
-	if err := s.repo.updateDocumentStatus(ctx, documentID, StatusReady, "", len(pieces)); err != nil {
-		return err
-	}
-	s.cache.invalidate(doc.KnowledgeBaseID)
-	return nil
+	return s.repo.updateDocumentStatus(ctx, documentID, StatusReady, "", len(pieces))
 }
 
 func (s *service) failDocument(ctx context.Context, documentID string, cause error) error {
@@ -361,25 +356,24 @@ func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query
 			slog.Warn("knowledge: query embedding failed, skipping these knowledge bases", "err", err, "embedding_model_id", modelID)
 			continue
 		}
+		kbIDs := make([]string, 0, len(kbs))
 		for _, kb := range kbs {
-			chunks, err := s.chunksFor(ctx, kb.ID)
-			if err != nil {
-				slog.Warn("knowledge: load chunks failed", "err", err, "knowledge_base_id", kb.ID)
-				continue
-			}
-			for _, c := range chunks {
-				if c.EmbeddingDimension != len(queryVector) {
-					// Defensive: should only happen if the KB's embedding
-					// model config was changed out from under existing
-					// chunks — see model.go's immutability note.
-					continue
-				}
-				score := cosineSimilarity(c.Embedding, queryVector)
-				candidates = append(candidates, RetrievedChunk{Chunk: c, Score: score})
-			}
+			kbIDs = append(kbIDs, kb.ID)
 		}
+		// Scoring, ranking, and topK all happen inside pgvector now. The
+		// old in-loop dimension guard lives on as the SQL dimension filter
+		// (searchChunks derives it from len(queryVector)).
+		chunks, err := s.repo.searchChunks(ctx, kbIDs, queryVector, topK)
+		if err != nil {
+			slog.Warn("knowledge: chunk search failed, skipping these knowledge bases", "err", err, "embedding_model_id", modelID)
+			continue
+		}
+		candidates = append(candidates, chunks...)
 	}
 
+	// Each model group already returns its own topK ranked by score; the
+	// global re-sort + truncate across groups preserves the exact cross-KB
+	// global-topK semantics the single-process implementation had.
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].Score > candidates[j].Score })
 	if len(candidates) > topK {
 		candidates = candidates[:topK]
@@ -404,16 +398,4 @@ func (s *service) embedQuery(ctx context.Context, modelID, query string) ([]floa
 		return nil, fmt.Errorf("knowledge: embedding provider returned no vectors")
 	}
 	return result.Embeddings[0], nil
-}
-
-func (s *service) chunksFor(ctx context.Context, knowledgeBaseID string) ([]Chunk, error) {
-	if chunks, ok := s.cache.get(knowledgeBaseID); ok {
-		return chunks, nil
-	}
-	chunks, err := s.repo.listChunksByKnowledgeBase(ctx, knowledgeBaseID)
-	if err != nil {
-		return nil, err
-	}
-	s.cache.set(knowledgeBaseID, chunks)
-	return chunks, nil
 }

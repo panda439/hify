@@ -38,18 +38,6 @@ type AgentMcpTool struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-type Chunk struct {
-	ID                 string          `json:"id"`
-	KnowledgeBaseID    string          `json:"knowledge_base_id"`
-	DocumentID         string          `json:"document_id"`
-	ChunkIndex         int32           `json:"chunk_index"`
-	Content            string          `json:"content"`
-	ContentLength      int32           `json:"content_length"`
-	Embedding          json.RawMessage `json:"embedding"`
-	EmbeddingDimension int32           `json:"embedding_dimension"`
-	CreatedAt          time.Time       `json:"created_at"`
-}
-
 type Conversation struct {
 	ID        string    `json:"id"`
 	AgentID   string    `json:"agent_id"`

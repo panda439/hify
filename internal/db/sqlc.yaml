@@ -18,3 +18,24 @@ sql:
         rename:
           knowledge_basis: KnowledgeBase
           agent_knowledge_basis: AgentKnowledgeBase
+  # PostgreSQL（pgvector）侧只承载 chunks。sql_package 固定 database/sql，
+  # 让 pggen.New(*sql.DB) 和上面 MySQL 的 gen 保持同形——pgvector.Vector 实现
+  # 了 sql.Scanner/driver.Valuer，走标准接口即可，不要为了性能换成 pgx/v5
+  # sql_package（那会把构造函数变成 pgx pool，破坏全应用 *sql.DB 的形状）。
+  - engine: "postgresql"
+    queries: "pgqueries"
+    schema: "pgmigrations"
+    gen:
+      go:
+        package: "pggen"
+        out: "pggen"
+        sql_package: "database/sql"
+        emit_json_tags: true
+        emit_interface: true
+        emit_empty_slices: true
+        overrides:
+          - db_type: "vector"
+            go_type:
+              import: "github.com/pgvector/pgvector-go"
+              package: "pgvector"
+              type: "Vector"

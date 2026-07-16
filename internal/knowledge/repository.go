@@ -3,18 +3,25 @@ package knowledge
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 
+	pgvector "github.com/pgvector/pgvector-go"
+
 	"hify/internal/db/gen"
+	"hify/internal/db/pggen"
 	"hify/internal/platform"
 )
 
-// Repository is constructed via NewRepository in wire.go.
+// Repository is constructed via NewRepository in wire.go. Knowledge is the
+// only module that spans two databases: knowledge_bases/documents live in
+// MySQL (business data), chunks live in PostgreSQL+pgvector (content +
+// embedding together, so retrieval is a single SQL query).
 type Repository struct {
-	db      *sql.DB
-	queries *gen.Queries
+	db        *sql.DB
+	queries   *gen.Queries
+	pgdb      *sql.DB
+	pgQueries *pggen.Queries
 }
 
 func (r *Repository) createKnowledgeBase(ctx context.Context, kb KnowledgeBase) error {
@@ -140,66 +147,87 @@ func (r *Repository) updateDocumentStatus(ctx context.Context, id, status, errMs
 	return nil
 }
 
-// deleteDocument removes a document and its chunks atomically — without a
-// transaction, a crash between the two deletes could leave orphaned chunks
-// (harmless but wasted space) or a document with no chunks pointing nowhere
-// useful; neither is catastrophic, but there's no reason to allow either
-// when WithTx makes it free to avoid.
+// deleteDocument removes a document's chunks (PostgreSQL) and the document
+// row (MySQL). No cross-database transaction exists, so ordering is the
+// consistency tool: chunks go first — a crash between the two steps leaves a
+// document whose chunks are already gone (retryable, chunk delete is
+// idempotent), never orphaned chunks that keep polluting retrieval results.
 func (r *Repository) deleteDocument(ctx context.Context, id string) error {
-	return platform.WithTx(ctx, r.db, func(tx *sql.Tx) error {
-		q := r.queries.WithTx(tx)
-		if err := q.DeleteChunksByDocument(ctx, id); err != nil {
-			return fmt.Errorf("knowledge: delete chunks for document: %w", err)
-		}
-		if err := q.DeleteDocument(ctx, id); err != nil {
-			return fmt.Errorf("knowledge: delete document: %w", err)
+	if err := r.pgQueries.DeleteChunksByDocument(ctx, id); err != nil {
+		return fmt.Errorf("knowledge: delete chunks for document: %w", err)
+	}
+	if err := r.queries.DeleteDocument(ctx, id); err != nil {
+		return fmt.Errorf("knowledge: delete document: %w", err)
+	}
+	return nil
+}
+
+// createChunks inserts a document's chunks in one PostgreSQL transaction —
+// all-or-nothing replaces the old per-row loop that could leave a partial
+// set behind on failure. A committed loop over ≤ maxChunksPerKnowledgeBase
+// rows is fast enough; pgx-native CopyFrom would be quicker but requires
+// abandoning database/sql, noted as a future optimization only.
+func (r *Repository) createChunks(ctx context.Context, chunks []Chunk) error {
+	return platform.WithTx(ctx, r.pgdb, func(tx *sql.Tx) error {
+		q := r.pgQueries.WithTx(tx)
+		for _, c := range chunks {
+			if err := q.CreateChunk(ctx, pggen.CreateChunkParams{
+				ID:                 c.ID,
+				KnowledgeBaseID:    c.KnowledgeBaseID,
+				DocumentID:         c.DocumentID,
+				ChunkIndex:         int32(c.ChunkIndex),
+				Content:            c.Content,
+				ContentLength:      int32(c.ContentLength),
+				Embedding:          pgvector.NewVector(c.Embedding),
+				EmbeddingDimension: int32(c.EmbeddingDimension),
+			}); err != nil {
+				return fmt.Errorf("knowledge: create chunk: %w", err)
+			}
 		}
 		return nil
 	})
 }
 
-func (r *Repository) createChunk(ctx context.Context, c Chunk) error {
-	embeddingJSON, err := json.Marshal(c.Embedding)
+// searchChunks pushes similarity scoring and topK selection down to
+// pgvector (`ORDER BY embedding <=> query LIMIT topK`), replacing the old
+// load-everything-and-score-in-Go path. The dimension filter comes from the
+// query vector itself: only chunks embedded by a same-dimension model are
+// comparable, which is what keeps mixed-dimension knowledge bases in one
+// table from ever colliding.
+func (r *Repository) searchChunks(ctx context.Context, kbIDs []string, queryVec []float32, topK int) ([]RetrievedChunk, error) {
+	rows, err := r.pgQueries.SearchChunks(ctx, pggen.SearchChunksParams{
+		QueryEmbedding:     pgvector.NewVector(queryVec),
+		KnowledgeBaseIds:   kbIDs,
+		EmbeddingDimension: int32(len(queryVec)),
+		TopK:               int32(topK),
+	})
 	if err != nil {
-		return fmt.Errorf("knowledge: marshal embedding: %w", err)
+		return nil, fmt.Errorf("knowledge: search chunks: %w", err)
 	}
-	if err := r.queries.CreateChunk(ctx, gen.CreateChunkParams{
-		ID:                 c.ID,
-		KnowledgeBaseID:    c.KnowledgeBaseID,
-		DocumentID:         c.DocumentID,
-		ChunkIndex:         int32(c.ChunkIndex),
-		Content:            c.Content,
-		ContentLength:      int32(c.ContentLength),
-		Embedding:          embeddingJSON,
-		EmbeddingDimension: int32(c.EmbeddingDimension),
-	}); err != nil {
-		return fmt.Errorf("knowledge: create chunk: %w", err)
-	}
-	return nil
-}
-
-// listChunksByKnowledgeBase returns every chunk for a knowledge base —
-// intentionally unbounded (no LIMIT), since callers need the full set to
-// build the embedding-matrix cache (see cache.go). Bounded instead by
-// maxChunksPerKnowledgeBase at upload time.
-func (r *Repository) listChunksByKnowledgeBase(ctx context.Context, kbID string) ([]Chunk, error) {
-	rows, err := r.queries.ListChunksByKnowledgeBase(ctx, kbID)
-	if err != nil {
-		return nil, fmt.Errorf("knowledge: list chunks: %w", err)
-	}
-	out := make([]Chunk, 0, len(rows))
+	out := make([]RetrievedChunk, 0, len(rows))
 	for _, row := range rows {
-		c, err := toDomainChunk(row)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, c)
+		out = append(out, RetrievedChunk{
+			Chunk: Chunk{
+				ID:              row.ID,
+				KnowledgeBaseID: row.KnowledgeBaseID,
+				DocumentID:      row.DocumentID,
+				ChunkIndex:      int(row.ChunkIndex),
+				Content:         row.Content,
+				ContentLength:   int(row.ContentLength),
+				// Embedding stays nil on purpose: no consumer reads it
+				// (conversation/workflow only use Content), and shipping
+				// vectors back defeats the point of scoring in-database.
+				EmbeddingDimension: int(row.EmbeddingDimension),
+				CreatedAt:          row.CreatedAt,
+			},
+			Score: row.Score,
+		})
 	}
 	return out, nil
 }
 
 func (r *Repository) countChunksByKnowledgeBase(ctx context.Context, kbID string) (int, error) {
-	n, err := r.queries.CountChunksByKnowledgeBase(ctx, kbID)
+	n, err := r.pgQueries.CountChunksByKnowledgeBase(ctx, kbID)
 	if err != nil {
 		return 0, fmt.Errorf("knowledge: count chunks: %w", err)
 	}
@@ -236,24 +264,6 @@ func toDomainDocument(row gen.Document) Document {
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
 	}
-}
-
-func toDomainChunk(row gen.Chunk) (Chunk, error) {
-	var embedding []float32
-	if err := json.Unmarshal(row.Embedding, &embedding); err != nil {
-		return Chunk{}, fmt.Errorf("knowledge: unmarshal embedding: %w", err)
-	}
-	return Chunk{
-		ID:                 row.ID,
-		KnowledgeBaseID:    row.KnowledgeBaseID,
-		DocumentID:         row.DocumentID,
-		ChunkIndex:         int(row.ChunkIndex),
-		Content:            row.Content,
-		ContentLength:      int(row.ContentLength),
-		Embedding:          embedding,
-		EmbeddingDimension: int(row.EmbeddingDimension),
-		CreatedAt:          row.CreatedAt,
-	}, nil
 }
 
 func stringToNullString(s string) sql.NullString {

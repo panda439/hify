@@ -17,7 +17,7 @@ allowed-tools: Bash, Read
 ```bash
 docker compose -f /Users/lishurong/go/src/hify/docker-compose.yml ps
 ```
-如果 `hify-mysql-1`/`hify-redis-1` 不是 `healthy`，执行 `docker compose up -d` 并等到健康检查通过再继续。
+如果 `hify-mysql-1`/`hify-postgres-1`/`hify-redis-1` 不是 `healthy`，执行 `docker compose up -d` 并等到健康检查通过再继续。（postgres 是 pgvector 容器，存 chunks 向量数据，`/ready` 现在会一并 ping 它。）
 
 ### 2. 构建 + 迁移
 

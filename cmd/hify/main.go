@@ -1,7 +1,10 @@
 // Command hify is the single entrypoint for the Hify binary: `serve` runs
 // the API server, `migrate up`/`migrate down` applies/reverts schema
-// migrations, `seed-admin` creates the first admin user from
-// ADMIN_EMAIL/ADMIN_PASSWORD.
+// migrations (MySQL and the pgvector PostgreSQL, each with its own
+// independent schema_migrations), `seed-admin` creates the first admin user
+// from ADMIN_EMAIL/ADMIN_PASSWORD, `backfill-chunks` copies pre-migration
+// chunks from MySQL into PostgreSQL (run it BEFORE `migrate up` drops the
+// MySQL chunks table — see backfill.go).
 package main
 
 import (
@@ -19,6 +22,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-migrate/migrate/v4"
 	mysqlmigrate "github.com/golang-migrate/migrate/v4/database/mysql"
+	pgxmigrate "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/hibiken/asynq"
 
@@ -69,8 +73,13 @@ func main() {
 			logger.Error("seed-admin failed", "err", err)
 			os.Exit(1)
 		}
+	case "backfill-chunks":
+		if err := runBackfillChunks(cfg, logger); err != nil {
+			logger.Error("backfill-chunks failed", "err", err)
+			os.Exit(1)
+		}
 	default:
-		fmt.Fprintf(os.Stderr, "hify: unknown command %q (expected: serve, migrate, seed-admin)\n", cmd)
+		fmt.Fprintf(os.Stderr, "hify: unknown command %q (expected: serve, migrate, seed-admin, backfill-chunks)\n", cmd)
 		os.Exit(1)
 	}
 }
@@ -87,6 +96,12 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 		return nil, nil, nil, fmt.Errorf("connect mysql: %w", err)
 	}
 
+	pgdb, err := platform.NewPostgresPool(cfg.PostgresDSN)
+	if err != nil {
+		db.Close()
+		return nil, nil, nil, fmt.Errorf("connect postgres: %w", err)
+	}
+
 	rdb := platform.NewRedisClient(platform.RedisConfig{
 		Addr:     cfg.RedisAddr,
 		Password: cfg.RedisPassword,
@@ -98,6 +113,7 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 
 	cleanup := func() {
 		db.Close()
+		pgdb.Close()
 		rdb.Close()
 		asynqClient.Close()
 	}
@@ -106,6 +122,7 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 		Logger:         logger,
 		AllowedOrigins: cfg.CORSAllowedOrigins,
 		DB:             db,
+		PG:             pgdb,
 		Redis:          rdb,
 	})
 
@@ -136,7 +153,7 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 	mcp.RegisterRoutes(v1, mcpHandler, cfg.JWTSecret)
 
 	// Layer 2
-	knowledgeRepo := knowledge.NewRepository(db)
+	knowledgeRepo := knowledge.NewRepository(db, pgdb)
 	knowledgeSvc := knowledge.NewService(knowledgeRepo, providerSvc, asynqClient, cfg.KnowledgeStorageDir)
 	knowledgeHandler := knowledge.NewHandler(knowledgeSvc)
 	knowledge.RegisterRoutes(v1, knowledgeHandler, cfg.JWTSecret)
@@ -220,10 +237,30 @@ func runServe(cfg config.Config, logger *slog.Logger) error {
 	}
 }
 
+// runMigrate applies the direction to both databases: MySQL first (business
+// tables), then the pgvector PostgreSQL (chunks). Each database keeps its
+// own independent schema_migrations table — the two version numbers are
+// never comparable, and `down` steps each database back by one migration
+// of its own.
 func runMigrate(cfg config.Config, logger *slog.Logger, direction string) error {
+	if direction != "up" && direction != "down" {
+		return fmt.Errorf("unknown migrate direction %q (expected: up, down)", direction)
+	}
+	if err := migrateMySQL(cfg, direction); err != nil {
+		return err
+	}
+	logger.Info("migrate complete", "db", "mysql", "direction", direction)
+	if err := migratePostgres(cfg, direction); err != nil {
+		return err
+	}
+	logger.Info("migrate complete", "db", "postgres", "direction", direction)
+	return nil
+}
+
+func migrateMySQL(cfg config.Config, direction string) error {
 	source, err := iofs.New(hifydb.MigrationsFS, "migrations")
 	if err != nil {
-		return fmt.Errorf("load migration source: %w", err)
+		return fmt.Errorf("load mysql migration source: %w", err)
 	}
 
 	// multiStatements=true is only added for this dedicated migration
@@ -241,23 +278,50 @@ func runMigrate(cfg config.Config, logger *slog.Logger, direction string) error 
 
 	m, err := migrate.NewWithInstance("iofs", source, "mysql", driver)
 	if err != nil {
-		return fmt.Errorf("init migrate: %w", err)
+		return fmt.Errorf("init mysql migrate: %w", err)
+	}
+	return runMigrateDirection(m, direction, "mysql")
+}
+
+// migratePostgres is also called directly by runBackfillChunks so the PG
+// chunks table is guaranteed to exist before any backfill insert — that's
+// what makes "backfill before `migrate up`" a safe order to require.
+// PostgreSQL runs multi-statement files natively, no multiStatements
+// analogue needed.
+func migratePostgres(cfg config.Config, direction string) error {
+	source, err := iofs.New(hifydb.PGMigrationsFS, "pgmigrations")
+	if err != nil {
+		return fmt.Errorf("load postgres migration source: %w", err)
 	}
 
+	pgdb, err := platform.NewPostgresPool(cfg.PostgresDSN)
+	if err != nil {
+		return fmt.Errorf("connect postgres: %w", err)
+	}
+
+	driver, err := pgxmigrate.WithInstance(pgdb, &pgxmigrate.Config{})
+	if err != nil {
+		return fmt.Errorf("init postgres migrate driver: %w", err)
+	}
+
+	m, err := migrate.NewWithInstance("iofs", source, "pgx5", driver)
+	if err != nil {
+		return fmt.Errorf("init postgres migrate: %w", err)
+	}
+	return runMigrateDirection(m, direction, "postgres")
+}
+
+func runMigrateDirection(m *migrate.Migrate, direction, dbName string) error {
+	var err error
 	switch direction {
 	case "up":
 		err = m.Up()
 	case "down":
 		err = m.Steps(-1)
-	default:
-		return fmt.Errorf("unknown migrate direction %q (expected: up, down)", direction)
 	}
-
 	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
-		return fmt.Errorf("run migration (%s): %w", direction, err)
+		return fmt.Errorf("run %s migration (%s): %w", dbName, direction, err)
 	}
-
-	logger.Info("migrate complete", "direction", direction)
 	return nil
 }
 

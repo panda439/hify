@@ -18,7 +18,10 @@ type Config struct {
 	Logger         *slog.Logger
 	AllowedOrigins []string
 	DB             *sql.DB
-	Redis          *redis.Client
+	// PG is the pgvector chunk store — retrieval depends on it, so
+	// readiness must cover it alongside MySQL and Redis.
+	PG    *sql.DB
+	Redis *redis.Client
 }
 
 // New builds the engine with framework-level middleware and the
@@ -34,7 +37,7 @@ func New(cfg Config) (*gin.Engine, *gin.RouterGroup) {
 
 	v1 := r.Group("/api/v1")
 	v1.GET("/health", httperr.Wrap(HealthCheck))
-	v1.GET("/ready", httperr.Wrap(Readiness(cfg.DB, cfg.Redis)))
+	v1.GET("/ready", httperr.Wrap(Readiness(cfg.DB, cfg.PG, cfg.Redis)))
 
 	return r, v1
 }

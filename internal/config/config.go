@@ -14,6 +14,10 @@ type Config struct {
 	HTTPAddr string
 
 	MySQLDSN string
+	// PostgresDSN points at the pgvector-enabled PostgreSQL that stores
+	// chunks (content + embedding vectors). MySQL remains the primary
+	// business-data store; PG exists solely for vector retrieval.
+	PostgresDSN string
 
 	RedisAddr     string
 	RedisPassword string
@@ -48,6 +52,7 @@ func Load() (Config, error) {
 		Env:                 getEnv("HIFY_ENV", "development"),
 		HTTPAddr:            getEnv("HIFY_HTTP_ADDR", ":8080"),
 		MySQLDSN:            os.Getenv("HIFY_MYSQL_DSN"),
+		PostgresDSN:         os.Getenv("HIFY_POSTGRES_DSN"),
 		RedisAddr:           getEnv("HIFY_REDIS_ADDR", "127.0.0.1:6379"),
 		RedisPassword:       os.Getenv("HIFY_REDIS_PASSWORD"),
 		JWTSecret:           os.Getenv("HIFY_JWT_SECRET"),
@@ -85,6 +90,9 @@ func Load() (Config, error) {
 
 	if cfg.MySQLDSN == "" {
 		return Config{}, fmt.Errorf("config: HIFY_MYSQL_DSN is required")
+	}
+	if cfg.PostgresDSN == "" {
+		return Config{}, fmt.Errorf("config: HIFY_POSTGRES_DSN is required")
 	}
 	if cfg.JWTSecret == "" {
 		return Config{}, fmt.Errorf("config: HIFY_JWT_SECRET is required")

@@ -25,6 +25,28 @@ services:
       timeout: 5s
       retries: 10
 
+  postgres:
+    # pgvector 官方镜像 = 标准 PostgreSQL 17 + 预装 vector 扩展。
+    # 只承载 chunks（内容+向量），业务主数据仍在 MySQL——见 CLAUDE.md 分层说明。
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hify
+      POSTGRES_USER: hify
+      POSTGRES_PASSWORD: hify_dev
+    ports:
+      # Host 5432 kept free for a possible native postgres, same
+      # port-avoidance convention as mysql 3307 / redis 6380 above.
+      - "5433:5432"
+    command: ["postgres", "-c", "timezone=UTC"]
+    volumes:
+      - hify_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hify -d hify"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   redis:
     image: redis:7
     restart: unless-stopped
@@ -43,4 +65,5 @@ services:
 
 volumes:
   hify_mysql_data:
+  hify_postgres_data:
   hify_redis_data:

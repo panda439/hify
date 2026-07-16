@@ -7,13 +7,16 @@ import (
 	"github.com/hibiken/asynq"
 
 	"hify/internal/db/gen"
+	"hify/internal/db/pggen"
 	"hify/internal/platform/httperr"
 	"hify/internal/provider"
 	"hify/internal/server/middleware"
 )
 
-func NewRepository(db *sql.DB) *Repository {
-	return &Repository{db: db, queries: gen.New(db)}
+// NewRepository takes both pools: db (MySQL) for knowledge_bases/documents,
+// pgdb (PostgreSQL+pgvector) for chunks — see the Repository doc comment.
+func NewRepository(db, pgdb *sql.DB) *Repository {
+	return &Repository{db: db, queries: gen.New(db), pgdb: pgdb, pgQueries: pggen.New(pgdb)}
 }
 
 // NewService needs the asynq client to enqueue document-processing jobs
@@ -26,7 +29,6 @@ func NewService(repo *Repository, providerSvc provider.Service, asynqClient *asy
 		providerSvc: providerSvc,
 		asynqClient: asynqClient,
 		storageDir:  storageDir,
-		cache:       newChunkCache(),
 	}
 }
 

@@ -11,7 +11,6 @@ import (
 
 type Querier interface {
 	CountAgents(ctx context.Context) (int64, error)
-	CountChunksByKnowledgeBase(ctx context.Context, knowledgeBaseID string) (int64, error)
 	CountConversationsByUser(ctx context.Context, userID string) (int64, error)
 	CountDocumentsByKnowledgeBase(ctx context.Context, knowledgeBaseID string) (int64, error)
 	CountKnowledgeBases(ctx context.Context) (int64, error)
@@ -23,7 +22,6 @@ type Querier interface {
 	CreateAgent(ctx context.Context, arg CreateAgentParams) error
 	CreateAgentKnowledgeBase(ctx context.Context, arg CreateAgentKnowledgeBaseParams) error
 	CreateAgentMCPTool(ctx context.Context, arg CreateAgentMCPToolParams) error
-	CreateChunk(ctx context.Context, arg CreateChunkParams) error
 	CreateConversation(ctx context.Context, arg CreateConversationParams) error
 	CreateDocument(ctx context.Context, arg CreateDocumentParams) error
 	CreateKnowledgeBase(ctx context.Context, arg CreateKnowledgeBaseParams) error
@@ -43,7 +41,6 @@ type Querier interface {
 	// agent.Service's replace-all semantics for this association.
 	DeleteAgentKnowledgeBases(ctx context.Context, agentID string) error
 	DeleteAgentMCPTools(ctx context.Context, agentID string) error
-	DeleteChunksByDocument(ctx context.Context, documentID string) error
 	DeleteDocument(ctx context.Context, id string) error
 	DeleteExpiredRefreshTokens(ctx context.Context, revokedAt sql.NullTime) (int64, error)
 	FinishWorkflowRun(ctx context.Context, arg FinishWorkflowRunParams) error
@@ -66,11 +63,6 @@ type Querier interface {
 	ListAgentIDsByKnowledgeBase(ctx context.Context, knowledgeBaseID string) ([]string, error)
 	ListAgentIDsByMCPTool(ctx context.Context, mcpToolID string) ([]string, error)
 	ListAgents(ctx context.Context, arg ListAgentsParams) ([]Agent, error)
-	// Used to (re)build the per-knowledge-base embedding-matrix cache — always
-	// bounded by knowledge_base_id per CLAUDE.md's large-table rule, no LIMIT
-	// since the caller wants the full set (soft-capped at upload time, not
-	// read time).
-	ListChunksByKnowledgeBase(ctx context.Context, knowledgeBaseID string) ([]Chunk, error)
 	// last_message backs the sidebar preview snippet — a correlated subquery
 	// against messages is fine here because conversations is a small,
 	// offset-paginated table (per CLAUDE.md's pagination rules) and each

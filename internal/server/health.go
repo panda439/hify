@@ -25,16 +25,19 @@ func HealthCheck(c *gin.Context) error {
 	return nil
 }
 
-// Readiness actually pings MySQL and Redis — "the process is up" (health)
-// and "the process can do its job" (ready) are different questions, and
-// only the latter tells you the stack as a whole is usable.
-func Readiness(db *sql.DB, rdb *redis.Client) httperr.HandlerFunc {
+// Readiness actually pings MySQL, PostgreSQL, and Redis — "the process is
+// up" (health) and "the process can do its job" (ready) are different
+// questions, and only the latter tells you the stack as a whole is usable.
+func Readiness(db, pgdb *sql.DB, rdb *redis.Client) httperr.HandlerFunc {
 	return func(c *gin.Context) error {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 		defer cancel()
 
 		if err := db.PingContext(ctx); err != nil {
 			return fmt.Errorf("readiness: mysql unreachable: %w", err)
+		}
+		if err := pgdb.PingContext(ctx); err != nil {
+			return fmt.Errorf("readiness: postgres unreachable: %w", err)
 		}
 		if err := rdb.Ping(ctx).Err(); err != nil {
 			return fmt.Errorf("readiness: redis unreachable: %w", err)

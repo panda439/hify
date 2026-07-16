@@ -7,6 +7,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 // DefaultQueryTimeout bounds every query issued through this pool so a slow
@@ -32,6 +33,30 @@ func NewMySQLPool(dsn string) (*sql.DB, error) {
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
 		return nil, fmt.Errorf("platform: ping mysql: %w", err)
+	}
+
+	return db, nil
+}
+
+// NewPostgresPool opens the pgvector-enabled PostgreSQL pool (chunk storage
+// + vector retrieval only — MySQL stays the business-data store). Uses the
+// pgx stdlib driver so the rest of the app keeps the plain *sql.DB shape.
+// Pool sizing mirrors NewMySQLPool for the same starvation reasons.
+func NewPostgresPool(dsn string) (*sql.DB, error) {
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("platform: open postgres: %w", err)
+	}
+
+	db.SetMaxOpenConns(50)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(2 * time.Minute)
+
+	ctx, cancel := context.WithTimeout(context.Background(), DefaultQueryTimeout)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		return nil, fmt.Errorf("platform: ping postgres: %w", err)
 	}
 
 	return db, nil
