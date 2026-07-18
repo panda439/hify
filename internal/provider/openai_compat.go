@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"strconv"
 	"sync"
 	"time"
@@ -122,23 +124,30 @@ func (c *openAICompatClient) ChatStream(ctx context.Context, req ChatRequest) (<
 	go func() {
 		defer close(out)
 		defer stream.Close()
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("provider: panic in chatstream reader", "panic", r, "stack", string(debug.Stack()))
+			}
+		}()
 		for {
 			resp, err := stream.Recv()
 			if errors.Is(err, io.EOF) {
 				return
 			}
 			if err != nil {
-				out <- ChatChunk{Err: classifyError(err)}
+				trySendChunk(ctx, out, ChatChunk{Err: classifyError(err)})
 				return
 			}
 			if len(resp.Choices) == 0 {
 				continue
 			}
 			choice := resp.Choices[0]
-			out <- ChatChunk{
+			if !trySendChunk(ctx, out, ChatChunk{
 				DeltaContent:   choice.Delta.Content,
 				DeltaToolCalls: fromOpenAIToolCalls(choice.Delta.ToolCalls),
 				FinishReason:   string(choice.FinishReason),
+			}) {
+				return
 			}
 			if choice.FinishReason != "" {
 				return
@@ -146,6 +155,21 @@ func (c *openAICompatClient) ChatStream(ctx context.Context, req ChatRequest) (<
 		}
 	}()
 	return out, nil
+}
+
+// trySendChunk delivers chunk on out but never blocks past ctx's
+// cancellation. Without this, a client disconnect propagates up through
+// resilientClient's forwarder (see resilience.go) and conversation/
+// workflow's SSE loop — once nobody downstream is reading anymore, a plain
+// `out <- chunk` would block this goroutine (and its held stream/socket)
+// forever. false means the caller should stop generating further chunks.
+func trySendChunk(ctx context.Context, out chan<- ChatChunk, chunk ChatChunk) bool {
+	select {
+	case out <- chunk:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func (c *openAICompatClient) Embed(ctx context.Context, req EmbedRequest) (EmbedResult, error) {

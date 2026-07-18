@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"runtime/debug"
 	"time"
 
 	retry "github.com/avast/retry-go/v4"
@@ -125,6 +127,11 @@ func (r *resilientClient) ChatStream(ctx context.Context, req ChatRequest) (<-ch
 	go func() {
 		defer close(out)
 		defer r.sem.Release(1)
+		defer func() {
+			if rec := recover(); rec != nil {
+				slog.Error("provider: panic in chatstream forwarder", "panic", rec, "provider_id", r.cfg.ProviderID, "stack", string(debug.Stack()))
+			}
+		}()
 
 		streamCtx, cancel := context.WithTimeout(ctx, r.cfg.MaxStreamDuration)
 		defer cancel()
@@ -145,15 +152,33 @@ func (r *resilientClient) ChatStream(ctx context.Context, req ChatRequest) (<-ch
 					}
 				}
 				idleTimer.Reset(r.cfg.IdleTimeout)
-				out <- chunk
+				// Plain `out <- chunk` would block forever once nobody
+				// downstream is still reading (client disconnected — see
+				// conversation/workflow's trySend) — streamCtx is a child of
+				// ctx, so it's already done in that case, and this send
+				// bails instead of pinning the goroutine (and the semaphore
+				// slot held via defer above) indefinitely.
+				select {
+				case out <- chunk:
+				case <-streamCtx.Done():
+					return
+				}
 				if chunk.Err != nil || chunk.FinishReason != "" {
 					return
 				}
 			case <-idleTimer.C:
-				out <- ChatChunk{Err: fmt.Errorf("provider: idle timeout waiting for stream data")}
+				select {
+				case out <- ChatChunk{Err: fmt.Errorf("provider: idle timeout waiting for stream data")}:
+				case <-streamCtx.Done():
+				}
 				return
 			case <-streamCtx.Done():
-				out <- ChatChunk{Err: streamCtx.Err()}
+				// Already in the cancellation case that the other two send
+				// sites guard against — best-effort only, never block.
+				select {
+				case out <- ChatChunk{Err: streamCtx.Err()}:
+				default:
+				}
 				return
 			}
 		}

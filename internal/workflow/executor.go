@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"strings"
 	"text/template"
 	"time"
@@ -82,8 +84,24 @@ func (s *service) Execute(ctx context.Context, workflowID, userID, input string)
 // finalizes the run's row exactly once (success, a step failure, or
 // hitting maxWorkflowSteps) — see the migration's note on workflow_runs
 // being a job-status row, not an append-only log like workflow_run_steps.
+// errClientDisconnected is stored as-is into run.ErrorMessage (a
+// user-visible column, per GetRun/ListRuns), so its text is curated Chinese
+// rather than an internal fmt.Errorf chain — see CLAUDE.md's rule that only
+// apperr.Message-style strings are safe to show a client.
+var errClientDisconnected = errors.New("客户端连接已断开，工作流执行已终止")
+
 func (s *service) runWorkflow(ctx context.Context, wf Workflow, run WorkflowRun, input string, events chan<- StepEvent) {
 	defer close(events)
+	// Must run after (i.e. be deferred before, since defers are LIFO) the
+	// close(events) above so a recovered panic can still get an error event
+	// out on the still-open channel — see CLAUDE.md's goroutine recover
+	// rule.
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("workflow: panic in runWorkflow", "panic", r, "run_id", run.ID, "stack", string(debug.Stack()))
+			trySend(ctx, events, StepEvent{Type: EventError, RunID: run.ID, Error: "服务器内部错误，请稍后重试"})
+		}
+	}()
 
 	ec := execContext{Input: input, Steps: map[string]string{}}
 	current, _ := wf.Definition.startStep() // Validate() on save guarantees this exists
@@ -97,7 +115,16 @@ func (s *service) runWorkflow(ctx context.Context, wf Workflow, run WorkflowRun,
 			break
 		}
 
-		events <- StepEvent{Type: EventStep, RunID: run.ID, StepID: current.ID, StepType: string(current.Type), Status: "running"}
+		if !trySend(ctx, events, StepEvent{Type: EventStep, RunID: run.ID, StepID: current.ID, StepType: string(current.Type), Status: "running"}) {
+			// Nobody downstream is reading anymore (client disconnected) —
+			// a plain send would block this goroutine forever, and the
+			// run's row would be stuck at status="running" forever since
+			// the finishRun call below would never be reached. Stop
+			// executing further steps and fall through to finalize the
+			// run's row as failed instead.
+			runErr = errClientDisconnected
+			break
+		}
 		startedAt := time.Now()
 		result, stepErr := s.runStep(ctx, current, ec, input)
 		finishedAt := time.Now()
@@ -111,7 +138,7 @@ func (s *service) runWorkflow(ctx context.Context, wf Workflow, run WorkflowRun,
 			}); err != nil {
 				slog.Error("workflow: persist failed step", "err", err, "run_id", run.ID, "step_id", current.ID)
 			}
-			events <- StepEvent{Type: EventStep, RunID: run.ID, StepID: current.ID, StepType: string(current.Type), Status: "failed", Error: stepErr.Error()}
+			trySend(ctx, events, StepEvent{Type: EventStep, RunID: run.ID, StepID: current.ID, StepType: string(current.Type), Status: "failed", Error: stepErr.Error()})
 			runErr = stepErr
 			break
 		}
@@ -124,7 +151,10 @@ func (s *service) runWorkflow(ctx context.Context, wf Workflow, run WorkflowRun,
 		}); err != nil {
 			slog.Error("workflow: persist succeeded step", "err", err, "run_id", run.ID, "step_id", current.ID)
 		}
-		events <- StepEvent{Type: EventStep, RunID: run.ID, StepID: current.ID, StepType: string(current.Type), Status: "succeeded", Output: result.Output}
+		if !trySend(ctx, events, StepEvent{Type: EventStep, RunID: run.ID, StepID: current.ID, StepType: string(current.Type), Status: "succeeded", Output: result.Output}) {
+			runErr = errClientDisconnected
+			break
+		}
 
 		ec.Steps[current.ID] = result.Output
 		ec.Prev = result.Output
@@ -164,15 +194,28 @@ func (s *service) runWorkflow(ctx context.Context, wf Workflow, run WorkflowRun,
 	}
 	if err := s.repo.finishRun(ctx, run); err != nil {
 		slog.Error("workflow: finish run", "err", err, "run_id", run.ID)
-		events <- StepEvent{Type: EventError, RunID: run.ID, Error: "工作流执行完成，但保存结果失败"}
+		trySend(ctx, events, StepEvent{Type: EventError, RunID: run.ID, Error: "工作流执行完成，但保存结果失败"})
 		return
 	}
 
 	if runErr != nil {
-		events <- StepEvent{Type: EventError, RunID: run.ID, Error: runErr.Error()}
+		trySend(ctx, events, StepEvent{Type: EventError, RunID: run.ID, Error: runErr.Error()})
 		return
 	}
-	events <- StepEvent{Type: EventDone, RunID: run.ID, Output: finalOutput}
+	trySend(ctx, events, StepEvent{Type: EventDone, RunID: run.ID, Output: finalOutput})
+}
+
+// trySend delivers evt on events but never blocks past ctx's cancellation —
+// same rationale as conversation.trySend: once the client disconnects,
+// nobody downstream reads events anymore, and a plain send would pin this
+// goroutine forever.
+func trySend(ctx context.Context, events chan<- StepEvent, evt StepEvent) bool {
+	select {
+	case events <- evt:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // runStep dispatches to the step-type-specific runner. For a conditional

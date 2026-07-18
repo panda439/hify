@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -170,9 +171,23 @@ func (s *service) StreamMessage(ctx context.Context, userID, conversationID, con
 // partial reply.
 func (s *service) runStream(ctx context.Context, client provider.Client, req provider.ChatRequest, conversationID string, retrieved []knowledge.RetrievedChunk, toolNameToID map[string]string, events chan<- StreamEvent) {
 	defer close(events)
+	// Must run after (i.e. be deferred before, since defers are LIFO) the
+	// close(events) above so a recovered panic can still get an error event
+	// out on the still-open channel — see CLAUDE.md's goroutine recover
+	// rule; every chat message goes through this goroutine, so an
+	// unrecovered panic here would take the whole process down for every
+	// concurrent user, not just this one request.
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("conversation: panic in runStream", "panic", r, "conversation_id", conversationID, "stack", string(debug.Stack()))
+			trySend(ctx, events, StreamEvent{Type: EventError, Error: "服务器内部错误，请稍后重试"})
+		}
+	}()
 
 	if len(retrieved) > 0 {
-		events <- StreamEvent{Type: EventRetrieval, Retrieved: toRetrievedChunkInfo(retrieved)}
+		if !trySend(ctx, events, StreamEvent{Type: EventRetrieval, Retrieved: toRetrievedChunkInfo(retrieved)}) {
+			return
+		}
 	}
 
 	messages := req.Messages
@@ -182,7 +197,7 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 
 		chunks, err := client.ChatStream(ctx, req)
 		if err != nil {
-			events <- StreamEvent{Type: EventError, Error: provider.WrapClientError(err).Error()}
+			trySend(ctx, events, StreamEvent{Type: EventError, Error: provider.WrapClientError(err).Error()})
 			return
 		}
 
@@ -197,7 +212,15 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 			}
 			if chunk.DeltaContent != "" {
 				buf.WriteString(chunk.DeltaContent)
-				events <- StreamEvent{Type: EventDelta, Content: chunk.DeltaContent}
+				if !trySend(ctx, events, StreamEvent{Type: EventDelta, Content: chunk.DeltaContent}) {
+					// Client disconnected (or the request context was
+					// otherwise canceled) and nobody downstream is reading
+					// events anymore — a plain send here would block this
+					// goroutine forever (see resilience.go's matching fix).
+					// Bail, but don't lose whatever was already generated.
+					s.persistAssistantTurn(conversationID, buf.String(), nil)
+					return
+				}
 			}
 			if len(chunk.DeltaToolCalls) > 0 {
 				toolCalls = mergeToolCallDeltas(toolCalls, chunk.DeltaToolCalls)
@@ -209,7 +232,7 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 
 		if streamErr != nil {
 			s.persistAssistantTurn(conversationID, buf.String(), nil)
-			events <- StreamEvent{Type: EventError, Error: provider.WrapClientError(streamErr).Error()}
+			trySend(ctx, events, StreamEvent{Type: EventError, Error: provider.WrapClientError(streamErr).Error()})
 			return
 		}
 
@@ -225,11 +248,27 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 		}
 
 		s.persistAssistantTurn(conversationID, buf.String(), nil)
-		events <- StreamEvent{Type: EventDone}
+		trySend(ctx, events, StreamEvent{Type: EventDone})
 		return
 	}
 
-	events <- StreamEvent{Type: EventError, Error: "工具调用次数过多，已终止本轮对话"}
+	trySend(ctx, events, StreamEvent{Type: EventError, Error: "工具调用次数过多，已终止本轮对话"})
+}
+
+// trySend delivers evt on events but never blocks past ctx's cancellation.
+// Once the client disconnects, gin's SSE writer (handler.go's c.Stream)
+// stops reading from events entirely, and a plain `events <- evt` would
+// then block this goroutine forever — which in turn stops it draining
+// chunks, which in turn blocks resilience.go's forwarder goroutine on its
+// own send, pinning that provider's concurrency semaphore indefinitely.
+// false means the caller should treat delivery as abandoned.
+func trySend(ctx context.Context, events chan<- StreamEvent, evt StreamEvent) bool {
+	select {
+	case events <- evt:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // runToolCall dispatches one accumulated tool call to mcp.Service, emits
@@ -239,7 +278,11 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 // explanation on failure, since every tool_call from an assistant message
 // must get a matching tool response or the next API call is malformed.
 func (s *service) runToolCall(ctx context.Context, tc provider.ToolCall, toolNameToID map[string]string, conversationID string, events chan<- StreamEvent) string {
-	events <- StreamEvent{Type: EventToolCall, ToolCall: &ToolCallInfo{Name: tc.Name, Status: "running"}}
+	// Best-effort: whether or not anyone is still listening, the tool must
+	// still run and its result must still be persisted below (every
+	// tool_call needs a matching tool response for the next API call to be
+	// well-formed) — so a failed send here doesn't abort the function.
+	trySend(ctx, events, StreamEvent{Type: EventToolCall, ToolCall: &ToolCallInfo{Name: tc.Name, Status: "running"}})
 
 	var result string
 	status := "done"
@@ -262,7 +305,7 @@ func (s *service) runToolCall(ctx context.Context, tc provider.ToolCall, toolNam
 		}
 	}
 
-	events <- StreamEvent{Type: EventToolCall, ToolCall: &ToolCallInfo{Name: tc.Name, Status: status, Result: result}}
+	trySend(ctx, events, StreamEvent{Type: EventToolCall, ToolCall: &ToolCallInfo{Name: tc.Name, Status: status, Result: result}})
 
 	persistCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
