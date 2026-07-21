@@ -1,10 +1,20 @@
 -include .env
 export
 
-.PHONY: dev build migrate-up migrate-down sqlc check-deps db-up db-down web-dev web-build
+.PHONY: dev build test test-race migrate-up migrate-down sqlc check-deps db-up db-down web-dev web-build
 
 dev:
 	air
+
+# 集成测试依赖 docker-compose 容器（make db-up）；容器没起时自动 skip，
+# 只跑纯逻辑单测。
+test:
+	go vet ./internal/...
+	go test ./internal/...
+
+test-race:
+	go vet ./internal/...
+	go test -race -count=1 ./internal/...
 
 build: web-build
 	go build -o bin/hify ./cmd/hify

@@ -1,0 +1,70 @@
+# 后端跑 vet + 全部测试（单测 + 集成测试）。集成测试的 DSN 硬编码
+# 127.0.0.1:3307 / 127.0.0.1:5433（见 internal/testutil/db.go，和本地
+# docker-compose 的端口避让约定一致），所以这里把 service 容器映射到
+# 相同端口、用相同凭据，测试代码零改动即可在 CI 复用。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: hify_root_dev
+          MYSQL_DATABASE: hify
+          MYSQL_USER: hify
+          MYSQL_PASSWORD: hify_dev
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h localhost -uroot -phify_root_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_DB: hify
+          POSTGRES_USER: hify
+          POSTGRES_PASSWORD: hify_dev
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U hify -d hify"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Vet
+        run: go vet ./internal/...
+      - name: Test (unit + integration, race)
+        run: go test -race -count=1 ./internal/...
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Build (includes tsc)
+        run: npm run build
