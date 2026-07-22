@@ -30,6 +30,7 @@ type Querier interface {
 	CreateProvider(ctx context.Context, arg CreateProviderParams) error
 	CreateProviderModel(ctx context.Context, arg CreateProviderModelParams) error
 	CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) error
+	CreateTraceSpan(ctx context.Context, arg CreateTraceSpanParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) error
 	CreateWorkflow(ctx context.Context, arg CreateWorkflowParams) error
 	// output/error_message have no MySQL-level default (TEXT columns can't
@@ -92,6 +93,7 @@ type Querier interface {
 	// the first page of a conversation's history in the UI — always bounded by
 	// conversation_id per CLAUDE.md's large-table rule (never an unfiltered scan).
 	ListRecentMessagesByConversation(ctx context.Context, arg ListRecentMessagesByConversationParams) ([]Message, error)
+	ListTraceSpansByConversation(ctx context.Context, conversationID string) ([]TraceSpan, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	ListWorkflowRunSteps(ctx context.Context, workflowRunID string) ([]WorkflowRunStep, error)
 	ListWorkflowRuns(ctx context.Context, arg ListWorkflowRunsParams) ([]WorkflowRun, error)

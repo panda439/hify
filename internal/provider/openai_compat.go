@@ -111,7 +111,9 @@ func (c *openAICompatClient) Chat(ctx context.Context, req ChatRequest) (Message
 	if len(resp.Choices) == 0 {
 		return Message{}, fmt.Errorf("provider: empty choices in response")
 	}
-	return fromOpenAIMessage(resp.Choices[0].Message), nil
+	msg := fromOpenAIMessage(resp.Choices[0].Message)
+	msg.Usage = fromOpenAIUsage(resp.Usage)
+	return msg, nil
 }
 
 func (c *openAICompatClient) ChatStream(ctx context.Context, req ChatRequest) (<-chan ChatChunk, error) {
@@ -142,11 +144,26 @@ func (c *openAICompatClient) ChatStream(ctx context.Context, req ChatRequest) (<
 				continue
 			}
 			choice := resp.Choices[0]
-			if !trySendChunk(ctx, out, ChatChunk{
+			chunk := ChatChunk{
 				DeltaContent:   choice.Delta.Content,
 				DeltaToolCalls: fromOpenAIToolCalls(choice.Delta.ToolCalls),
 				FinishReason:   string(choice.FinishReason),
-			}) {
+			}
+			if choice.FinishReason != "" {
+				// stream_options.include_usage (set below in
+				// toOpenAIRequest) makes the API send token usage on a
+				// separate trailing chunk with an empty choices array right
+				// after this one — read it now so callers see usage on the
+				// same chunk that carries FinishReason, rather than exposing
+				// that two-chunk wire quirk. Best-effort: not every
+				// OpenAI-compatible provider actually honors the option.
+				if resp.Usage != nil {
+					chunk.Usage = fromOpenAIUsage(*resp.Usage)
+				} else if trailing, terr := stream.Recv(); terr == nil && trailing.Usage != nil {
+					chunk.Usage = fromOpenAIUsage(*trailing.Usage)
+				}
+			}
+			if !trySendChunk(ctx, out, chunk) {
 				return
 			}
 			if choice.FinishReason != "" {
@@ -226,7 +243,7 @@ func toOpenAIRequest(req ChatRequest, stream bool) openai.ChatCompletionRequest 
 		})
 	}
 
-	return openai.ChatCompletionRequest{
+	out := openai.ChatCompletionRequest{
 		Model:       req.Model,
 		Messages:    messages,
 		Temperature: float32(req.Temperature),
@@ -234,6 +251,20 @@ func toOpenAIRequest(req ChatRequest, stream bool) openai.ChatCompletionRequest 
 		TopP:        float32(req.TopP),
 		Tools:       tools,
 		Stream:      stream,
+	}
+	if stream {
+		// Requests the trailing usage-only chunk ChatStream reads above.
+		// Providers that don't understand the option just ignore it.
+		out.StreamOptions = &openai.StreamOptions{IncludeUsage: true}
+	}
+	return out
+}
+
+func fromOpenAIUsage(u openai.Usage) Usage {
+	return Usage{
+		PromptTokens:     u.PromptTokens,
+		CompletionTokens: u.CompletionTokens,
+		TotalTokens:      u.TotalTokens,
 	}
 }
 

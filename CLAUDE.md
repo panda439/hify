@@ -71,6 +71,7 @@ internal/<module>/
 12. 只能依赖更低层模块的 `Service` 接口，禁止反向依赖，禁止同层模块互相依赖。如果同层两个模块发现必须互相调用，说明分层分错了——要么合并成一个模块，要么把其中一个下沉一层，不允许绕过规则用事件/回调之类的手段"假装"没有循环依赖。
 13. 模块间真正共享、和具体业务无关的类型（分页参数、通用错误码枚举等）放 `internal/platform`，不放在某个业务模块里让别人 import。
 14. 跨模块调用一律是 Go 接口的同进程直接调用（传 `context.Context`），不做模块内部 HTTP/RPC 自调用；但方法签名只传值类型/领域 struct，不传指针指向对方模块的可变内部状态，为将来万一要拆分服务保留可能性（非近期目标，只是约束写法）。
+14a. **横切基础设施包（日志类，非业务实体）不受第7条"只能依赖 Service 接口"约束**——`internal/platform/trace`（trace_spans 记录）是先例：不建 handler/dto/wire.go，直接持有 `*gen.Queries`/`*sql.DB`，业务模块（如 conversation）的 `NewService` 用具体类型（`*trace.Store`）注入，不是接口。判断标准：这个包有没有自己的 CRUD/业务规则、要不要在前端展示——有就走标准五层模块；纯粹"记录了什么、供排查/审计用"就归这一类，参照 `apperr`/`httperr`/`trace` 的先例放 `internal/platform` 下。
 
 ### 依赖注入方式（不用 DI 框架）
 
@@ -157,8 +158,8 @@ workflow_run_steps PK(id), INDEX(workflow_run_id, started_at)
 低基数列不单独建索引，并入复合索引做前置过滤列。JSON 列不能直接建索引；真出现按 JSON 内部字段过滤的需求时用 Generated Column + 索引。
 
 ### 大表预判和应对策略
-`messages`、`chunks` 是仅有的两张会持续增长到百万行以上的表。
-1. **大表查询必须始终带强选择性过滤条件**——messages 永远 `WHERE conversation_id=?`、chunks 永远 `WHERE knowledge_base_id=?`、workflow_run_steps 永远 `WHERE workflow_run_id=?`，禁止不带这类条件的查询。
+`messages`、`chunks`、`trace_spans` 是会持续增长到百万行以上的表。
+1. **大表查询必须始终带强选择性过滤条件**——messages 永远 `WHERE conversation_id=?`、chunks 永远 `WHERE knowledge_base_id=?`、workflow_run_steps 永远 `WHERE workflow_run_id=?`、trace_spans 永远 `WHERE conversation_id=?`，禁止不带这类条件的查询。
 2. **分区不在当前阶段做**，触发条件：messages 单表超过约 2000 万行，或某查询稳定超过 200ms 再评估按 created_at 做 RANGE 分区。
 3. **有 TTL 语义的表必须有清理任务**：`refresh_tokens` 过期/已撤销的行需要定期任务（asynq periodic task）清理。
 4. 归档留口子不留实现：日志型大表不建会阻碍未来归档的强级联约束。
@@ -170,6 +171,13 @@ workflow_run_steps PK(id), INDEX(workflow_run_id, started_at)
 
 ## 其他约定
 
-- `Makefile` 提供 `dev`/`build`/`migrate-up`/`migrate-down`/`sqlc`/`check-deps` 目标，日常开发用这些命令而不是手写等价命令。
+- `Makefile` 提供 `dev`/`build`/`migrate-up`/`migrate-down`/`sqlc`/`check-deps`/`eval` 目标，日常开发用这些命令而不是手写等价命令。
 - API 统一在 `/api/v1/*`，其余路径走 SPA fallback。
 - Redis 只做缓存/限流状态/asynq 任务队列，不存任何"真相"数据。熔断器状态保持进程内，不放 Redis 跨实例共享。
+
+## 可观测能力（Trace/Span + Eval Harness）
+
+- 每次 `conversation.Service.StreamMessage` 调用是一个 trace，落 `trace_spans` 表：根 span（`kind=turn`，直接复用 trace_id 作为自己的 id）+ 子 span（`retrieval`/`llm_call`/`tool_call`，`parent_span_id` 指向根 span）。记录逻辑在 `internal/platform/trace`（横切基础设施包，见「代码组织规范」14a 条），业务模块拿到的是具体类型 `*trace.Store`，不是 Service 接口。
+- `trace_spans.attrs` 字段名照抄 OpenTelemetry GenAI 语义约定（`gen_ai.request.model`/`gen_ai.usage.input_tokens`/`gen_ai.usage.output_tokens`/`gen_ai.response.finish_reasons`/`gen_ai.tool.name`，常量定义在 `internal/platform/trace/attrs.go`），新增 span 类型或属性时沿用这套命名，不要另起一套 key 风格。
+- `provider.Message`/`provider.ChatChunk` 的 `Usage` 字段是 best-effort——不是所有 OpenAI 兼容供应商都返回 token 用量，零值就是"没有"，不是错误，不用额外做校验或告警。
+- eval harness（`internal/eval` + `cmd/evalrunner`，跑 `make eval`）读 `eval/testset.yaml` 固定测试集，用 trace 数据核实"评分标准里要求的工具调用是否真的发生"，裁判打分结果存本地 JSON 文件（`eval/runs/*.json`、`eval/baseline.json`），不进数据库、不接 API——这是开发者自用的回归工具，不是给最终用户看的功能。

@@ -1,0 +1,18 @@
+# Hify eval harness 的固定测试集——`make eval` 会依次跑这里的每个 case。
+# agent_id 必须是已经通过 UI/API 配置好的、真实存在的 agent（自带 model/
+# 知识库/工具组合），eval harness 不单独发明一套 agent 配置格式。
+#
+# 用法见 README 或 `go run ./cmd/evalrunner -h`：
+#   go run ./cmd/evalrunner --judge-model-id <UUID> --user-id <UUID>
+#
+# 下面这两条是示例，跑之前请替换成你自己环境里真实的 agent_id。
+cases:
+  - name: "basic_qa"
+    agent_id: "REPLACE_WITH_REAL_AGENT_ID"
+    prompt: "Hify 用什么数据库做向量检索？"
+    rubric: "回答必须提到 pgvector 和 PostgreSQL，语气专业，不能编造未知信息"
+
+  - name: "tool_call"
+    agent_id: "REPLACE_WITH_REAL_AGENT_ID_WITH_MCP_TOOL"
+    prompt: "帮我查一下现在几点了"
+    rubric: "必须实际调用了对应的 MCP 工具（不能瞎编答案），并且把工具结果转述给用户"

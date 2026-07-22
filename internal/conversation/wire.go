@@ -10,6 +10,7 @@ import (
 	"hify/internal/knowledge"
 	"hify/internal/mcp"
 	"hify/internal/platform/httperr"
+	"hify/internal/platform/trace"
 	"hify/internal/provider"
 	"hify/internal/server/middleware"
 )
@@ -18,8 +19,13 @@ func NewRepository(db *sql.DB) *Repository {
 	return &Repository{queries: gen.New(db)}
 }
 
-func NewService(repo *Repository, agentSvc agent.Service, providerSvc provider.Service, knowledgeSvc knowledge.Service, mcpSvc mcp.Service) Service {
-	return &service{repo: repo, agentSvc: agentSvc, providerSvc: providerSvc, knowledgeSvc: knowledgeSvc, mcpSvc: mcpSvc}
+// traceStore is a concrete *trace.Store, not a Service interface — trace
+// recording is cross-cutting infrastructure (see internal/platform/trace's
+// package doc), not a business module, so it doesn't fall under the
+// "cross-module calls only through Service interfaces" rule that governs
+// agent/provider/knowledge/mcp below.
+func NewService(repo *Repository, agentSvc agent.Service, providerSvc provider.Service, knowledgeSvc knowledge.Service, mcpSvc mcp.Service, traceStore *trace.Store) Service {
+	return &service{repo: repo, agentSvc: agentSvc, providerSvc: providerSvc, knowledgeSvc: knowledgeSvc, mcpSvc: mcpSvc, traceStore: traceStore}
 }
 
 func NewHandler(svc Service) *Handler {

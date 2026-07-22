@@ -43,6 +43,7 @@ type Message struct {
 // never a second HTTP response — see conversation/handler.go.
 type StreamEvent struct {
 	Type      string               `json:"type"`
+	TraceID   string               `json:"trace_id,omitempty"`
 	Content   string               `json:"content,omitempty"`
 	Error     string               `json:"error,omitempty"`
 	Retrieved []RetrievedChunkInfo `json:"retrieved,omitempty"`

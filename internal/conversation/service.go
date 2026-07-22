@@ -3,6 +3,7 @@ package conversation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"runtime/debug"
@@ -13,6 +14,7 @@ import (
 	"hify/internal/knowledge"
 	"hify/internal/mcp"
 	"hify/internal/platform"
+	"hify/internal/platform/trace"
 	"hify/internal/provider"
 )
 
@@ -48,6 +50,7 @@ type service struct {
 	providerSvc  provider.Service
 	knowledgeSvc knowledge.Service
 	mcpSvc       mcp.Service
+	traceStore   *trace.Store
 }
 
 func (s *service) CreateConversation(ctx context.Context, userID, agentID string) (Conversation, error) {
@@ -139,7 +142,13 @@ func (s *service) StreamMessage(ctx context.Context, userID, conversationID, con
 		slog.Warn("conversation: touch after user message failed", "err", err, "conversation_id", conversationID)
 	}
 
-	assembled, err := s.assembleContext(ctx, conversationID, ag, model, content)
+	// One trace per StreamMessage call — the root span (kind=turn) reuses
+	// traceID as its own ID, so child spans (retrieval/llm_call/tool_call)
+	// just need this one value as their parent_span_id. See
+	// internal/platform/trace's package doc.
+	traceID := platform.NewID()
+
+	assembled, err := s.assembleContext(ctx, conversationID, ag, model, content, traceID)
 	if err != nil {
 		return nil, err
 	}
@@ -154,8 +163,20 @@ func (s *service) StreamMessage(ctx context.Context, userID, conversationID, con
 	}
 
 	events := make(chan StreamEvent)
-	go s.runStream(ctx, client, req, conversationID, assembled.Retrieved, assembled.ToolNameToID, events)
+	go s.runStream(ctx, client, req, conversationID, traceID, assembled.Retrieved, assembled.ToolNameToID, events)
 	return events, nil
+}
+
+// recordSpan writes span via traceStore using a fresh background context
+// (the request ctx may already be canceled by the time a span is ready to
+// record — e.g. after a client disconnect) and only logs on failure: a
+// broken trace must never take down the conversation it's describing.
+func (s *service) recordSpan(span trace.Span) {
+	recordCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.traceStore.Record(recordCtx, span); err != nil {
+		slog.Error("conversation: record trace span failed", "err", err, "kind", span.Kind, "trace_id", span.TraceID)
+	}
 }
 
 // runStream owns the whole lifetime of one streamed reply, including the
@@ -169,8 +190,31 @@ func (s *service) StreamMessage(ctx context.Context, userID, conversationID, con
 // background context — the request ctx passed to ChatStream may already
 // be canceled by the time we get here, but a disconnect must not lose the
 // partial reply.
-func (s *service) runStream(ctx context.Context, client provider.Client, req provider.ChatRequest, conversationID string, retrieved []knowledge.RetrievedChunk, toolNameToID map[string]string, events chan<- StreamEvent) {
+func (s *service) runStream(ctx context.Context, client provider.Client, req provider.ChatRequest, conversationID, traceID string, retrieved []knowledge.RetrievedChunk, toolNameToID map[string]string, events chan<- StreamEvent) {
 	defer close(events)
+	// turnErr and turnStart back the root (kind=turn) span recorded by the
+	// deferred block below — every abnormal return path in this function
+	// sets turnErr right before returning; the normal EventDone path leaves
+	// it nil. Registered before the recover defer (LIFO: recover runs
+	// first, so it can still set turnErr on a panic) but after
+	// close(events) (so the span write happens before the channel closes,
+	// same reasoning as the recover defer's own comment below).
+	turnStart := time.Now()
+	var turnErr error
+	defer func() {
+		status := trace.StatusOK
+		errMsg := ""
+		if turnErr != nil {
+			status = trace.StatusError
+			errMsg = turnErr.Error()
+		}
+		s.recordSpan(trace.Span{
+			ID: traceID, TraceID: traceID, ParentSpanID: "",
+			ConversationID: conversationID, Kind: trace.KindTurn, Name: "conversation.turn",
+			Status: status, ErrorMessage: errMsg,
+			StartedAt: turnStart, FinishedAt: time.Now(),
+		})
+	}()
 	// Must run after (i.e. be deferred before, since defers are LIFO) the
 	// close(events) above so a recovered panic can still get an error event
 	// out on the still-open channel — see CLAUDE.md's goroutine recover
@@ -180,12 +224,13 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("conversation: panic in runStream", "panic", r, "conversation_id", conversationID, "stack", string(debug.Stack()))
-			trySend(ctx, events, StreamEvent{Type: EventError, Error: "服务器内部错误，请稍后重试"})
+			turnErr = fmt.Errorf("conversation: panic in runStream: %v", r)
+			trySend(ctx, events, StreamEvent{Type: EventError, TraceID: traceID, Error: "服务器内部错误，请稍后重试"})
 		}
 	}()
 
 	if len(retrieved) > 0 {
-		if !trySend(ctx, events, StreamEvent{Type: EventRetrieval, Retrieved: toRetrievedChunkInfo(retrieved)}) {
+		if !trySend(ctx, events, StreamEvent{Type: EventRetrieval, TraceID: traceID, Retrieved: toRetrievedChunkInfo(retrieved)}) {
 			return
 		}
 	}
@@ -195,15 +240,19 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 	for iteration := 0; iteration < maxToolCallIterations; iteration++ {
 		req.Messages = messages
 
+		llmSpanStart := time.Now()
 		chunks, err := client.ChatStream(ctx, req)
 		if err != nil {
-			trySend(ctx, events, StreamEvent{Type: EventError, Error: provider.WrapClientError(err).Error()})
+			turnErr = err
+			s.recordLLMCallSpan(traceID, conversationID, req.Model, llmSpanStart, messages, "", "", trace.StatusError, err.Error(), provider.Usage{})
+			trySend(ctx, events, StreamEvent{Type: EventError, TraceID: traceID, Error: provider.WrapClientError(err).Error()})
 			return
 		}
 
 		var buf strings.Builder
 		var toolCalls []provider.ToolCall
 		var finishReason string
+		var usage provider.Usage
 		var streamErr error
 		for chunk := range chunks {
 			if chunk.Err != nil {
@@ -212,12 +261,14 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 			}
 			if chunk.DeltaContent != "" {
 				buf.WriteString(chunk.DeltaContent)
-				if !trySend(ctx, events, StreamEvent{Type: EventDelta, Content: chunk.DeltaContent}) {
+				if !trySend(ctx, events, StreamEvent{Type: EventDelta, TraceID: traceID, Content: chunk.DeltaContent}) {
 					// Client disconnected (or the request context was
 					// otherwise canceled) and nobody downstream is reading
 					// events anymore — a plain send here would block this
 					// goroutine forever (see resilience.go's matching fix).
 					// Bail, but don't lose whatever was already generated.
+					turnErr = errClientDisconnected
+					s.recordLLMCallSpan(traceID, conversationID, req.Model, llmSpanStart, messages, buf.String(), finishReason, trace.StatusError, turnErr.Error(), usage)
 					s.persistAssistantTurn(conversationID, buf.String(), nil)
 					return
 				}
@@ -227,32 +278,82 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 			}
 			if chunk.FinishReason != "" {
 				finishReason = chunk.FinishReason
+				usage = chunk.Usage
 			}
 		}
 
 		if streamErr != nil {
+			turnErr = streamErr
+			s.recordLLMCallSpan(traceID, conversationID, req.Model, llmSpanStart, messages, buf.String(), finishReason, trace.StatusError, streamErr.Error(), usage)
 			s.persistAssistantTurn(conversationID, buf.String(), nil)
-			trySend(ctx, events, StreamEvent{Type: EventError, Error: provider.WrapClientError(streamErr).Error()})
+			trySend(ctx, events, StreamEvent{Type: EventError, TraceID: traceID, Error: provider.WrapClientError(streamErr).Error()})
 			return
 		}
 
 		if finishReason == "tool_calls" && len(toolCalls) > 0 && len(toolNameToID) > 0 {
+			s.recordLLMCallSpan(traceID, conversationID, req.Model, llmSpanStart, messages, buf.String(), finishReason, trace.StatusOK, "", usage)
 			s.persistAssistantTurn(conversationID, buf.String(), toolCalls)
 			messages = append(messages, provider.Message{Role: provider.RoleAssistant, Content: buf.String(), ToolCalls: toolCalls})
 
 			for _, tc := range toolCalls {
-				result := s.runToolCall(ctx, tc, toolNameToID, conversationID, events)
+				result := s.runToolCall(ctx, tc, toolNameToID, conversationID, traceID, events)
 				messages = append(messages, provider.Message{Role: provider.RoleTool, Content: result, ToolCallID: tc.ID})
 			}
 			continue
 		}
 
+		s.recordLLMCallSpan(traceID, conversationID, req.Model, llmSpanStart, messages, buf.String(), finishReason, trace.StatusOK, "", usage)
 		s.persistAssistantTurn(conversationID, buf.String(), nil)
-		trySend(ctx, events, StreamEvent{Type: EventDone})
+		trySend(ctx, events, StreamEvent{Type: EventDone, TraceID: traceID})
 		return
 	}
 
-	trySend(ctx, events, StreamEvent{Type: EventError, Error: "工具调用次数过多，已终止本轮对话"})
+	turnErr = errTooManyToolIterations
+	trySend(ctx, events, StreamEvent{Type: EventError, TraceID: traceID, Error: "工具调用次数过多，已终止本轮对话"})
+}
+
+// errClientDisconnected/errTooManyToolIterations back runStream's turnErr —
+// curated Chinese text isn't needed here (unlike workflow's equivalent)
+// since these only ever populate trace_spans.error_message, an internal
+// debugging field never shown to the end user (the StreamEvent sent to the
+// client already carries its own Chinese message at each call site).
+var (
+	errClientDisconnected    = errors.New("client disconnected mid-stream")
+	errTooManyToolIterations = errors.New("max tool-call iterations reached")
+)
+
+// recordLLMCallSpan records one ChatStream call (one loop iteration) as a
+// kind=llm_call span. messages is the exact request sent (summarized, not
+// stored verbatim, to keep the row size sane); usage is best-effort (see
+// provider.Usage's doc comment) and simply omitted from Attrs when zero.
+func (s *service) recordLLMCallSpan(traceID, conversationID, model string, start time.Time, messages []provider.Message, output, finishReason, status, errMsg string, usage provider.Usage) {
+	s.recordSpan(trace.Span{
+		ID: platform.NewID(), TraceID: traceID, ParentSpanID: traceID,
+		ConversationID: conversationID, Kind: trace.KindLLMCall, Name: "llm.chat_stream",
+		Status: status, Input: summarizeMessages(messages), Output: output, ErrorMessage: errMsg,
+		Attrs: trace.Attrs(map[string]any{
+			trace.AttrRequestModel:      model,
+			trace.AttrFinishReasons:     finishReason,
+			trace.AttrUsageInputTokens:  usage.PromptTokens,
+			trace.AttrUsageOutputTokens: usage.CompletionTokens,
+		}),
+		StartedAt: start, FinishedAt: time.Now(),
+	})
+}
+
+// summarizeMessages renders a request's message list as "role: content"
+// lines for a span's Input field — plain text is enough for a human
+// reading the trace later; it doesn't need to round-trip back into a
+// provider.Message.
+func summarizeMessages(messages []provider.Message) string {
+	var sb strings.Builder
+	for i, m := range messages {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		fmt.Fprintf(&sb, "%s: %s", m.Role, m.Content)
+	}
+	return sb.String()
 }
 
 // trySend delivers evt on events but never blocks past ctx's cancellation.
@@ -277,13 +378,14 @@ func trySend(ctx context.Context, events chan<- StreamEvent, evt StreamEvent) bo
 // content to feed back into the next ChatStream call — a Chinese
 // explanation on failure, since every tool_call from an assistant message
 // must get a matching tool response or the next API call is malformed.
-func (s *service) runToolCall(ctx context.Context, tc provider.ToolCall, toolNameToID map[string]string, conversationID string, events chan<- StreamEvent) string {
+func (s *service) runToolCall(ctx context.Context, tc provider.ToolCall, toolNameToID map[string]string, conversationID, traceID string, events chan<- StreamEvent) string {
 	// Best-effort: whether or not anyone is still listening, the tool must
 	// still run and its result must still be persisted below (every
 	// tool_call needs a matching tool response for the next API call to be
 	// well-formed) — so a failed send here doesn't abort the function.
-	trySend(ctx, events, StreamEvent{Type: EventToolCall, ToolCall: &ToolCallInfo{Name: tc.Name, Status: "running"}})
+	trySend(ctx, events, StreamEvent{Type: EventToolCall, TraceID: traceID, ToolCall: &ToolCallInfo{Name: tc.Name, Status: "running"}})
 
+	spanStart := time.Now()
 	var result string
 	status := "done"
 
@@ -305,7 +407,22 @@ func (s *service) runToolCall(ctx context.Context, tc provider.ToolCall, toolNam
 		}
 	}
 
-	trySend(ctx, events, StreamEvent{Type: EventToolCall, ToolCall: &ToolCallInfo{Name: tc.Name, Status: status, Result: result}})
+	spanStatus := trace.StatusOK
+	spanErrMsg := ""
+	if status == "error" {
+		spanStatus = trace.StatusError
+		spanErrMsg = result
+	}
+	s.recordSpan(trace.Span{
+		ID: platform.NewID(), TraceID: traceID, ParentSpanID: traceID,
+		ConversationID: conversationID, Kind: trace.KindToolCall, Name: tc.Name,
+		Status: spanStatus, Input: string(tc.Arguments), Output: result, ErrorMessage: spanErrMsg,
+		Attrs:      trace.Attrs(map[string]any{trace.AttrToolName: tc.Name}),
+		StartedAt:  spanStart,
+		FinishedAt: time.Now(),
+	})
+
+	trySend(ctx, events, StreamEvent{Type: EventToolCall, TraceID: traceID, ToolCall: &ToolCallInfo{Name: tc.Name, Status: status, Result: result}})
 
 	persistCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

@@ -156,6 +156,22 @@ type RefreshToken struct {
 	CreatedAt time.Time    `json:"created_at"`
 }
 
+type TraceSpan struct {
+	ID             string          `json:"id"`
+	TraceID        string          `json:"trace_id"`
+	ParentSpanID   string          `json:"parent_span_id"`
+	ConversationID string          `json:"conversation_id"`
+	Kind           string          `json:"kind"`
+	Name           string          `json:"name"`
+	Status         string          `json:"status"`
+	Input          string          `json:"input"`
+	Output         string          `json:"output"`
+	ErrorMessage   string          `json:"error_message"`
+	Attrs          json.RawMessage `json:"attrs"`
+	StartedAt      time.Time       `json:"started_at"`
+	FinishedAt     time.Time       `json:"finished_at"`
+}
+
 type User struct {
 	ID           string    `json:"id"`
 	Email        string    `json:"email"`

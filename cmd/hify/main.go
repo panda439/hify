@@ -34,6 +34,7 @@ import (
 	"hify/internal/knowledge"
 	"hify/internal/mcp"
 	"hify/internal/platform"
+	"hify/internal/platform/trace"
 	"hify/internal/provider"
 	"hify/internal/server"
 	"hify/internal/user"
@@ -166,7 +167,8 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 
 	// Layer 4
 	conversationRepo := conversation.NewRepository(db)
-	conversationSvc := conversation.NewService(conversationRepo, agentSvc, providerSvc, knowledgeSvc, mcpSvc)
+	traceStore := trace.NewStore(db)
+	conversationSvc := conversation.NewService(conversationRepo, agentSvc, providerSvc, knowledgeSvc, mcpSvc, traceStore)
 	conversationHandler := conversation.NewHandler(conversationSvc)
 	conversation.RegisterRoutes(v1, conversationHandler, cfg.JWTSecret)
 

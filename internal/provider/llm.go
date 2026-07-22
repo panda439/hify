@@ -24,6 +24,17 @@ type Message struct {
 	Content    string
 	ToolCalls  []ToolCall
 	ToolCallID string
+	Usage      Usage
+}
+
+// Usage is best-effort: not every OpenAI-compatible provider returns token
+// counts (self-hosted Ollama/vLLM often don't), so a zero value here just
+// means "unavailable", not an error — callers skip the corresponding
+// gen_ai.usage.* trace attribute rather than treating it as a failure.
+type Usage struct {
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
 }
 
 // ToolCall represents one function call, either fully resolved (a
@@ -59,11 +70,14 @@ type ChatRequest struct {
 
 // ChatChunk is one increment of a streamed response. Err terminates the
 // stream when non-nil; FinishReason is set on the final content chunk
-// ("stop" | "tool_calls" | "length" | "error").
+// ("stop" | "tool_calls" | "length" | "error"). Usage is only ever
+// populated on that same final chunk (see openai_compat.go's
+// StreamOptions.IncludeUsage) — best-effort, same caveat as Message.Usage.
 type ChatChunk struct {
 	DeltaContent   string
 	DeltaToolCalls []ToolCall
 	FinishReason   string
+	Usage          Usage
 	Err            error
 }
 

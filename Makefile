@@ -1,7 +1,7 @@
 -include .env
 export
 
-.PHONY: dev build test test-race migrate-up migrate-down sqlc check-deps db-up db-down web-dev web-build
+.PHONY: dev build test test-race migrate-up migrate-down sqlc check-deps db-up db-down web-dev web-build eval
 
 dev:
 	air
@@ -42,3 +42,8 @@ web-dev:
 
 web-build:
 	cd web && npm run build
+
+# 跑一遍 eval/testset.yaml，和 eval/baseline.json 做回归对比。需要
+# JUDGE_MODEL_ID/EVAL_USER_ID 两个环境变量（裁判模型和跑测试用的现有用户）。
+eval:
+	go run ./cmd/evalrunner --testset eval/testset.yaml --judge-model-id $(JUDGE_MODEL_ID) --user-id $(EVAL_USER_ID) --baseline eval/baseline.json

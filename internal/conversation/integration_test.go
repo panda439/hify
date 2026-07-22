@@ -10,6 +10,7 @@ import (
 	"hify/internal/agent"
 	"hify/internal/knowledge"
 	"hify/internal/mcp"
+	"hify/internal/platform/trace"
 	"hify/internal/provider"
 	"hify/internal/testutil"
 )
@@ -131,7 +132,8 @@ func eventTypes(events []StreamEvent) []string {
 // --- tests ---
 
 func TestIntegrationStreamMessageToolCallLoop(t *testing.T) {
-	repo := NewRepository(testutil.MySQL(t, "conversation"))
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
 	ctx := context.Background()
 
 	chat := &scriptedChatClient{scripts: [][]provider.ChatChunk{
@@ -163,6 +165,7 @@ func TestIntegrationStreamMessageToolCallLoop(t *testing.T) {
 			Score: 0.9,
 		}}},
 		mcpSvc,
+		trace.NewStore(db),
 	)
 
 	seedConversation(t, repo, "conv-1", "ag-1", "u1")
@@ -233,11 +236,12 @@ func TestIntegrationStreamMessageToolCallLoop(t *testing.T) {
 }
 
 func TestIntegrationStreamMessageOwnership(t *testing.T) {
-	repo := NewRepository(testutil.MySQL(t, "conversation"))
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
 	svc := NewService(repo,
 		&fakeAgentSvc{ag: agent.Agent{ID: "ag-own", ModelID: "m1"}},
 		&fakeProviderSvc{client: &scriptedChatClient{}},
-		&fakeKnowledgeSvc{}, &fakeMCPSvc{})
+		&fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db))
 
 	seedConversation(t, repo, "conv-own", "ag-own", "owner-user")
 	// 别人的会话：必须拒绝（防越权是链路 8 在 service 层的延伸）。
@@ -247,7 +251,8 @@ func TestIntegrationStreamMessageOwnership(t *testing.T) {
 }
 
 func TestIntegrationStreamMessageMidStreamErrorPersistsPartial(t *testing.T) {
-	repo := NewRepository(testutil.MySQL(t, "conversation"))
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
 	ctx := context.Background()
 
 	chat := &scriptedChatClient{scripts: [][]provider.ChatChunk{{
@@ -257,7 +262,7 @@ func TestIntegrationStreamMessageMidStreamErrorPersistsPartial(t *testing.T) {
 	svc := NewService(repo,
 		&fakeAgentSvc{ag: agent.Agent{ID: "ag-err", ModelID: "m1"}},
 		&fakeProviderSvc{client: chat},
-		&fakeKnowledgeSvc{}, &fakeMCPSvc{})
+		&fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db))
 
 	seedConversation(t, repo, "conv-err", "ag-err", "u1")
 	events, err := svc.StreamMessage(ctx, "u1", "conv-err", "hi")
@@ -284,7 +289,8 @@ func TestIntegrationStreamMessageMidStreamErrorPersistsPartial(t *testing.T) {
 func TestIntegrationStreamMessageUnknownToolFedBackAsError(t *testing.T) {
 	// 模型幻觉出不存在的工具名：不 panic、给模型一条"不可用"的 tool 消息、
 	// 对话还能走到 done——这是工具循环最容易改坏的容错分支。
-	repo := NewRepository(testutil.MySQL(t, "conversation"))
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
 	ctx := context.Background()
 
 	chat := &scriptedChatClient{scripts: [][]provider.ChatChunk{
@@ -301,7 +307,7 @@ func TestIntegrationStreamMessageUnknownToolFedBackAsError(t *testing.T) {
 	svc := NewService(repo,
 		&fakeAgentSvc{ag: agent.Agent{ID: "ag-hal", ModelID: "m1", MCPToolIDs: []string{"tool-1"}}},
 		&fakeProviderSvc{client: chat},
-		&fakeKnowledgeSvc{}, mcpSvc)
+		&fakeKnowledgeSvc{}, mcpSvc, trace.NewStore(db))
 
 	seedConversation(t, repo, "conv-hal", "ag-hal", "u1")
 	events, err := svc.StreamMessage(ctx, "u1", "conv-hal", "hi")

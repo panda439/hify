@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"hify/internal/agent"
 	"hify/internal/knowledge"
+	"hify/internal/platform"
+	"hify/internal/platform/trace"
 	"hify/internal/provider"
 )
 
@@ -55,7 +58,7 @@ type assembledContext struct {
 // tool loading are best-effort: a failure there is logged and the turn
 // continues without that piece, rather than failing outright — a RAG or
 // MCP hiccup shouldn't take down a conversation that would otherwise work.
-func (s *service) assembleContext(ctx context.Context, conversationID string, ag agent.Agent, model provider.Model, latestUserMessage string) (assembledContext, error) {
+func (s *service) assembleContext(ctx context.Context, conversationID string, ag agent.Agent, model provider.Model, latestUserMessage, traceID string) (assembledContext, error) {
 	rows, err := s.repo.listRecentMessages(ctx, conversationID, maxContextFetchMessages)
 	if err != nil {
 		return assembledContext{}, err
@@ -67,11 +70,28 @@ func (s *service) assembleContext(ctx context.Context, conversationID string, ag
 
 	var retrieved []knowledge.RetrievedChunk
 	if len(ag.KnowledgeBaseIDs) > 0 {
+		spanStart := time.Now()
 		retrieved, err = s.knowledgeSvc.Retrieve(ctx, ag.KnowledgeBaseIDs, latestUserMessage, retrievalTopK)
+		status := trace.StatusOK
+		errMsg := ""
 		if err != nil {
 			slog.Warn("conversation: RAG retrieval failed, continuing without it", "err", err, "conversation_id", conversationID)
+			status = trace.StatusError
+			errMsg = err.Error()
 			retrieved = nil
 		}
+		spanOutput := ""
+		if len(retrieved) > 0 {
+			spanOutput = formatRetrievedContext(retrieved)
+		}
+		s.recordSpan(trace.Span{
+			ID: platform.NewID(), TraceID: traceID, ParentSpanID: traceID,
+			ConversationID: conversationID, Kind: trace.KindRetrieval, Name: "knowledge.retrieve",
+			Status: status, Input: latestUserMessage, Output: spanOutput, ErrorMessage: errMsg,
+			Attrs:      trace.Attrs(map[string]any{}),
+			StartedAt:  spanStart,
+			FinishedAt: time.Now(),
+		})
 	}
 
 	tools, toolNameToID := s.loadTools(ctx, ag.MCPToolIDs)
