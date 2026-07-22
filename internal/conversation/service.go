@@ -145,8 +145,12 @@ func (s *service) StreamMessage(ctx context.Context, userID, conversationID, con
 	// One trace per StreamMessage call — the root span (kind=turn) reuses
 	// traceID as its own ID, so child spans (retrieval/llm_call/tool_call)
 	// just need this one value as their parent_span_id. See
-	// internal/platform/trace's package doc.
+	// internal/platform/trace's package doc. turnStart is captured here,
+	// before assembleContext's retrieval span, not inside runStream's
+	// goroutine — a parent span's StartedAt must precede every child's, and
+	// retrieval already happens synchronously before runStream is spawned.
 	traceID := platform.NewID()
+	turnStart := time.Now()
 
 	assembled, err := s.assembleContext(ctx, conversationID, ag, model, content, traceID)
 	if err != nil {
@@ -163,7 +167,7 @@ func (s *service) StreamMessage(ctx context.Context, userID, conversationID, con
 	}
 
 	events := make(chan StreamEvent)
-	go s.runStream(ctx, client, req, conversationID, traceID, assembled.Retrieved, assembled.ToolNameToID, events)
+	go s.runStream(ctx, client, req, conversationID, traceID, turnStart, assembled.Retrieved, assembled.ToolNameToID, events)
 	return events, nil
 }
 
@@ -190,16 +194,18 @@ func (s *service) recordSpan(span trace.Span) {
 // background context — the request ctx passed to ChatStream may already
 // be canceled by the time we get here, but a disconnect must not lose the
 // partial reply.
-func (s *service) runStream(ctx context.Context, client provider.Client, req provider.ChatRequest, conversationID, traceID string, retrieved []knowledge.RetrievedChunk, toolNameToID map[string]string, events chan<- StreamEvent) {
+func (s *service) runStream(ctx context.Context, client provider.Client, req provider.ChatRequest, conversationID, traceID string, turnStart time.Time, retrieved []knowledge.RetrievedChunk, toolNameToID map[string]string, events chan<- StreamEvent) {
 	defer close(events)
-	// turnErr and turnStart back the root (kind=turn) span recorded by the
-	// deferred block below — every abnormal return path in this function
-	// sets turnErr right before returning; the normal EventDone path leaves
-	// it nil. Registered before the recover defer (LIFO: recover runs
+	// turnErr backs the root (kind=turn) span recorded by the deferred
+	// block below — every abnormal return path in this function sets
+	// turnErr right before returning; the normal EventDone path leaves it
+	// nil. turnStart is a parameter (captured by the caller before
+	// assembleContext's retrieval span, not here) so the root span's
+	// StartedAt precedes every child span's, retrieval included. This
+	// defer is registered before the recover defer (LIFO: recover runs
 	// first, so it can still set turnErr on a panic) but after
 	// close(events) (so the span write happens before the channel closes,
 	// same reasoning as the recover defer's own comment below).
-	turnStart := time.Now()
 	var turnErr error
 	defer func() {
 		status := trace.StatusOK

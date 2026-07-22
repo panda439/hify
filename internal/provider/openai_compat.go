@@ -156,11 +156,18 @@ func (c *openAICompatClient) ChatStream(ctx context.Context, req ChatRequest) (<
 				// after this one — read it now so callers see usage on the
 				// same chunk that carries FinishReason, rather than exposing
 				// that two-chunk wire quirk. Best-effort: not every
-				// OpenAI-compatible provider actually honors the option.
+				// OpenAI-compatible provider actually honors the option, and
+				// a provider that emits FinishReason then goes silent
+				// without closing the connection must not be able to block
+				// this goroutine forever — recvTrailingUsage bounds the
+				// extra read with its own timeout, independent of ctx and
+				// of resilience.go's idle/duration timers (which only guard
+				// the outer forwarder's channel read, not this underlying
+				// network read).
 				if resp.Usage != nil {
 					chunk.Usage = fromOpenAIUsage(*resp.Usage)
-				} else if trailing, terr := stream.Recv(); terr == nil && trailing.Usage != nil {
-					chunk.Usage = fromOpenAIUsage(*trailing.Usage)
+				} else if trailing, ok := recvTrailingUsage(stream); ok {
+					chunk.Usage = fromOpenAIUsage(*trailing)
 				}
 			}
 			if !trySendChunk(ctx, out, chunk) {
@@ -172,6 +179,39 @@ func (c *openAICompatClient) ChatStream(ctx context.Context, req ChatRequest) (<
 		}
 	}()
 	return out, nil
+}
+
+// trailingUsageTimeout bounds recvTrailingUsage's extra read — generous
+// enough that any conformant provider's near-instant trailing chunk clears
+// it easily, short enough that a non-conformant one can't hold this
+// goroutine open indefinitely.
+const trailingUsageTimeout = 5 * time.Second
+
+// recvTrailingUsage reads one more frame off stream, bounded by
+// trailingUsageTimeout instead of ctx — see ChatStream's call site comment
+// for why ctx alone isn't a sufficient guard here. On timeout it gives up
+// and returns ok=false; the underlying stream.Recv() goroutine is left
+// running, but stream.Close() (deferred in ChatStream) unblocks it as soon
+// as this function's caller returns, so it doesn't run forever.
+func recvTrailingUsage(stream *openai.ChatCompletionStream) (*openai.Usage, bool) {
+	type result struct {
+		resp openai.ChatCompletionStreamResponse
+		err  error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		resp, err := stream.Recv()
+		ch <- result{resp, err}
+	}()
+	select {
+	case r := <-ch:
+		if r.err != nil || r.resp.Usage == nil {
+			return nil, false
+		}
+		return r.resp.Usage, true
+	case <-time.After(trailingUsageTimeout):
+		return nil, false
+	}
 }
 
 // trySendChunk delivers chunk on out but never blocks past ctx's
