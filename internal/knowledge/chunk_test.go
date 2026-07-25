@@ -60,3 +60,72 @@ func TestChunkTextTrimsButKeepsInterior(t *testing.T) {
 		t.Fatalf("expected single trimmed chunk, got %v", got)
 	}
 }
+
+// Characterization tests for batchStrings — ProcessDocument's embed
+// batching (链路 2). Broken batching either drops/duplicates pieces
+// across batch boundaries or produces a batch bigger than embedBatchSize.
+
+func TestBatchStringsSplitsEvenly(t *testing.T) {
+	items := []string{"a", "b", "c", "d"}
+	got := batchStrings(items, 2)
+	want := [][]string{{"a", "b"}, {"c", "d"}}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range got {
+		if strings.Join(got[i], ",") != strings.Join(want[i], ",") {
+			t.Fatalf("batch %d = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestBatchStringsLastBatchIsRemainder(t *testing.T) {
+	items := []string{"a", "b", "c", "d", "e"}
+	got := batchStrings(items, 2)
+	if len(got) != 3 {
+		t.Fatalf("got %d batches %v, want 3", len(got), got)
+	}
+	if len(got[2]) != 1 || got[2][0] != "e" {
+		t.Fatalf("last batch = %v, want [e]", got[2])
+	}
+}
+
+func TestBatchStringsPreservesOrderAndTotalCount(t *testing.T) {
+	items := make([]string, 100)
+	for i := range items {
+		items[i] = strings.Repeat("x", i+1) // 每个元素内容不同，方便按顺序核对
+	}
+	got := batchStrings(items, 32)
+	if len(got) != 4 { // 32+32+32+4
+		t.Fatalf("got %d batches, want 4", len(got))
+	}
+	for _, batch := range got {
+		if len(batch) > 32 {
+			t.Fatalf("batch size %d exceeds cap 32", len(batch))
+		}
+	}
+	var flattened []string
+	for _, batch := range got {
+		flattened = append(flattened, batch...)
+	}
+	if len(flattened) != len(items) {
+		t.Fatalf("flattened length = %d, want %d (no dropped/duplicated items)", len(flattened), len(items))
+	}
+	for i := range items {
+		if flattened[i] != items[i] {
+			t.Fatalf("order not preserved at index %d: got %q, want %q", i, flattened[i], items[i])
+		}
+	}
+}
+
+func TestBatchStringsEdgeCases(t *testing.T) {
+	if got := batchStrings(nil, 10); got != nil {
+		t.Fatalf("batchStrings(nil, 10) = %v, want nil", got)
+	}
+	if got := batchStrings([]string{"a"}, 0); got != nil {
+		t.Fatalf("batchStrings with size=0 = %v, want nil", got)
+	}
+	if got := batchStrings([]string{"a", "b"}, 10); len(got) != 1 || len(got[0]) != 2 {
+		t.Fatalf("batch size larger than input = %v, want a single batch of 2", got)
+	}
+}

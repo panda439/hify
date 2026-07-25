@@ -186,6 +186,7 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 	// 等待 goroutine 结束" rule, no separate WaitGroup needed.
 	mux := asynq.NewServeMux()
 	mux.Handle(knowledge.TaskTypeProcessDocument, knowledge.NewTaskHandler(knowledgeSvc))
+	mux.Handle(knowledge.TaskTypeReconcileDocuments, knowledge.NewReconcileTaskHandler(knowledgeSvc))
 	mux.Handle(auth.TaskTypeCleanupRefreshTokens, auth.NewCleanupTaskHandler(authSvc))
 	asynqServer := platform.NewAsynqServer(redisCfg, cfg.AsynqConcurrency)
 	if err := asynqServer.Start(mux); err != nil {
@@ -201,6 +202,16 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 		asynqServer.Shutdown()
 		cleanup()
 		return nil, nil, nil, fmt.Errorf("register refresh token cleanup schedule: %w", err)
+	}
+	// Minimal recovery path for stuck document-processing tasks (crashed
+	// worker, lost enqueue) — see knowledge.Service.ReconcileStuckDocuments
+	// and its staleness thresholds. 5 minutes is frequent enough that a
+	// stuck document isn't stranded for long, without scanning documents
+	// on every tick.
+	if _, err := scheduler.Register("@every 5m", asynq.NewTask(knowledge.TaskTypeReconcileDocuments, nil)); err != nil {
+		asynqServer.Shutdown()
+		cleanup()
+		return nil, nil, nil, fmt.Errorf("register document reconciliation schedule: %w", err)
 	}
 	if err := scheduler.Start(); err != nil {
 		asynqServer.Shutdown()

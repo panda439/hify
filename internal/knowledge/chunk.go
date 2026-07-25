@@ -37,3 +37,22 @@ func chunkText(text string, size, overlap int) []string {
 	}
 	return chunks
 }
+
+// batchStrings splits items into groups of at most size, preserving
+// order — ProcessDocument uses it to keep each provider.Client.Embed call
+// bounded by embedBatchSize regardless of how many pieces chunkText
+// produced (up to maxChunksPerDocument).
+func batchStrings(items []string, size int) [][]string {
+	if size <= 0 || len(items) == 0 {
+		return nil
+	}
+	batches := make([][]string, 0, (len(items)+size-1)/size)
+	for start := 0; start < len(items); start += size {
+		end := start + size
+		if end > len(items) {
+			end = len(items)
+		}
+		batches = append(batches, items[start:end])
+	}
+	return batches
+}

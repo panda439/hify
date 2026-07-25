@@ -60,6 +60,8 @@ type Document struct {
 	CreatedBy       string         `json:"created_by"`
 	CreatedAt       time.Time      `json:"created_at"`
 	UpdatedAt       time.Time      `json:"updated_at"`
+	Version         int64          `json:"version"`
+	LeaseExpiresAt  sql.NullTime   `json:"lease_expires_at"`
 }
 
 type KnowledgeBase struct {

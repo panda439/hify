@@ -17,4 +17,16 @@ var (
 	// carry dynamic content" rule workflow's errors.go documents.
 	ErrEmptyContent           = apperr.InvalidInput("knowledge.empty_content", "文档内容为空或无法提取到文本")
 	ErrEmbeddingCountMismatch = apperr.InvalidInput("knowledge.embedding_count_mismatch", "向量生成数量与分块数量不一致，请重试")
+	ErrTooManyChunks          = apperr.InvalidInput("knowledge.too_many_chunks", "文档分块数量超出单文档上限，请拆分文件后重新上传")
+
+	// ErrEmbeddingDimensionMismatch guards validateEmbedBatch — a later
+	// batch reporting a different dimension than the first batch
+	// established, a non-positive dimension, or a vector whose actual
+	// length disagrees with the batch's own declared dimension.
+	ErrEmbeddingDimensionMismatch = apperr.InvalidInput("knowledge.embedding_dimension_mismatch", "向量生成维度不一致，请重试或联系管理员检查供应商配置")
+
+	// ErrDocumentNotRetryable guards RetryDocument's CAS — only
+	// pending/failed documents can be retried, matching the legal state
+	// transitions in the Document doc comment.
+	ErrDocumentNotRetryable = apperr.Conflict("knowledge.document_not_retryable", "文档当前状态不支持重试，仅 pending/failed 状态可重试")
 )

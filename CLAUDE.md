@@ -2,6 +2,8 @@
 
 Hify 是一个简化版 Dify（Go + React 单体应用）。这份文档是项目级强约定，不是风格建议——写代码、建表时逐字遵守。完整产品计划见 `/Users/lishurong/.claude/plans/floofy-churning-rainbow.md`。
 
+**关于项目归属（2026-07-22 用户明确说明）**：这个项目的代码是 Claude Code 写的，不是用户本人手写/设计的——用户是通过指挥 AI 工具完成的这个项目，大部分代码（尤其前端）他本人没有读过。任何面向第三方的材料（简历、面试话术、LinkedIn）都不能把 Hify 描述成用户"亲手设计/实现"的作品，只能用"AI 辅助开发/指挥 AI 构建"这类如实的措辞。这条约束同样适用于任何在本仓库工作、或被要求生成简历/面试材料的对话。
+
 技术栈：Go + Gin，MySQL 8.x（业务数据）+ Redis（缓存/限流/asynq 任务队列），React + Vite + TS + Tailwind + shadcn/ui，最终打包成单个 Go 二进制（go:embed 内嵌前端静态资源）。
 
 ## 开发流程

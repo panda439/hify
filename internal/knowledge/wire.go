@@ -52,4 +52,5 @@ func RegisterRoutes(v1 *gin.RouterGroup, h *Handler, jwtSecret string) {
 	kbs.GET("/:id/documents", httperr.Wrap(h.ListDocuments))
 	kbs.GET("/:id/documents/:docId", httperr.Wrap(h.GetDocument))
 	kbs.DELETE("/:id/documents/:docId", httperr.Wrap(h.DeleteDocument))
+	kbs.POST("/:id/documents/:docId/retry", httperr.Wrap(h.RetryDocument))
 }

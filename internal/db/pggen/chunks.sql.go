@@ -13,10 +13,30 @@ import (
 	pgvector "github.com/pgvector/pgvector-go"
 )
 
-const countChunksByKnowledgeBase = `-- name: CountChunksByKnowledgeBase :one
-SELECT COUNT(*) FROM chunks WHERE knowledge_base_id = $1
+const countChunksByDocumentVersion = `-- name: CountChunksByDocumentVersion :one
+SELECT COUNT(*) FROM chunks WHERE document_id = $1 AND document_version = $2 AND is_published = true
 `
 
+type CountChunksByDocumentVersionParams struct {
+	DocumentID      string `json:"document_id"`
+	DocumentVersion int64  `json:"document_version"`
+}
+
+// reconciliation 恢复卡在 publishing 的文档时用它现查这次尝试实际发布了
+// 多少行，写回 MySQL 的 chunk_count——reconciliation 和原 worker 不是同一
+// 次调用，没有 worker 当时算出来的 len(pieces) 可用。
+func (q *Queries) CountChunksByDocumentVersion(ctx context.Context, arg CountChunksByDocumentVersionParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countChunksByDocumentVersion, arg.DocumentID, arg.DocumentVersion)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countChunksByKnowledgeBase = `-- name: CountChunksByKnowledgeBase :one
+SELECT COUNT(*) FROM chunks WHERE knowledge_base_id = $1 AND is_published = true
+`
+
+// 只数已发布的——未发布的草稿版本不该出现在"这个知识库有多少分片"的统计里。
 func (q *Queries) CountChunksByKnowledgeBase(ctx context.Context, knowledgeBaseID string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countChunksByKnowledgeBase, knowledgeBaseID)
 	var count int64
@@ -27,8 +47,8 @@ func (q *Queries) CountChunksByKnowledgeBase(ctx context.Context, knowledgeBaseI
 const createChunk = `-- name: CreateChunk :exec
 INSERT INTO chunks (
     id, knowledge_base_id, document_id, chunk_index, content,
-    content_length, embedding, embedding_dimension
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    content_length, embedding, embedding_dimension, document_version, is_published
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 `
 
 type CreateChunkParams struct {
@@ -40,8 +60,12 @@ type CreateChunkParams struct {
 	ContentLength      int32           `json:"content_length"`
 	Embedding          pgvector.Vector `json:"embedding"`
 	EmbeddingDimension int32           `json:"embedding_dimension"`
+	DocumentVersion    int64           `json:"document_version"`
+	IsPublished        bool            `json:"is_published"`
 }
 
+// 新版本 chunks 一律以 is_published=false 写入——"新版本写入"这一步不改变
+// 任何已发布的旧版本可见性，发布是 PublishChunkVersion 单独一步。
 func (q *Queries) CreateChunk(ctx context.Context, arg CreateChunkParams) error {
 	_, err := q.db.ExecContext(ctx, createChunk,
 		arg.ID,
@@ -52,6 +76,8 @@ func (q *Queries) CreateChunk(ctx context.Context, arg CreateChunkParams) error 
 		arg.ContentLength,
 		arg.Embedding,
 		arg.EmbeddingDimension,
+		arg.DocumentVersion,
+		arg.IsPublished,
 	)
 	return err
 }
@@ -60,8 +86,58 @@ const deleteChunksByDocument = `-- name: DeleteChunksByDocument :exec
 DELETE FROM chunks WHERE document_id = $1
 `
 
+// 整份文档删除用（DeleteDocument）：不分版本、不看发布状态，全部清空。
 func (q *Queries) DeleteChunksByDocument(ctx context.Context, documentID string) error {
 	_, err := q.db.ExecContext(ctx, deleteChunksByDocument, documentID)
+	return err
+}
+
+const deleteChunksByDocumentVersion = `-- name: DeleteChunksByDocumentVersion :exec
+DELETE FROM chunks WHERE document_id = $1 AND document_version = $2
+`
+
+type DeleteChunksByDocumentVersionParams struct {
+	DocumentID      string `json:"document_id"`
+	DocumentVersion int64  `json:"document_version"`
+}
+
+// 精确删除某一个 version 的 chunks——CAS 发布网关被拒绝（version 已过期）
+// 时，worker 用它清理自己刚写入、永远不会被发布的那批草稿行。
+func (q *Queries) DeleteChunksByDocumentVersion(ctx context.Context, arg DeleteChunksByDocumentVersionParams) error {
+	_, err := q.db.ExecContext(ctx, deleteChunksByDocumentVersion, arg.DocumentID, arg.DocumentVersion)
+	return err
+}
+
+const deleteObsoleteChunkVersions = `-- name: DeleteObsoleteChunkVersions :exec
+DELETE FROM chunks WHERE document_id = $1 AND document_version <> $2
+`
+
+type DeleteObsoleteChunkVersionsParams struct {
+	DocumentID      string `json:"document_id"`
+	DocumentVersion int64  `json:"document_version"`
+}
+
+// 发布步骤的"清理旧版本"半部分：删掉除了刚发布的这个 version 之外的所有
+// 行。和下面 PublishChunkVersion 一起在同一个 PG 事务里调用（见
+// repository.go 的 publishDocumentVersion），保证 PG 内部不会出现"新旧
+// 同时可见"或者"新旧都不可见"的中间态。
+func (q *Queries) DeleteObsoleteChunkVersions(ctx context.Context, arg DeleteObsoleteChunkVersionsParams) error {
+	_, err := q.db.ExecContext(ctx, deleteObsoleteChunkVersions, arg.DocumentID, arg.DocumentVersion)
+	return err
+}
+
+const publishChunkVersion = `-- name: PublishChunkVersion :exec
+UPDATE chunks SET is_published = true WHERE document_id = $1 AND document_version = $2
+`
+
+type PublishChunkVersionParams struct {
+	DocumentID      string `json:"document_id"`
+	DocumentVersion int64  `json:"document_version"`
+}
+
+// 发布步骤的"发布新版本"半部分。
+func (q *Queries) PublishChunkVersion(ctx context.Context, arg PublishChunkVersionParams) error {
+	_, err := q.db.ExecContext(ctx, publishChunkVersion, arg.DocumentID, arg.DocumentVersion)
 	return err
 }
 
@@ -72,6 +148,7 @@ SELECT id, knowledge_base_id, document_id, chunk_index, content,
 FROM chunks
 WHERE knowledge_base_id = ANY($2::text[])
   AND embedding_dimension = $3
+  AND is_published = true
 ORDER BY embedding <=> $1
 LIMIT $4
 `
@@ -97,10 +174,11 @@ type SearchChunksRow struct {
 
 // <=> 是 pgvector 的余弦「距离」（0=同向 2=反向），1 - 距离 = 余弦相似度，
 // 和被删掉的 similarity.go 语义完全一致——分数跨迁移可比。
-// 两个 WHERE 条件都不可省：knowledge_base_id 是 CLAUDE.md 大表查询强过滤
+// 三个 WHERE 条件都不可省：knowledge_base_id 是 CLAUDE.md 大表查询强过滤
 // 规则；embedding_dimension 过滤是因为混合维度共存一张表，<=> 对不同维度
-// 向量直接报错。::text[] cast 也不可省——sqlc 生成的代码用 pq.Array 传字符
-// 串数组，显式 cast 消除 PG 的类型推断歧义。
+// 向量直接报错；is_published 过滤是版本可见性网关——未发布的草稿版本永远
+// 不能被检索命中，即使已经物理写入。::text[] cast 也不可省——sqlc 生成的
+// 代码用 pq.Array 传字符串数组，显式 cast 消除 PG 的类型推断歧义。
 func (q *Queries) SearchChunks(ctx context.Context, arg SearchChunksParams) ([]SearchChunksRow, error) {
 	rows, err := q.db.QueryContext(ctx, searchChunks,
 		arg.QueryEmbedding,

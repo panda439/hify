@@ -20,4 +20,6 @@ type Chunk struct {
 	Embedding          pgvector.Vector `json:"embedding"`
 	EmbeddingDimension int32           `json:"embedding_dimension"`
 	CreatedAt          time.Time       `json:"created_at"`
+	DocumentVersion    int64           `json:"document_version"`
+	IsPublished        bool            `json:"is_published"`
 }

@@ -54,6 +54,7 @@ type documentResponse struct {
 	Status       string    `json:"status"`
 	ErrorMessage string    `json:"error_message"`
 	ChunkCount   int       `json:"chunk_count"`
+	Version      int64     `json:"version"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -67,6 +68,7 @@ func toDocumentResponse(d Document) documentResponse {
 		Status:       d.Status,
 		ErrorMessage: d.ErrorMessage,
 		ChunkCount:   d.ChunkCount,
+		Version:      d.Version,
 		CreatedAt:    d.CreatedAt,
 		UpdatedAt:    d.UpdatedAt,
 	}

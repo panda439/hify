@@ -1,0 +1,11 @@
+.env
+bin/
+tmp/
+data/
+web/dist/
+web/node_modules/
+*.log
+.DS_Store
+eval/runs/*.json
+eval/baseline.json
+.claude/settings.local.json

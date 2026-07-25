@@ -225,3 +225,15 @@ func (h *Handler) DeleteDocument(c *gin.Context) error {
 	c.Status(http.StatusNoContent)
 	return nil
 }
+
+// RetryDocument re-queues a pending/failed document for processing —
+// ErrDocumentNotRetryable (a 409, see errors.go) surfaces for any other
+// status.
+func (h *Handler) RetryDocument(c *gin.Context) error {
+	doc, err := h.service.RetryDocument(c.Request.Context(), c.Param("docId"), middleware.UserIDFrom(c), middleware.RoleFrom(c))
+	if err != nil {
+		return err
+	}
+	c.JSON(http.StatusOK, toDocumentResponse(doc))
+	return nil
+}

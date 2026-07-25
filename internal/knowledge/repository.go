@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	pgvector "github.com/pgvector/pgvector-go"
 
@@ -135,16 +136,212 @@ func (r *Repository) countDocumentsByKnowledgeBase(ctx context.Context, kbID str
 	return int(n), nil
 }
 
-func (r *Repository) updateDocumentStatus(ctx context.Context, id, status, errMsg string, chunkCount int) error {
-	if err := r.queries.UpdateDocumentStatus(ctx, gen.UpdateDocumentStatusParams{
-		Status:       status,
-		ErrorMessage: stringToNullString(errMsg),
-		ChunkCount:   int32(chunkCount),
-		ID:           id,
-	}); err != nil {
-		return fmt.Errorf("knowledge: update document status: %w", err)
+// claimDocumentProcessing is the CAS that starts a processing attempt:
+// pending/failed -> processing, guarded by (id, version), seeding the
+// initial heartbeat lease (see model.go's leaseDuration) in the same
+// statement. See service.go's ProcessDocument for the full state machine
+// — claimed=false means either a concurrent duplicate delivery lost the
+// race, or this task instance's version/status no longer matches, and
+// the caller must treat that as a safe no-op, not an error.
+func (r *Repository) claimDocumentProcessing(ctx context.Context, id string, version int64, leaseExpiresAt time.Time) (bool, error) {
+	n, err := r.queries.ClaimDocumentProcessing(ctx, gen.ClaimDocumentProcessingParams{
+		ID:             id,
+		Version:        version,
+		LeaseExpiresAt: toNullTime(leaseExpiresAt),
+	})
+	if err != nil {
+		return false, fmt.Errorf("knowledge: claim document processing: %w", err)
 	}
-	return nil
+	return n == 1, nil
+}
+
+// renewDocumentLease is the heartbeat CAS a worker calls after every embed
+// batch and before each risky step (writing chunks, publishing) — guarded
+// by (id, version, status) so a stale worker whose document has already
+// been reclaimed (version bumped, or status changed) gets renewed=false
+// and must stop immediately: no further batches, no chunk writes, no
+// publish. status is a parameter because processing and publishing share
+// this one statement.
+func (r *Repository) renewDocumentLease(ctx context.Context, id string, version int64, status string, leaseExpiresAt time.Time) (bool, error) {
+	n, err := r.queries.RenewDocumentLease(ctx, gen.RenewDocumentLeaseParams{
+		LeaseExpiresAt: toNullTime(leaseExpiresAt),
+		ID:             id,
+		Version:        version,
+		Status:         status,
+	})
+	if err != nil {
+		return false, fmt.Errorf("knowledge: renew document lease: %w", err)
+	}
+	return n == 1, nil
+}
+
+// markDocumentPublishing is the CAS that locks in "embedding is done,
+// chunks are already written unpublished to PG, only the publish step is
+// left": processing -> publishing, guarded by (id, version), with a fresh
+// lease. Splitting this out from markDocumentReady is what lets
+// ReconcileStuckDocuments recover a stuck document by only retrying the
+// (idempotent) publish, never redoing the embedding work.
+func (r *Repository) markDocumentPublishing(ctx context.Context, id string, version int64, leaseExpiresAt time.Time) (bool, error) {
+	n, err := r.queries.MarkDocumentPublishing(ctx, gen.MarkDocumentPublishingParams{
+		ID:             id,
+		Version:        version,
+		LeaseExpiresAt: toNullTime(leaseExpiresAt),
+	})
+	if err != nil {
+		return false, fmt.Errorf("knowledge: mark document publishing: %w", err)
+	}
+	return n == 1, nil
+}
+
+// markDocumentReady is the final confirmation after a successful PG
+// publish: publishing -> ready, guarded by (id, version). ok=false means
+// another runner (the original worker, or a concurrent reconciliation
+// recovery pass) already completed this exact transition — a benign
+// idempotent race, not an error.
+func (r *Repository) markDocumentReady(ctx context.Context, id string, version int64, chunkCount int) (bool, error) {
+	n, err := r.queries.MarkDocumentReady(ctx, gen.MarkDocumentReadyParams{
+		ChunkCount: int32(chunkCount),
+		ID:         id,
+		Version:    version,
+	})
+	if err != nil {
+		return false, fmt.Errorf("knowledge: mark document ready: %w", err)
+	}
+	return n == 1, nil
+}
+
+// markDocumentFailed is processing -> failed, same CAS shape as
+// markDocumentReady. A publishing-phase failure never comes through here
+// — by design the document stays in publishing and ReconcileStuckDocuments
+// recovers it by retrying the idempotent publish, not by failing it.
+func (r *Repository) markDocumentFailed(ctx context.Context, id string, version int64, errMsg string) (bool, error) {
+	n, err := r.queries.MarkDocumentFailed(ctx, gen.MarkDocumentFailedParams{
+		ErrorMessage: stringToNullString(errMsg),
+		ID:           id,
+		Version:      version,
+	})
+	if err != nil {
+		return false, fmt.Errorf("knowledge: mark document failed: %w", err)
+	}
+	return n == 1, nil
+}
+
+// reclaimDocumentForRetry is the manual-retry CAS: pending/failed ->
+// pending with version advanced by one, fencing off any late task
+// instance still carrying oldVersion.
+func (r *Repository) reclaimDocumentForRetry(ctx context.Context, id string, oldVersion, newVersion int64) (bool, error) {
+	n, err := r.queries.ReclaimDocumentForRetry(ctx, gen.ReclaimDocumentForRetryParams{
+		NewVersion: newVersion,
+		ID:         id,
+		OldVersion: oldVersion,
+	})
+	if err != nil {
+		return false, fmt.Errorf("knowledge: reclaim document for retry: %w", err)
+	}
+	return n == 1, nil
+}
+
+// reclaimStaleProcessingDocument is reconciliation's CAS: processing ->
+// pending with version advanced by one and lease cleared, used to take
+// back a document whose processing lease expired (worker presumed dead,
+// see model.go's leaseDuration). The embedding work is not resumable at
+// this point (nothing was durably written yet for this attempt), so this
+// resets all the way back to pending for a from-scratch retry — contrast
+// with a stuck publishing document, which skips straight to a republish
+// via publishAndComplete instead of going through this method.
+//
+// expiredBefore re-validates the lease at UPDATE time, not just at the
+// SELECT time of listLeaseExpiredProcessingDocuments — without it this is
+// a check-then-act race: an active worker can renew between the scan and
+// this CAS, and id/version/status alone wouldn't notice. The caller must
+// pass the same timestamp it used for the scan (ReconcileStuckDocuments'
+// now), not a freshly computed one, or the two checks stop being the same
+// point in time and the race reopens.
+func (r *Repository) reclaimStaleProcessingDocument(ctx context.Context, id string, oldVersion, newVersion int64, expiredBefore time.Time) (bool, error) {
+	n, err := r.queries.ReclaimStaleProcessingDocument(ctx, gen.ReclaimStaleProcessingDocumentParams{
+		NewVersion:    newVersion,
+		ID:            id,
+		OldVersion:    oldVersion,
+		ExpiredBefore: toNullTime(expiredBefore),
+	})
+	if err != nil {
+		return false, fmt.Errorf("knowledge: reclaim stale processing document: %w", err)
+	}
+	return n == 1, nil
+}
+
+// claimExpiredPublishingRecovery is the CAS a recovery attempt (originally
+// ReconcileStuckDocuments, but written generically enough that any runner
+// could call it) must win before touching a stuck publishing document —
+// see reclaimStaleProcessingDocument's doc comment for why id/version/
+// status alone isn't enough to rule out a TOCTOU race against an active
+// worker renewing between the scan and the recovery action. PG's publish
+// being idempotent is not a substitute for this: idempotency means two
+// concurrent publishers can't corrupt data, not that recovery should
+// proceed without ever establishing who's allowed to act.
+//
+// On success the lease is refreshed to newLeaseExpiresAt (the caller
+// passes newLeaseDeadline()) — if the subsequent publishAndComplete then
+// fails, the document stays in publishing under this fresh lease rather
+// than being immediately eligible for another recovery attempt in the
+// same or the very next reconciliation pass.
+func (r *Repository) claimExpiredPublishingRecovery(ctx context.Context, id string, version int64, expiredBefore, newLeaseExpiresAt time.Time) (bool, error) {
+	n, err := r.queries.ClaimExpiredPublishingRecovery(ctx, gen.ClaimExpiredPublishingRecoveryParams{
+		NewLeaseExpiresAt: toNullTime(newLeaseExpiresAt),
+		ID:                id,
+		Version:           version,
+		ExpiredBefore:     toNullTime(expiredBefore),
+	})
+	if err != nil {
+		return false, fmt.Errorf("knowledge: claim expired publishing recovery: %w", err)
+	}
+	return n == 1, nil
+}
+
+// listLeaseExpiredProcessingDocuments is ReconcileStuckDocuments' scan for
+// presumed-dead workers — status='processing' and the heartbeat lease has
+// expired (see model.go's leaseDuration), not a flat elapsed-time
+// threshold: a legitimately slow but alive worker keeps renewing its
+// lease and never shows up here regardless of total run time.
+func (r *Repository) listLeaseExpiredProcessingDocuments(ctx context.Context, before time.Time) ([]Document, error) {
+	rows, err := r.queries.ListLeaseExpiredProcessingDocuments(ctx, toNullTime(before))
+	if err != nil {
+		return nil, fmt.Errorf("knowledge: list lease-expired processing documents: %w", err)
+	}
+	out := make([]Document, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, toDomainDocument(row))
+	}
+	return out, nil
+}
+
+// listLeaseExpiredPublishingDocuments is the publishing-phase counterpart
+// — embedding already finished for these, only the publish step is
+// outstanding (PG publish failed, or the worker crashed after PG publish
+// succeeded but before the ready CAS). See publishAndComplete for the
+// idempotent recovery.
+func (r *Repository) listLeaseExpiredPublishingDocuments(ctx context.Context, before time.Time) ([]Document, error) {
+	rows, err := r.queries.ListLeaseExpiredPublishingDocuments(ctx, toNullTime(before))
+	if err != nil {
+		return nil, fmt.Errorf("knowledge: list lease-expired publishing documents: %w", err)
+	}
+	out := make([]Document, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, toDomainDocument(row))
+	}
+	return out, nil
+}
+
+func (r *Repository) listStalePendingDocuments(ctx context.Context, before time.Time) ([]Document, error) {
+	rows, err := r.queries.ListStalePendingDocuments(ctx, before)
+	if err != nil {
+		return nil, fmt.Errorf("knowledge: list stale pending documents: %w", err)
+	}
+	out := make([]Document, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, toDomainDocument(row))
+	}
+	return out, nil
 }
 
 // deleteDocument removes a document's chunks (PostgreSQL) and the document
@@ -167,7 +364,13 @@ func (r *Repository) deleteDocument(ctx context.Context, id string) error {
 // set behind on failure. A committed loop over ≤ maxChunksPerKnowledgeBase
 // rows is fast enough; pgx-native CopyFrom would be quicker but requires
 // abandoning database/sql, noted as a future optimization only.
-func (r *Repository) createChunks(ctx context.Context, chunks []Chunk) error {
+//
+// Rows are always written with is_published=false — this is the "new
+// version write" step of the reprocessing model (see the pgmigrations
+// 000002 comment): the caller must follow up with publishDocumentVersion
+// once MySQL's CAS gate confirms this version is still the authoritative
+// attempt, never before.
+func (r *Repository) createChunks(ctx context.Context, chunks []Chunk, version int64) error {
 	return platform.WithTx(ctx, r.pgdb, func(tx *sql.Tx) error {
 		q := r.pgQueries.WithTx(tx)
 		for _, c := range chunks {
@@ -180,12 +383,54 @@ func (r *Repository) createChunks(ctx context.Context, chunks []Chunk) error {
 				ContentLength:      int32(c.ContentLength),
 				Embedding:          pgvector.NewVector(c.Embedding),
 				EmbeddingDimension: int32(c.EmbeddingDimension),
+				DocumentVersion:    version,
+				IsPublished:        false,
 			}); err != nil {
 				return fmt.Errorf("knowledge: create chunk: %w", err)
 			}
 		}
 		return nil
 	})
+}
+
+// publishDocumentVersion is the "publish new version -> clean up old
+// version" step, run only after MySQL's CAS gate (markDocumentReady) has
+// confirmed version is still the authoritative attempt. Both statements
+// run in one PostgreSQL transaction so an external reader never observes
+// "both versions visible" or "neither version visible" — see the
+// pgmigrations 000002 comment for the full ordering rationale.
+func (r *Repository) publishDocumentVersion(ctx context.Context, documentID string, version int64) error {
+	return platform.WithTx(ctx, r.pgdb, func(tx *sql.Tx) error {
+		q := r.pgQueries.WithTx(tx)
+		if err := q.DeleteObsoleteChunkVersions(ctx, pggen.DeleteObsoleteChunkVersionsParams{
+			DocumentID:      documentID,
+			DocumentVersion: version,
+		}); err != nil {
+			return fmt.Errorf("knowledge: delete obsolete chunk versions: %w", err)
+		}
+		if err := q.PublishChunkVersion(ctx, pggen.PublishChunkVersionParams{
+			DocumentID:      documentID,
+			DocumentVersion: version,
+		}); err != nil {
+			return fmt.Errorf("knowledge: publish chunk version: %w", err)
+		}
+		return nil
+	})
+}
+
+// deleteChunksByDocumentVersion is the best-effort cleanup a worker runs
+// when markDocumentReady/markDocumentFailed's CAS is rejected (this
+// attempt was superseded): the rows it just wrote are unpublished and
+// will never become searchable on their own, but deleting them avoids
+// leaving dead weight behind.
+func (r *Repository) deleteChunksByDocumentVersion(ctx context.Context, documentID string, version int64) error {
+	if err := r.pgQueries.DeleteChunksByDocumentVersion(ctx, pggen.DeleteChunksByDocumentVersionParams{
+		DocumentID:      documentID,
+		DocumentVersion: version,
+	}); err != nil {
+		return fmt.Errorf("knowledge: delete chunks by document version: %w", err)
+	}
+	return nil
 }
 
 // searchChunks pushes similarity scoring and topK selection down to
@@ -234,6 +479,22 @@ func (r *Repository) countChunksByKnowledgeBase(ctx context.Context, kbID string
 	return int(n), nil
 }
 
+// countChunksByDocumentVersion is publishAndComplete's source of truth
+// for chunk_count when it's ReconcileStuckDocuments (not the original
+// worker) completing the publish — reconciliation runs in a different
+// call than the one that computed len(pieces), so the count has to come
+// from what's actually published in PG.
+func (r *Repository) countChunksByDocumentVersion(ctx context.Context, documentID string, version int64) (int, error) {
+	n, err := r.pgQueries.CountChunksByDocumentVersion(ctx, pggen.CountChunksByDocumentVersionParams{
+		DocumentID:      documentID,
+		DocumentVersion: version,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("knowledge: count chunks by document version: %w", err)
+	}
+	return int(n), nil
+}
+
 func toDomainKnowledgeBase(row gen.KnowledgeBase) KnowledgeBase {
 	return KnowledgeBase{
 		ID:               row.ID,
@@ -260,10 +521,27 @@ func toDomainDocument(row gen.Document) Document {
 		Status:          row.Status,
 		ErrorMessage:    row.ErrorMessage.String,
 		ChunkCount:      int(row.ChunkCount),
+		Version:         row.Version,
+		LeaseExpiresAt:  fromNullTime(row.LeaseExpiresAt),
 		CreatedBy:       row.CreatedBy,
 		CreatedAt:       row.CreatedAt,
 		UpdatedAt:       row.UpdatedAt,
 	}
+}
+
+// toNullTime/fromNullTime bridge time.Time <-> sql.NullTime at the sqlc
+// boundary — lease_expires_at is nullable (NULL outside processing/
+// publishing), same rationale as stringToNullString below for
+// error_message.
+func toNullTime(t time.Time) sql.NullTime {
+	return sql.NullTime{Time: t, Valid: true}
+}
+
+func fromNullTime(t sql.NullTime) *time.Time {
+	if !t.Valid {
+		return nil
+	}
+	return &t.Time
 }
 
 func stringToNullString(s string) sql.NullString {

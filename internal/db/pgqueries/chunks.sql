@@ -1,27 +1,55 @@
 -- name: CreateChunk :exec
+-- 新版本 chunks 一律以 is_published=false 写入——"新版本写入"这一步不改变
+-- 任何已发布的旧版本可见性，发布是 PublishChunkVersion 单独一步。
 INSERT INTO chunks (
     id, knowledge_base_id, document_id, chunk_index, content,
-    content_length, embedding, embedding_dimension
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
+    content_length, embedding, embedding_dimension, document_version, is_published
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
 
 -- name: SearchChunks :many
 -- <=> 是 pgvector 的余弦「距离」（0=同向 2=反向），1 - 距离 = 余弦相似度，
 -- 和被删掉的 similarity.go 语义完全一致——分数跨迁移可比。
--- 两个 WHERE 条件都不可省：knowledge_base_id 是 CLAUDE.md 大表查询强过滤
+-- 三个 WHERE 条件都不可省：knowledge_base_id 是 CLAUDE.md 大表查询强过滤
 -- 规则；embedding_dimension 过滤是因为混合维度共存一张表，<=> 对不同维度
--- 向量直接报错。::text[] cast 也不可省——sqlc 生成的代码用 pq.Array 传字符
--- 串数组，显式 cast 消除 PG 的类型推断歧义。
+-- 向量直接报错；is_published 过滤是版本可见性网关——未发布的草稿版本永远
+-- 不能被检索命中，即使已经物理写入。::text[] cast 也不可省——sqlc 生成的
+-- 代码用 pq.Array 传字符串数组，显式 cast 消除 PG 的类型推断歧义。
 SELECT id, knowledge_base_id, document_id, chunk_index, content,
        content_length, embedding_dimension, created_at,
        (1 - (embedding <=> sqlc.arg(query_embedding)))::float8 AS score
 FROM chunks
 WHERE knowledge_base_id = ANY(sqlc.arg(knowledge_base_ids)::text[])
   AND embedding_dimension = sqlc.arg(embedding_dimension)
+  AND is_published = true
 ORDER BY embedding <=> sqlc.arg(query_embedding)
 LIMIT sqlc.arg(top_k);
 
 -- name: CountChunksByKnowledgeBase :one
-SELECT COUNT(*) FROM chunks WHERE knowledge_base_id = $1;
+-- 只数已发布的——未发布的草稿版本不该出现在"这个知识库有多少分片"的统计里。
+SELECT COUNT(*) FROM chunks WHERE knowledge_base_id = $1 AND is_published = true;
 
 -- name: DeleteChunksByDocument :exec
+-- 整份文档删除用（DeleteDocument）：不分版本、不看发布状态，全部清空。
 DELETE FROM chunks WHERE document_id = $1;
+
+-- name: DeleteChunksByDocumentVersion :exec
+-- 精确删除某一个 version 的 chunks——CAS 发布网关被拒绝（version 已过期）
+-- 时，worker 用它清理自己刚写入、永远不会被发布的那批草稿行。
+DELETE FROM chunks WHERE document_id = $1 AND document_version = $2;
+
+-- name: DeleteObsoleteChunkVersions :exec
+-- 发布步骤的"清理旧版本"半部分：删掉除了刚发布的这个 version 之外的所有
+-- 行。和下面 PublishChunkVersion 一起在同一个 PG 事务里调用（见
+-- repository.go 的 publishDocumentVersion），保证 PG 内部不会出现"新旧
+-- 同时可见"或者"新旧都不可见"的中间态。
+DELETE FROM chunks WHERE document_id = $1 AND document_version <> $2;
+
+-- name: PublishChunkVersion :exec
+-- 发布步骤的"发布新版本"半部分。
+UPDATE chunks SET is_published = true WHERE document_id = $1 AND document_version = $2;
+
+-- name: CountChunksByDocumentVersion :one
+-- reconciliation 恢复卡在 publishing 的文档时用它现查这次尝试实际发布了
+-- 多少行，写回 MySQL 的 chunk_count——reconciliation 和原 worker 不是同一
+-- 次调用，没有 worker 当时算出来的 len(pieces) 可用。
+SELECT COUNT(*) FROM chunks WHERE document_id = $1 AND document_version = $2 AND is_published = true;

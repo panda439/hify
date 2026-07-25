@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/hibiken/asynq"
 
@@ -33,16 +34,35 @@ type Service interface {
 	GetDocument(ctx context.Context, id string) (Document, error)
 	DeleteDocument(ctx context.Context, id, userID, role string) error
 
+	// RetryDocument re-queues a pending/failed document for processing
+	// under a newly advanced version — see the Document doc comment for
+	// why this is a version bump, not a plain re-run. Any other status
+	// returns ErrDocumentNotRetryable.
+	RetryDocument(ctx context.Context, id, userID, role string) (Document, error)
+
 	// ProcessDocument is invoked by the asynq task handler (see tasks.go),
 	// not over HTTP — it's on the interface (rather than a method on the
 	// unexported service struct) because wire.go builds the asynq mux from
 	// a Service value, same as every other cross-module dependency.
-	ProcessDocument(ctx context.Context, documentID string) error
+	// version identifies which processing attempt this task instance is
+	// authorized to carry out (see Document.Version) — a version mismatch
+	// against the document's current row means this task has been
+	// superseded and it exits without doing any work.
+	ProcessDocument(ctx context.Context, documentID string, version int64) error
+
+	// ReconcileStuckDocuments is invoked periodically by the asynq
+	// scheduler (see tasks.go/main.go), not over HTTP, for the same
+	// reason ProcessDocument is on the interface. It reclaims documents
+	// stuck in processing (presumed-dead worker) or pending (presumed
+	// lost enqueue) beyond their staleness thresholds and re-queues them.
+	// Returns how many documents it reclaimed, for the caller's log line.
+	ReconcileStuckDocuments(ctx context.Context) (int, error)
 
 	// Retrieve embeds query against each knowledgeBaseID's configured
 	// model (grouped so a query is only embedded once per distinct
 	// model), lets pgvector score and rank chunks in-database, and
-	// returns the topK highest across all of them.
+	// returns the topK highest across all of them. topK is silently
+	// clamped to maxTopK — see model.go.
 	Retrieve(ctx context.Context, knowledgeBaseIDs []string, query string, topK int) ([]RetrievedChunk, error)
 }
 
@@ -186,10 +206,14 @@ func (s *service) UploadDocument(ctx context.Context, kbID, userID, role, fileNa
 		return Document{}, err
 	}
 
-	if err := s.enqueueProcessDocument(ctx, docID); err != nil {
+	// version starts at 1, matching the DB column's default — this task
+	// instance is authorized to process exactly this (as yet unclaimed)
+	// attempt.
+	if err := s.enqueueProcessDocument(ctx, docID, 1); err != nil {
 		// The document row exists as "pending" with no job in flight —
-		// not silently lost (visible in the UI as stuck), but also not
-		// masked as success.
+		// not silently lost (ReconcileStuckDocuments will pick it back up
+		// once stalePendingThreshold elapses, and it's visible in the UI
+		// as stuck in the meantime), but also not masked as success.
 		return Document{}, fmt.Errorf("knowledge: enqueue processing job: %w", err)
 	}
 
@@ -208,8 +232,8 @@ func (s *service) saveFile(kbID, docID, fileName string, content []byte) (string
 	return path, nil
 }
 
-func (s *service) enqueueProcessDocument(ctx context.Context, documentID string) error {
-	task, err := newProcessDocumentTask(documentID)
+func (s *service) enqueueProcessDocument(ctx context.Context, documentID string, version int64) error {
+	task, err := newProcessDocumentTask(documentID, version)
 	if err != nil {
 		return err
 	}
@@ -260,51 +284,167 @@ func (s *service) DeleteDocument(ctx context.Context, id, userID, role string) e
 	return nil
 }
 
+// newLeaseDeadline is the heartbeat lease every claim/renewal/publishing
+// transition sets — see model.go's leaseDuration for why 3 minutes.
+func newLeaseDeadline() time.Time {
+	return time.Now().UTC().Add(leaseDuration)
+}
+
+// validateEmbedBatch enforces dimension consistency across a document's
+// embed batches before any of a batch's result is trusted enough to reach
+// PG. Trusting result.Dimension blindly (the old behavior: overwrite a
+// package-level variable with the last batch's value and stamp every
+// chunk with it) lets a provider bug — a batch reporting a different
+// dimension than an earlier one, a non-positive dimension, or a vector
+// whose actual length disagrees with the batch's own declared dimension —
+// write a wrong dimension tag into PG, where it would only surface much
+// later as a pgvector query failure instead of being caught here.
+//
+// expectedDimension is 0 on the first batch (nothing to compare against
+// yet, but the batch must still be internally consistent and positive);
+// on every later batch it's the dimension the first batch established.
+func validateEmbedBatch(result provider.EmbedResult, batchSize, expectedDimension int) error {
+	if len(result.Embeddings) != batchSize {
+		return ErrEmbeddingCountMismatch
+	}
+	if result.Dimension <= 0 {
+		return ErrEmbeddingDimensionMismatch
+	}
+	if expectedDimension > 0 && result.Dimension != expectedDimension {
+		return ErrEmbeddingDimensionMismatch
+	}
+	for _, vec := range result.Embeddings {
+		if len(vec) != result.Dimension {
+			return ErrEmbeddingDimensionMismatch
+		}
+	}
+	return nil
+}
+
 // ProcessDocument parses, chunks, embeds, and stores one document — see
-// tasks.go for how the asynq worker invokes this. Any failure updates the
-// document to status=failed with a message instead of leaving it stuck at
-// pending; per the plan, there's no automatic retry (MaxRetry(0) at
-// enqueue time already enforces that), reprocessing is a manual re-upload.
-func (s *service) ProcessDocument(ctx context.Context, documentID string) error {
+// tasks.go for how the asynq worker invokes this. It is idempotent and
+// safe under concurrent/duplicate/stale delivery:
+//
+//  1. document not found (deleted mid-flight) -> no-op.
+//  2. doc.Version != version (this attempt has been superseded by a
+//     retry or a reconciliation reclaim) -> no-op.
+//  3. doc.Status == ready (duplicate delivery of an already-completed
+//     attempt) -> no-op.
+//  4. CAS-claim pending/failed -> processing, seeding a heartbeat lease.
+//     0 rows affected means a concurrent duplicate lost the race, or
+//     status/version already moved on -> no-op either way.
+//  5. parse -> chunk (hard-capped by maxChunksPerDocument) -> embed in
+//     batches of at most embedBatchSize, validating every batch's
+//     dimension against the first batch's (see validateEmbedBatch) and
+//     renewing the lease after every batch. Any failure here happens
+//     before any PG write, so a partial batch failure can never result in
+//     a partial publish. A renewal failure means this worker has been
+//     fenced out (reconciliation reclaimed it) and must stop immediately.
+//  6. write the new chunks to PG unpublished, tagged with this version —
+//     "new version write", untouched by anything published under an
+//     older version.
+//  7. CAS processing -> publishing, guarded by version, with a fresh
+//     lease. This locks in "embedding is done, only the publish is left"
+//     so a stuck recovery never has to redo the (expensive) embedding.
+//     0 rows affected means reconciliation already reclaimed this
+//     document out from under us — the freshly written chunks are
+//     deleted (best-effort) and never published.
+//  8. publishAndComplete: publish this version (idempotent PG delete
+//     obsolete + mark published) and, only once that has actually
+//     succeeded, CAS publishing -> ready. A publish failure is returned
+//     to the caller, not swallowed — the document stays in publishing for
+//     ReconcileStuckDocuments to recover via the same idempotent path.
+//
+// A pre-publish failure path is the mirror CAS (processing -> failed);
+// per the plan, there's no automatic asynq retry (MaxRetry(0) at enqueue
+// time), recovery is RetryDocument or ReconcileStuckDocuments.
+func (s *service) ProcessDocument(ctx context.Context, documentID string, version int64) error {
 	doc, err := s.repo.getDocument(ctx, documentID)
+	if errors.Is(err, ErrDocumentNotFound) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
-	if err := s.repo.updateDocumentStatus(ctx, documentID, StatusProcessing, "", 0); err != nil {
+	if doc.Version != version {
+		return nil
+	}
+	if doc.Status == StatusReady {
+		return nil
+	}
+
+	claimed, err := s.repo.claimDocumentProcessing(ctx, documentID, version, newLeaseDeadline())
+	if err != nil {
 		return err
+	}
+	if !claimed {
+		return nil
 	}
 
 	kb, err := s.repo.getKnowledgeBase(ctx, doc.KnowledgeBaseID)
 	if err != nil {
-		return s.failDocument(ctx, documentID, err)
+		return s.failDocument(ctx, documentID, version, err)
 	}
 
 	text, err := parseFile(doc.StoragePath, doc.FileType)
 	if err != nil {
-		return s.failDocument(ctx, documentID, err)
+		return s.failDocument(ctx, documentID, version, err)
 	}
 
 	pieces := chunkText(text, kb.ChunkSize, kb.ChunkOverlap)
 	if len(pieces) == 0 {
-		return s.failDocument(ctx, documentID, ErrEmptyContent)
+		return s.failDocument(ctx, documentID, version, ErrEmptyContent)
+	}
+	if len(pieces) > maxChunksPerDocument {
+		return s.failDocument(ctx, documentID, version, ErrTooManyChunks)
 	}
 
 	model, err := s.providerSvc.GetModel(ctx, kb.EmbeddingModelID)
 	if err != nil {
-		return s.failDocument(ctx, documentID, err)
+		return s.failDocument(ctx, documentID, version, err)
 	}
 	client, err := s.providerSvc.ResolveClient(ctx, model.ProviderID)
 	if err != nil {
-		return s.failDocument(ctx, documentID, err)
+		return s.failDocument(ctx, documentID, version, err)
 	}
 
-	result, err := client.Embed(ctx, provider.EmbedRequest{Model: model.ModelName, Input: pieces})
-	if err != nil {
-		return s.failDocument(ctx, documentID, provider.WrapClientError(err))
-	}
-	if len(result.Embeddings) != len(pieces) {
-		slog.Error("knowledge: embedding count mismatch", "embeddings", len(result.Embeddings), "pieces", len(pieces), "document_id", documentID)
-		return s.failDocument(ctx, documentID, ErrEmbeddingCountMismatch)
+	// Batched Embed calls — provider.Client already retries/rate-limits/
+	// circuit-breaks a single call (see provider/resilience.go); batching
+	// here only bounds one call's payload size, it doesn't re-implement
+	// that resilience. Every batch must succeed and pass
+	// validateEmbedBatch before anything is written to PG, so a bad batch
+	// (network failure, count mismatch, dimension mismatch) never results
+	// in a partial or mis-tagged publish.
+	embeddings := make([][]float32, 0, len(pieces))
+	var expectedDimension int
+	for batchIndex, batch := range batchStrings(pieces, embedBatchSize) {
+		result, err := client.Embed(ctx, provider.EmbedRequest{Model: model.ModelName, Input: batch})
+		if err != nil {
+			return s.failDocument(ctx, documentID, version, provider.WrapClientError(err))
+		}
+		if verr := validateEmbedBatch(result, len(batch), expectedDimension); verr != nil {
+			slog.Error("knowledge: embedding batch validation failed",
+				"err", verr, "batch_index", batchIndex, "expected_dimension", expectedDimension,
+				"actual_dimension", result.Dimension, "document_id", documentID)
+			return s.failDocument(ctx, documentID, version, verr)
+		}
+		if expectedDimension == 0 {
+			expectedDimension = result.Dimension
+		}
+		embeddings = append(embeddings, result.Embeddings...)
+
+		// Heartbeat: renew after every batch so a slow-but-alive worker is
+		// never mistaken for dead — see leaseDuration. A renewal failure
+		// means reconciliation already reclaimed this document; stop
+		// immediately, do not start another batch, do not write chunks.
+		renewed, err := s.repo.renewDocumentLease(ctx, documentID, version, StatusProcessing, newLeaseDeadline())
+		if err != nil {
+			return err
+		}
+		if !renewed {
+			slog.Info("knowledge: lease renewal fenced mid-embedding, stopping stale worker", "document_id", documentID, "version", version, "batch_index", batchIndex)
+			return nil
+		}
 	}
 
 	chunks := make([]Chunk, 0, len(pieces))
@@ -316,23 +456,255 @@ func (s *service) ProcessDocument(ctx context.Context, documentID string) error 
 			ChunkIndex:         i,
 			Content:            piece,
 			ContentLength:      len([]rune(piece)),
-			Embedding:          result.Embeddings[i],
-			EmbeddingDimension: result.Dimension,
+			Embedding:          embeddings[i],
+			EmbeddingDimension: expectedDimension,
 		})
 	}
-	if err := s.repo.createChunks(ctx, chunks); err != nil {
-		return s.failDocument(ctx, documentID, err)
+	if err := s.repo.createChunks(ctx, chunks, version); err != nil {
+		return s.failDocument(ctx, documentID, version, err)
 	}
 
-	return s.repo.updateDocumentStatus(ctx, documentID, StatusReady, "", len(pieces))
+	publishing, err := s.repo.markDocumentPublishing(ctx, documentID, version, newLeaseDeadline())
+	if err != nil {
+		return s.failDocument(ctx, documentID, version, err)
+	}
+	if !publishing {
+		// Superseded between claiming and finishing embedding — this
+		// attempt lost, must not publish. The rows just written are
+		// unpublished and thus already invisible to search; delete them
+		// so they don't linger.
+		if delErr := s.repo.deleteChunksByDocumentVersion(ctx, documentID, version); delErr != nil {
+			slog.Error("knowledge: failed to clean up superseded chunk version", "err", delErr, "document_id", documentID, "version", version)
+		}
+		return nil
+	}
+
+	// One more renewal right before the publish attempt — covers
+	// publishWithRetry's own execution window.
+	renewed, err := s.repo.renewDocumentLease(ctx, documentID, version, StatusPublishing, newLeaseDeadline())
+	if err != nil {
+		return err
+	}
+	if !renewed {
+		slog.Info("knowledge: lease renewal fenced before publish, stopping stale worker", "document_id", documentID, "version", version)
+		return nil
+	}
+
+	if err := s.publishAndComplete(ctx, documentID, version); err != nil {
+		// Per the plan: a publish failure must NOT be swallowed as
+		// success. The document stays "publishing" — that's what makes
+		// ReconcileStuckDocuments's idempotent republish path the
+		// recovery mechanism instead of silently losing the work.
+		return fmt.Errorf("knowledge: publish chunk version: %w", err)
+	}
+	return nil
 }
 
-func (s *service) failDocument(ctx context.Context, documentID string, cause error) error {
+// publishWithRetry retries the local, fast PG publish transaction a few
+// times before giving up — it's not calling out to any external service,
+// so a short fixed backoff is enough headroom for a transient connection
+// hiccup without masking a persistent problem. The caller (publishAndComplete)
+// is responsible for propagating a final failure rather than swallowing it.
+func (s *service) publishWithRetry(ctx context.Context, documentID string, version int64) error {
+	const maxAttempts = 3
+	backoff := 100 * time.Millisecond
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		lastErr = s.repo.publishDocumentVersion(ctx, documentID, version)
+		if lastErr == nil {
+			return nil
+		}
+		if attempt == maxAttempts {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+	}
+	return lastErr
+}
+
+// publishAndComplete is the one piece of recovery logic shared by
+// ProcessDocument's own attempt and ReconcileStuckDocuments's recovery of
+// a stuck-in-publishing document — both cases reduce to "publish is
+// idempotent, safe to (re)run; only flip to ready once it has actually
+// succeeded". It never swallows a publish failure as success: the caller
+// gets the error back and the document stays in publishing.
+//
+// chunk_count is queried fresh from PG rather than threaded through as a
+// parameter — ReconcileStuckDocuments runs in a different call than the
+// one that originally computed len(pieces), so PG's actual published row
+// count is the only value both callers can rely on.
+func (s *service) publishAndComplete(ctx context.Context, documentID string, version int64) error {
+	if err := s.publishWithRetry(ctx, documentID, version); err != nil {
+		return err
+	}
+	chunkCount, err := s.repo.countChunksByDocumentVersion(ctx, documentID, version)
+	if err != nil {
+		return err
+	}
+	ready, err := s.repo.markDocumentReady(ctx, documentID, version, chunkCount)
+	if err != nil {
+		return err
+	}
+	if !ready {
+		// Someone else (the original worker, or another reconciliation
+		// pass) already completed this exact transition — a benign
+		// idempotent race, not an error.
+		slog.Info("knowledge: publishing->ready CAS already completed by another runner", "document_id", documentID, "version", version)
+	}
+	return nil
+}
+
+// failDocument is ProcessDocument's failure-path CAS (processing ->
+// failed), mirroring markDocumentReady's publish gate. ok=false means this
+// attempt was superseded before it could even record its own failure —
+// the newer attempt owns the document's state now, so this isn't reported
+// as a task failure.
+func (s *service) failDocument(ctx context.Context, documentID string, version int64, cause error) error {
 	msg := userFacingFailureMessage(cause)
-	if updateErr := s.repo.updateDocumentStatus(ctx, documentID, StatusFailed, msg, 0); updateErr != nil {
-		slog.Error("knowledge: failed to record document failure", "err", updateErr, "document_id", documentID, "cause", cause)
+	ok, err := s.repo.markDocumentFailed(ctx, documentID, version, msg)
+	if err != nil {
+		slog.Error("knowledge: failed to record document failure", "err", err, "document_id", documentID, "cause", cause)
+		return cause
+	}
+	if !ok {
+		slog.Info("knowledge: document processing attempt superseded before failure could be recorded", "document_id", documentID, "version", version)
+		return nil
 	}
 	return cause
+}
+
+// RetryDocument re-queues a pending/failed document, advancing its
+// version so any lingering task instance from the superseded attempt is
+// fenced out by ProcessDocument's version check.
+func (s *service) RetryDocument(ctx context.Context, id, userID, role string) (Document, error) {
+	doc, err := s.repo.getDocument(ctx, id)
+	if err != nil {
+		return Document{}, err
+	}
+	kb, err := s.repo.getKnowledgeBase(ctx, doc.KnowledgeBaseID)
+	if err != nil {
+		return Document{}, err
+	}
+	if kb.CreatedBy != userID && role != user.RoleAdmin {
+		return Document{}, ErrForbidden
+	}
+
+	newVersion := doc.Version + 1
+	ok, err := s.repo.reclaimDocumentForRetry(ctx, id, doc.Version, newVersion)
+	if err != nil {
+		return Document{}, err
+	}
+	if !ok {
+		return Document{}, ErrDocumentNotRetryable
+	}
+
+	if err := s.enqueueProcessDocument(ctx, id, newVersion); err != nil {
+		return Document{}, fmt.Errorf("knowledge: enqueue retry processing job: %w", err)
+	}
+	return s.repo.getDocument(ctx, id)
+}
+
+// ReconcileStuckDocuments is the minimal, no-new-infrastructure recovery
+// path from the plan: a periodic scan (see tasks.go/main.go) rather than
+// a dedicated queue/lock service. It reclaims three kinds of stuck
+// documents; ProcessDocument's own idempotency (version fencing, the
+// claim CAS) makes it safe to re-enqueue a document that might actually
+// still be in flight — worst case is a wasted no-op task, never a
+// duplicate publish.
+func (s *service) ReconcileStuckDocuments(ctx context.Context) (int, error) {
+	now := time.Now().UTC()
+	reclaimed := 0
+
+	// processing lease expired (see model.go's leaseDuration): worker
+	// presumed dead, and nothing durable was written for this attempt
+	// yet, so reclaim with a version bump — fences the original worker
+	// out at its own next renewal/publish/fail CAS — and re-queue a
+	// from-scratch attempt under the new version. now (not a freshly
+	// computed timestamp) is passed as expiredBefore so the CAS
+	// re-validates the exact same "still expired" fact the scan above
+	// just observed — see reclaimStaleProcessingDocument's doc comment
+	// for the TOCTOU this closes: an active worker renewing between the
+	// scan and this CAS must make the CAS see 0 rows affected, not
+	// silently reclaim a live document.
+	stuckProcessing, err := s.repo.listLeaseExpiredProcessingDocuments(ctx, now)
+	if err != nil {
+		return reclaimed, err
+	}
+	for _, doc := range stuckProcessing {
+		newVersion := doc.Version + 1
+		ok, err := s.repo.reclaimStaleProcessingDocument(ctx, doc.ID, doc.Version, newVersion, now)
+		if err != nil {
+			slog.Error("knowledge: failed to reclaim stale processing document", "err", err, "document_id", doc.ID)
+			continue
+		}
+		if !ok {
+			continue // renewed, or already moved on, since the scan — not ours to reclaim
+		}
+		if err := s.enqueueProcessDocument(ctx, doc.ID, newVersion); err != nil {
+			slog.Error("knowledge: failed to re-enqueue reclaimed document", "err", err, "document_id", doc.ID)
+			continue
+		}
+		reclaimed++
+	}
+
+	// publishing lease expired: the embedding work is already done and
+	// safely written (unpublished) to PG — no need to redo it or bump the
+	// version, just retry the idempotent publish via publishAndComplete.
+	// This is what recovers both fault windows from the plan: "PG publish
+	// failed" and "worker crashed after PG publish succeeded but before
+	// the MySQL ready CAS" — publishDocumentVersion is idempotent either
+	// way, so the same recovery call handles both.
+	//
+	// PG idempotency is not a substitute for claiming recovery rights
+	// first: claimExpiredPublishingRecovery must win (same TOCTOU-closing
+	// shape as the processing CAS above, using the same now) before
+	// publishAndComplete is ever called, otherwise a concurrently
+	// renewing worker — or another Hify instance's reconciliation pass —
+	// could act on the same document at the same time.
+	stuckPublishing, err := s.repo.listLeaseExpiredPublishingDocuments(ctx, now)
+	if err != nil {
+		return reclaimed, err
+	}
+	for _, doc := range stuckPublishing {
+		claimed, err := s.repo.claimExpiredPublishingRecovery(ctx, doc.ID, doc.Version, now, newLeaseDeadline())
+		if err != nil {
+			slog.Error("knowledge: failed to claim publishing recovery", "err", err, "document_id", doc.ID)
+			continue
+		}
+		if !claimed {
+			continue // renewed, published, or claimed by another recovery attempt since the scan
+		}
+		if err := s.publishAndComplete(ctx, doc.ID, doc.Version); err != nil {
+			// Publish failed again: the document stays in publishing under
+			// the fresh recovery lease just claimed above, not eligible for
+			// another recovery attempt until that lease itself expires.
+			slog.Error("knowledge: failed to recover stuck publishing document", "err", err, "document_id", doc.ID, "version", doc.Version)
+			continue
+		}
+		reclaimed++
+	}
+
+	// pending with no worker ever having claimed it: nothing to fence, so
+	// just re-queue under the same version — ProcessDocument's claim CAS
+	// naturally dedupes if the original enqueue also eventually arrives.
+	stuckPending, err := s.repo.listStalePendingDocuments(ctx, now.Add(-stalePendingThreshold))
+	if err != nil {
+		return reclaimed, err
+	}
+	for _, doc := range stuckPending {
+		if err := s.enqueueProcessDocument(ctx, doc.ID, doc.Version); err != nil {
+			slog.Error("knowledge: failed to re-enqueue stale pending document", "err", err, "document_id", doc.ID)
+			continue
+		}
+		reclaimed++
+	}
+
+	return reclaimed, nil
 }
 
 // userFacingFailureMessage is what documentResponse.ErrorMessage shows the
@@ -357,6 +729,7 @@ func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query
 	if len(knowledgeBaseIDs) == 0 || query == "" {
 		return nil, nil
 	}
+	topK = clampTopK(topK)
 
 	kbsByModel := make(map[string][]KnowledgeBase)
 	for _, id := range knowledgeBaseIDs {
