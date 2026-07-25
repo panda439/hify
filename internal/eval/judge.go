@@ -49,11 +49,31 @@ func buildJudgePrompt(tc TestCase, reply string, spans []trace.Span) string {
 	fmt.Fprintf(&sb, "用户问题：%s\n\n", tc.Prompt)
 	fmt.Fprintf(&sb, "评分标准：%s\n\n", tc.Rubric)
 	fmt.Fprintf(&sb, "助手最终回复：%s\n\n", reply)
-	sb.WriteString("执行过程（供核实评分标准里提到的工具调用/检索是否真的发生）：\n")
+	sb.WriteString("执行过程（供核实评分标准里提到的工具调用/检索是否真的发生，以及调用参数、检索内容是否正确——不要只看名字和状态就判定通过）：\n")
 	for _, sp := range spans {
 		fmt.Fprintf(&sb, "- [%s] %s status=%s\n", sp.Kind, sp.Name, sp.Status)
+		if in := truncateForJudge(sp.Input); in != "" {
+			fmt.Fprintf(&sb, "  input: %s\n", in)
+		}
+		if out := truncateForJudge(sp.Output); out != "" {
+			fmt.Fprintf(&sb, "  output: %s\n", out)
+		}
 	}
 	return sb.String()
+}
+
+// judgeSpanFieldLimit caps how much of a span's Input/Output goes into the
+// judge prompt — enough to verify tool-call arguments and retrieval
+// relevance, without letting one large chunk of retrieved document text
+// blow up the prompt.
+const judgeSpanFieldLimit = 500
+
+func truncateForJudge(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= judgeSpanFieldLimit {
+		return s
+	}
+	return s[:judgeSpanFieldLimit] + "...(截断)"
 }
 
 // extractJSON strips a ```json fenced block if the judge wrapped its

@@ -82,3 +82,14 @@ func (r *Repository) revoke(ctx context.Context, id string) error {
 	}
 	return nil
 }
+
+// deleteExpired purges rows past their expiry, plus rows revoked before
+// revokedBefore — the periodic cleanup CLAUDE.md requires for this
+// TTL-semantic table (see tasks.go's cleanup task).
+func (r *Repository) deleteExpired(ctx context.Context, revokedBefore time.Time) (int64, error) {
+	n, err := r.queries.DeleteExpiredRefreshTokens(ctx, sql.NullTime{Time: revokedBefore, Valid: true})
+	if err != nil {
+		return 0, fmt.Errorf("auth: delete expired refresh tokens: %w", err)
+	}
+	return n, nil
+}

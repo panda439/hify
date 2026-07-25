@@ -30,6 +30,14 @@ type Config struct {
 // once those modules exist.
 func New(cfg Config) (*gin.Engine, *gin.RouterGroup) {
 	r := gin.New()
+	// Trust no proxy hops: without this Gin honors a client-supplied
+	// X-Forwarded-For verbatim in c.ClientIP(), which lets an attacker
+	// spoof a fresh IP on every request and bypass the per-IP login
+	// rate limit (see auth.service.Login). Deployments behind a real
+	// reverse proxy should set an explicit CIDR list instead of nil.
+	if err := r.SetTrustedProxies(nil); err != nil {
+		return nil, nil
+	}
 	r.Use(middleware.RequestID())
 	r.Use(middleware.Recover(cfg.Logger))
 	r.Use(middleware.RequestLogger(cfg.Logger))

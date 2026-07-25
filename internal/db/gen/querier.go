@@ -18,6 +18,7 @@ type Querier interface {
 	CountProviders(ctx context.Context) (int64, error)
 	CountUsers(ctx context.Context) (int64, error)
 	CountWorkflowRuns(ctx context.Context, workflowID string) (int64, error)
+	CountWorkflowRunsByCreator(ctx context.Context, arg CountWorkflowRunsByCreatorParams) (int64, error)
 	CountWorkflows(ctx context.Context) (int64, error)
 	CreateAgent(ctx context.Context, arg CreateAgentParams) error
 	CreateAgentKnowledgeBase(ctx context.Context, arg CreateAgentKnowledgeBaseParams) error
@@ -97,6 +98,10 @@ type Querier interface {
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	ListWorkflowRunSteps(ctx context.Context, workflowRunID string) ([]WorkflowRunStep, error)
 	ListWorkflowRuns(ctx context.Context, arg ListWorkflowRunsParams) ([]WorkflowRun, error)
+	// Non-admin callers only see their own execution history — see
+	// workflow.Service.ListRuns for why (runs carry rendered prompts/tool
+	// output, unlike the shared workflow definition itself).
+	ListWorkflowRunsByCreator(ctx context.Context, arg ListWorkflowRunsByCreatorParams) ([]WorkflowRun, error)
 	ListWorkflows(ctx context.Context, arg ListWorkflowsParams) ([]Workflow, error)
 	RevokeAllUserRefreshTokens(ctx context.Context, userID string) error
 	RevokeRefreshToken(ctx context.Context, id string) error

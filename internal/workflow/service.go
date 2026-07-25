@@ -29,9 +29,15 @@ type Service interface {
 	// any user being able to chat with any Agent regardless of who
 	// created it).
 	Execute(ctx context.Context, workflowID, userID, input string) (<-chan StepEvent, error)
-	ListRuns(ctx context.Context, workflowID string, limit, offset int) ([]WorkflowRun, int, error)
-	GetRun(ctx context.Context, id string) (WorkflowRun, error)
-	ListRunSteps(ctx context.Context, runID string) ([]WorkflowRunStep, error)
+	// ListRuns/GetRun/ListRunSteps take userID/role because run history is
+	// NOT shared like the workflow definition itself — a run's input/output
+	// and step trace can carry another user's prompts and retrieved
+	// content, so non-admins only ever see their own runs (same
+	// creator-or-admin check as UpdateWorkflow, applied per-run instead of
+	// per-workflow).
+	ListRuns(ctx context.Context, workflowID, userID, role string, limit, offset int) ([]WorkflowRun, int, error)
+	GetRun(ctx context.Context, id, userID, role string) (WorkflowRun, error)
+	ListRunSteps(ctx context.Context, runID, userID, role string) ([]WorkflowRunStep, error)
 }
 
 // service is constructed via NewService in wire.go.
@@ -100,23 +106,49 @@ func (s *service) UpdateWorkflow(ctx context.Context, id, userID, role string, i
 	return s.repo.getWorkflow(ctx, id)
 }
 
-func (s *service) ListRuns(ctx context.Context, workflowID string, limit, offset int) ([]WorkflowRun, int, error) {
+func (s *service) ListRuns(ctx context.Context, workflowID, userID, role string, limit, offset int) ([]WorkflowRun, int, error) {
 	limit = platform.ClampLimit(limit)
-	runs, err := s.repo.listRuns(ctx, workflowID, limit, offset)
+
+	if role == user.RoleAdmin {
+		runs, err := s.repo.listRuns(ctx, workflowID, limit, offset)
+		if err != nil {
+			return nil, 0, err
+		}
+		total, err := s.repo.countRuns(ctx, workflowID)
+		if err != nil {
+			return nil, 0, err
+		}
+		return runs, total, nil
+	}
+
+	runs, err := s.repo.listRunsByCreator(ctx, workflowID, userID, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
-	total, err := s.repo.countRuns(ctx, workflowID)
+	total, err := s.repo.countRunsByCreator(ctx, workflowID, userID)
 	if err != nil {
 		return nil, 0, err
 	}
 	return runs, total, nil
 }
 
-func (s *service) GetRun(ctx context.Context, id string) (WorkflowRun, error) {
-	return s.repo.getRun(ctx, id)
+func (s *service) GetRun(ctx context.Context, id, userID, role string) (WorkflowRun, error) {
+	run, err := s.repo.getRun(ctx, id)
+	if err != nil {
+		return WorkflowRun{}, err
+	}
+	if run.CreatedBy != userID && role != user.RoleAdmin {
+		// Same not-found-collapsing as conversation's ownership check —
+		// don't reveal that a run with this ID exists but belongs to
+		// someone else.
+		return WorkflowRun{}, ErrRunNotFound
+	}
+	return run, nil
 }
 
-func (s *service) ListRunSteps(ctx context.Context, runID string) ([]WorkflowRunStep, error) {
+func (s *service) ListRunSteps(ctx context.Context, runID, userID, role string) ([]WorkflowRunStep, error) {
+	if _, err := s.GetRun(ctx, runID, userID, role); err != nil {
+		return nil, err
+	}
 	return s.repo.listRunSteps(ctx, runID)
 }

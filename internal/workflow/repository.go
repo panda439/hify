@@ -149,6 +149,34 @@ func (r *Repository) countRuns(ctx context.Context, workflowID string) (int, err
 	return int(n), nil
 }
 
+func (r *Repository) listRunsByCreator(ctx context.Context, workflowID, createdBy string, limit, offset int) ([]WorkflowRun, error) {
+	rows, err := r.queries.ListWorkflowRunsByCreator(ctx, gen.ListWorkflowRunsByCreatorParams{
+		WorkflowID: workflowID,
+		CreatedBy:  createdBy,
+		Limit:      int32(limit),
+		Offset:     int32(offset),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("workflow: list runs by creator: %w", err)
+	}
+	out := make([]WorkflowRun, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, toDomainRun(row))
+	}
+	return out, nil
+}
+
+func (r *Repository) countRunsByCreator(ctx context.Context, workflowID, createdBy string) (int, error) {
+	n, err := r.queries.CountWorkflowRunsByCreator(ctx, gen.CountWorkflowRunsByCreatorParams{
+		WorkflowID: workflowID,
+		CreatedBy:  createdBy,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("workflow: count runs by creator: %w", err)
+	}
+	return int(n), nil
+}
+
 func (r *Repository) createRunStep(ctx context.Context, step WorkflowRunStep) error {
 	if err := r.queries.CreateWorkflowRunStep(ctx, gen.CreateWorkflowRunStepParams{
 		ID:            step.ID,

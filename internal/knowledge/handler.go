@@ -1,6 +1,7 @@
 package knowledge
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -15,6 +16,16 @@ import (
 // Handler is constructed via NewHandler in wire.go.
 type Handler struct {
 	service Service
+}
+
+// maxUploadBodyBytes bounds the whole multipart request body, not just the
+// file part — some headroom over maxFileSizeBytes for the multipart
+// boundary and other form fields/headers.
+const maxUploadBodyBytes = maxFileSizeBytes + 1<<20
+
+func isBodyTooLarge(err error) bool {
+	var maxErr *http.MaxBytesError
+	return errors.As(err, &maxErr)
 }
 
 func (h *Handler) Create(c *gin.Context) error {
@@ -113,8 +124,17 @@ func (h *Handler) Update(c *gin.Context) error {
 // body, since it's carrying binary/text file content, not a structured
 // request.
 func (h *Handler) UploadDocument(c *gin.Context) error {
+	// Cap the request body before Gin's multipart parser buffers it, so an
+	// oversized upload is rejected without first reading the whole thing
+	// into memory — maxUploadBodyBytes allows some headroom over
+	// maxFileSizeBytes for multipart framing (boundary, part headers).
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadBodyBytes)
+
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
+		if isBodyTooLarge(err) {
+			return ErrFileTooLarge
+		}
 		return ErrInvalidRequest
 	}
 	fileType := fileTypeFromName(fileHeader.Filename)
@@ -130,6 +150,9 @@ func (h *Handler) UploadDocument(c *gin.Context) error {
 
 	content, err := io.ReadAll(f)
 	if err != nil {
+		if isBodyTooLarge(err) {
+			return ErrFileTooLarge
+		}
 		return ErrInvalidRequest
 	}
 

@@ -21,6 +21,22 @@ func (q *Queries) CountWorkflowRuns(ctx context.Context, workflowID string) (int
 	return count, err
 }
 
+const countWorkflowRunsByCreator = `-- name: CountWorkflowRunsByCreator :one
+SELECT COUNT(*) FROM workflow_runs WHERE workflow_id = ? AND created_by = ?
+`
+
+type CountWorkflowRunsByCreatorParams struct {
+	WorkflowID string `json:"workflow_id"`
+	CreatedBy  string `json:"created_by"`
+}
+
+func (q *Queries) CountWorkflowRunsByCreator(ctx context.Context, arg CountWorkflowRunsByCreatorParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countWorkflowRunsByCreator, arg.WorkflowID, arg.CreatedBy)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createWorkflowRun = `-- name: CreateWorkflowRun :exec
 INSERT INTO workflow_runs (
     id, workflow_id, status, input, output, error_message, created_by
@@ -113,6 +129,62 @@ type ListWorkflowRunsParams struct {
 
 func (q *Queries) ListWorkflowRuns(ctx context.Context, arg ListWorkflowRunsParams) ([]WorkflowRun, error) {
 	rows, err := q.db.QueryContext(ctx, listWorkflowRuns, arg.WorkflowID, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkflowRun{}
+	for rows.Next() {
+		var i WorkflowRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkflowID,
+			&i.Status,
+			&i.Input,
+			&i.Output,
+			&i.ErrorMessage,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.CreatedBy,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listWorkflowRunsByCreator = `-- name: ListWorkflowRunsByCreator :many
+SELECT id, workflow_id, status, input, output, error_message, started_at, finished_at, created_by
+FROM workflow_runs
+WHERE workflow_id = ? AND created_by = ?
+ORDER BY started_at DESC
+LIMIT ? OFFSET ?
+`
+
+type ListWorkflowRunsByCreatorParams struct {
+	WorkflowID string `json:"workflow_id"`
+	CreatedBy  string `json:"created_by"`
+	Limit      int32  `json:"limit"`
+	Offset     int32  `json:"offset"`
+}
+
+// Non-admin callers only see their own execution history — see
+// workflow.Service.ListRuns for why (runs carry rendered prompts/tool
+// output, unlike the shared workflow definition itself).
+func (q *Queries) ListWorkflowRunsByCreator(ctx context.Context, arg ListWorkflowRunsByCreatorParams) ([]WorkflowRun, error) {
+	rows, err := q.db.QueryContext(ctx, listWorkflowRunsByCreator,
+		arg.WorkflowID,
+		arg.CreatedBy,
+		arg.Limit,
+		arg.Offset,
+	)
 	if err != nil {
 		return nil, err
 	}

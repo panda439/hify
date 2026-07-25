@@ -21,6 +21,19 @@ LIMIT ? OFFSET ?;
 -- name: CountWorkflowRuns :one
 SELECT COUNT(*) FROM workflow_runs WHERE workflow_id = ?;
 
+-- name: ListWorkflowRunsByCreator :many
+-- Non-admin callers only see their own execution history — see
+-- workflow.Service.ListRuns for why (runs carry rendered prompts/tool
+-- output, unlike the shared workflow definition itself).
+SELECT id, workflow_id, status, input, output, error_message, started_at, finished_at, created_by
+FROM workflow_runs
+WHERE workflow_id = ? AND created_by = ?
+ORDER BY started_at DESC
+LIMIT ? OFFSET ?;
+
+-- name: CountWorkflowRunsByCreator :one
+SELECT COUNT(*) FROM workflow_runs WHERE workflow_id = ? AND created_by = ?;
+
 -- name: FinishWorkflowRun :exec
 UPDATE workflow_runs
 SET status = ?, output = ?, error_message = ?, finished_at = ?

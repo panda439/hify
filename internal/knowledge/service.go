@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"github.com/hibiken/asynq"
 
 	"hify/internal/platform"
+	"hify/internal/platform/apperr"
 	"hify/internal/provider"
 	"hify/internal/user"
 )
@@ -284,7 +286,7 @@ func (s *service) ProcessDocument(ctx context.Context, documentID string) error 
 
 	pieces := chunkText(text, kb.ChunkSize, kb.ChunkOverlap)
 	if len(pieces) == 0 {
-		return s.failDocument(ctx, documentID, fmt.Errorf("文档内容为空或无法提取到文本"))
+		return s.failDocument(ctx, documentID, ErrEmptyContent)
 	}
 
 	model, err := s.providerSvc.GetModel(ctx, kb.EmbeddingModelID)
@@ -301,7 +303,8 @@ func (s *service) ProcessDocument(ctx context.Context, documentID string) error 
 		return s.failDocument(ctx, documentID, provider.WrapClientError(err))
 	}
 	if len(result.Embeddings) != len(pieces) {
-		return s.failDocument(ctx, documentID, fmt.Errorf("向量生成数量（%d）与分块数量（%d）不一致", len(result.Embeddings), len(pieces)))
+		slog.Error("knowledge: embedding count mismatch", "embeddings", len(result.Embeddings), "pieces", len(pieces), "document_id", documentID)
+		return s.failDocument(ctx, documentID, ErrEmbeddingCountMismatch)
 	}
 
 	chunks := make([]Chunk, 0, len(pieces))
@@ -325,11 +328,29 @@ func (s *service) ProcessDocument(ctx context.Context, documentID string) error 
 }
 
 func (s *service) failDocument(ctx context.Context, documentID string, cause error) error {
-	msg := cause.Error()
+	msg := userFacingFailureMessage(cause)
 	if updateErr := s.repo.updateDocumentStatus(ctx, documentID, StatusFailed, msg, 0); updateErr != nil {
 		slog.Error("knowledge: failed to record document failure", "err", updateErr, "document_id", documentID, "cause", cause)
 	}
 	return cause
+}
+
+// userFacingFailureMessage is what documentResponse.ErrorMessage shows the
+// user. cause is often a plain fmt.Errorf chain from parseFile/chunking/DB
+// code (English, and for a DB failure potentially raw driver text) rather
+// than an *apperr.AppError — those must not reach the client verbatim, per
+// CLAUDE.md's "用户可见 Message 必须是中文" rule. Only an already-Chinese
+// AppError.Message is safe to surface as-is; anything else falls back to a
+// generic message while the real cause goes to the log (same
+// don't-leak-internals shape as httperr.WriteInternal uses for the
+// synchronous request path).
+func userFacingFailureMessage(cause error) string {
+	var ae *apperr.AppError
+	if errors.As(cause, &ae) {
+		return ae.Message
+	}
+	slog.Error("knowledge: document processing failed with an internal error", "err", cause)
+	return "文档处理失败，请检查文件内容或稍后重试"
 }
 
 func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query string, topK int) ([]RetrievedChunk, error) {

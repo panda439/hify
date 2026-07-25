@@ -134,7 +134,7 @@ func (h *Handler) ListRuns(c *gin.Context) error {
 	offset, _ := strconv.Atoi(c.Query("offset"))
 	limit = platform.ClampLimit(limit)
 
-	runs, total, err := h.service.ListRuns(c.Request.Context(), c.Param("id"), limit, offset)
+	runs, total, err := h.service.ListRuns(c.Request.Context(), c.Param("id"), middleware.UserIDFrom(c), middleware.RoleFrom(c), limit, offset)
 	if err != nil {
 		return err
 	}
@@ -154,7 +154,7 @@ func (h *Handler) ListRuns(c *gin.Context) error {
 }
 
 func (h *Handler) GetRun(c *gin.Context) error {
-	run, err := h.service.GetRun(c.Request.Context(), c.Param("runId"))
+	run, err := h.service.GetRun(c.Request.Context(), c.Param("runId"), middleware.UserIDFrom(c), middleware.RoleFrom(c))
 	if err != nil {
 		return err
 	}
@@ -163,7 +163,7 @@ func (h *Handler) GetRun(c *gin.Context) error {
 }
 
 func (h *Handler) ListRunSteps(c *gin.Context) error {
-	steps, err := h.service.ListRunSteps(c.Request.Context(), c.Param("runId"))
+	steps, err := h.service.ListRunSteps(c.Request.Context(), c.Param("runId"), middleware.UserIDFrom(c), middleware.RoleFrom(c))
 	if err != nil {
 		return err
 	}

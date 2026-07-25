@@ -200,6 +200,11 @@ func recvTrailingUsage(stream *openai.ChatCompletionStream) (*openai.Usage, bool
 	}
 	ch := make(chan result, 1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("provider: panic in trailing usage reader", "panic", r, "stack", string(debug.Stack()))
+			}
+		}()
 		resp, err := stream.Recv()
 		ch <- result{resp, err}
 	}()

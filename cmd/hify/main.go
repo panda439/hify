@@ -186,10 +186,31 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 	// 等待 goroutine 结束" rule, no separate WaitGroup needed.
 	mux := asynq.NewServeMux()
 	mux.Handle(knowledge.TaskTypeProcessDocument, knowledge.NewTaskHandler(knowledgeSvc))
+	mux.Handle(auth.TaskTypeCleanupRefreshTokens, auth.NewCleanupTaskHandler(authSvc))
 	asynqServer := platform.NewAsynqServer(redisCfg, cfg.AsynqConcurrency)
 	if err := asynqServer.Start(mux); err != nil {
 		cleanup()
 		return nil, nil, nil, fmt.Errorf("start asynq worker: %w", err)
+	}
+
+	// refresh_tokens is a TTL-semantic table (see CLAUDE.md's DB section) —
+	// this periodic task is its cleanup job, hourly is frequent enough that
+	// the table never accumulates more than an hour's worth of stale rows.
+	scheduler := asynq.NewScheduler(platform.AsynqRedisOpt(redisCfg), nil)
+	if _, err := scheduler.Register("@every 1h", asynq.NewTask(auth.TaskTypeCleanupRefreshTokens, nil)); err != nil {
+		asynqServer.Shutdown()
+		cleanup()
+		return nil, nil, nil, fmt.Errorf("register refresh token cleanup schedule: %w", err)
+	}
+	if err := scheduler.Start(); err != nil {
+		asynqServer.Shutdown()
+		cleanup()
+		return nil, nil, nil, fmt.Errorf("start asynq scheduler: %w", err)
+	}
+	dbCleanup := cleanup
+	cleanup = func() {
+		scheduler.Shutdown()
+		dbCleanup()
 	}
 
 	return router, asynqServer, cleanup, nil

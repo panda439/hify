@@ -17,6 +17,12 @@ import (
 const (
 	loginRateLimitAttempts = 10
 	loginRateLimitWindow   = 15 * time.Minute
+
+	// refreshTokenRevokedRetention is how long a revoked refresh_tokens
+	// row is kept before CleanupExpiredRefreshTokens purges it — long
+	// enough to still be useful for a quick audit look-back, short enough
+	// not to let the table grow unbounded.
+	refreshTokenRevokedRetention = 24 * time.Hour
 )
 
 // Service is auth's public contract.
@@ -24,6 +30,10 @@ type Service interface {
 	Login(ctx context.Context, email, password, clientIP string) (Session, error)
 	Refresh(ctx context.Context, rawRefreshToken string) (Session, error)
 	Logout(ctx context.Context, rawRefreshToken string) error
+	// CleanupExpiredRefreshTokens purges refresh_tokens rows that no
+	// longer need to be kept — see tasks.go's periodic task, registered
+	// by cmd/hify/main.go, which is the only caller.
+	CleanupExpiredRefreshTokens(ctx context.Context) (int64, error)
 }
 
 // service is constructed via NewService in wire.go.
@@ -68,6 +78,12 @@ func (s *service) Refresh(ctx context.Context, rawRefreshToken string) (Session,
 	if err != nil {
 		return Session{}, err
 	}
+	if !u.IsActive {
+		// Mirror user.VerifyPassword's check: a refresh token issued before
+		// the account was deactivated must stop minting access tokens, not
+		// just be rejected at the next login.
+		return Session{}, ErrInactiveUser
+	}
 
 	newRaw, err := newOpaqueToken()
 	if err != nil {
@@ -94,6 +110,10 @@ func (s *service) Logout(ctx context.Context, rawRefreshToken string) error {
 		return nil
 	}
 	return s.repo.revoke(ctx, record.ID)
+}
+
+func (s *service) CleanupExpiredRefreshTokens(ctx context.Context) (int64, error) {
+	return s.repo.deleteExpired(ctx, time.Now().Add(-refreshTokenRevokedRetention))
 }
 
 func (s *service) issueSession(ctx context.Context, u user.User) (Session, error) {
