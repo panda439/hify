@@ -70,14 +70,14 @@ func (h *Handler) ListMessages(c *gin.Context) error {
 		cursor = &decoded
 	}
 
-	messages, nextCursor, err := h.service.ListMessages(c.Request.Context(), middleware.UserIDFrom(c), c.Param("id"), cursor, limit)
+	messages, citations, nextCursor, err := h.service.ListMessages(c.Request.Context(), middleware.UserIDFrom(c), c.Param("id"), cursor, limit)
 	if err != nil {
 		return err
 	}
 
 	items := make([]messageResponse, 0, len(messages))
 	for _, m := range messages {
-		items = append(items, toMessageResponse(m))
+		items = append(items, toMessageResponse(m, citations[m.ID]))
 	}
 	c.JSON(http.StatusOK, platform.CursorPage[messageResponse]{Items: items, NextCursor: nextCursor})
 	return nil

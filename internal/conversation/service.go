@@ -28,7 +28,12 @@ const maxToolCallIterations = 5
 type Service interface {
 	CreateConversation(ctx context.Context, userID, agentID string) (Conversation, error)
 	ListConversations(ctx context.Context, userID string, limit, offset int) ([]Conversation, int, error)
-	ListMessages(ctx context.Context, userID, conversationID string, cursor *MessageCursor, limit int) ([]Message, string, error)
+	// ListMessages' citations map is keyed by message ID and batch-loaded
+	// in one query (see repository.go's listCitationsByMessageIDs) — never
+	// per-message, per CLAUDE.md's N+1 rule (Citation V1 spec section 11).
+	// A message ID absent from the map has no citations (never a nil vs.
+	// empty-slice distinction the caller needs to worry about).
+	ListMessages(ctx context.Context, userID, conversationID string, cursor *MessageCursor, limit int) ([]Message, map[string][]Citation, string, error)
 
 	// StreamMessage does all pre-flight validation synchronously (so
 	// failures surface as normal HTTP errors) and only returns the event
@@ -86,9 +91,9 @@ func (s *service) ListConversations(ctx context.Context, userID string, limit, o
 	return convs, total, nil
 }
 
-func (s *service) ListMessages(ctx context.Context, userID, conversationID string, cursor *MessageCursor, limit int) ([]Message, string, error) {
+func (s *service) ListMessages(ctx context.Context, userID, conversationID string, cursor *MessageCursor, limit int) ([]Message, map[string][]Citation, string, error) {
 	if _, err := s.repo.getConversationForUser(ctx, conversationID, userID); err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	limit = platform.ClampLimit(limit)
 
@@ -100,7 +105,7 @@ func (s *service) ListMessages(ctx context.Context, userID, conversationID strin
 		rows, err = s.repo.listMessagesBeforeCursor(ctx, conversationID, *cursor, limit)
 	}
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 
 	var nextCursor string
@@ -110,7 +115,18 @@ func (s *service) ListMessages(ctx context.Context, userID, conversationID strin
 	}
 
 	reverseMessages(rows) // DB gives newest-first; the page itself reads chronologically
-	return rows, nextCursor, nil
+
+	ids := make([]string, 0, len(rows))
+	for _, m := range rows {
+		if m.Role == string(provider.RoleAssistant) {
+			ids = append(ids, m.ID)
+		}
+	}
+	citations, err := s.repo.listCitationsByMessageIDs(ctx, ids)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return rows, citations, nextCursor, nil
 }
 
 func (s *service) StreamMessage(ctx context.Context, userID, conversationID, content string) (<-chan StreamEvent, error) {
@@ -167,7 +183,7 @@ func (s *service) StreamMessage(ctx context.Context, userID, conversationID, con
 	}
 
 	events := make(chan StreamEvent)
-	go s.runStream(ctx, client, req, conversationID, traceID, turnStart, assembled.Retrieved, assembled.ToolNameToID, events)
+	go s.runStream(ctx, client, req, conversationID, traceID, turnStart, assembled.Evidence, assembled.ToolNameToID, events)
 	return events, nil
 }
 
@@ -194,19 +210,35 @@ func (s *service) recordSpan(span trace.Span) {
 // background context — the request ctx passed to ChatStream may already
 // be canceled by the time we get here, but a disconnect must not lose the
 // partial reply.
-func (s *service) runStream(ctx context.Context, client provider.Client, req provider.ChatRequest, conversationID, traceID string, turnStart time.Time, retrieved []knowledge.RetrievedChunk, toolNameToID map[string]string, events chan<- StreamEvent) {
+//
+// evidence is this turn's final, ref-numbered RAG evidence (see
+// context.go's selectEvidence) — the only place [Sx] citations in the
+// model's answer can legitimately point to. Citation parsing/validation
+// only happens once, against the fully accumulated answer on the normal
+// completion path (see persistFinalAssistantTurn) — never per SSE delta,
+// since a [S1] marker can span multiple deltas.
+func (s *service) runStream(ctx context.Context, client provider.Client, req provider.ChatRequest, conversationID, traceID string, turnStart time.Time, evidence []Evidence, toolNameToID map[string]string, events chan<- StreamEvent) {
 	defer close(events)
+	allowedRefs := make(map[string]struct{}, len(evidence))
+	for _, e := range evidence {
+		allowedRefs[e.Ref] = struct{}{}
+	}
+
 	// turnErr backs the root (kind=turn) span recorded by the deferred
 	// block below — every abnormal return path in this function sets
 	// turnErr right before returning; the normal EventDone path leaves it
-	// nil. turnStart is a parameter (captured by the caller before
-	// assembleContext's retrieval span, not here) so the root span's
-	// StartedAt precedes every child span's, retrieval included. This
-	// defer is registered before the recover defer (LIFO: recover runs
-	// first, so it can still set turnErr on a panic) but after
+	// nil. validCitationCount/invalidCitationCount are populated only on
+	// the normal completion path (persistFinalAssistantTurn), left at 0
+	// otherwise — a turn that errors or gets tool-called never reaches
+	// citation parsing. turnStart is a parameter (captured by the caller
+	// before assembleContext's retrieval span, not here) so the root
+	// span's StartedAt precedes every child span's, retrieval included.
+	// This defer is registered before the recover defer (LIFO: recover
+	// runs first, so it can still set turnErr on a panic) but after
 	// close(events) (so the span write happens before the channel closes,
 	// same reasoning as the recover defer's own comment below).
 	var turnErr error
+	var validCitationCount, invalidCitationCount int
 	defer func() {
 		status := trace.StatusOK
 		errMsg := ""
@@ -218,6 +250,10 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 			ID: traceID, TraceID: traceID, ParentSpanID: "",
 			ConversationID: conversationID, Kind: trace.KindTurn, Name: "conversation.turn",
 			Status: status, ErrorMessage: errMsg,
+			Attrs: trace.Attrs(map[string]any{
+				trace.AttrValidCitationCount:   validCitationCount,
+				trace.AttrInvalidCitationCount: invalidCitationCount,
+			}),
 			StartedAt: turnStart, FinishedAt: time.Now(),
 		})
 	}()
@@ -235,8 +271,8 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 		}
 	}()
 
-	if len(retrieved) > 0 {
-		if !trySend(ctx, events, StreamEvent{Type: EventRetrieval, TraceID: traceID, Retrieved: toRetrievedChunkInfo(retrieved)}) {
+	if len(evidence) > 0 {
+		if !trySend(ctx, events, StreamEvent{Type: EventRetrieval, TraceID: traceID, Retrieved: toRetrievedChunkInfo(evidence)}) {
 			return
 		}
 	}
@@ -309,7 +345,37 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 		}
 
 		s.recordLLMCallSpan(traceID, conversationID, req.Model, llmSpanStart, messages, buf.String(), finishReason, trace.StatusOK, "", usage)
-		s.persistAssistantTurn(conversationID, buf.String(), nil)
+
+		finalContent, citations, invalidCount, persistErr := s.persistFinalAssistantTurn(conversationID, buf.String(), evidence, allowedRefs)
+		if persistErr != nil {
+			// The transaction failed: neither the assistant message nor its
+			// citations exist in MySQL, and persistFinalAssistantTurn never
+			// called touchConversation on this path (see its doc comment) —
+			// so nothing here may claim success. Sending final/done would
+			// tell the client an answer was saved when it wasn't (content
+			// would vanish on refresh, breaking both consistency equalities
+			// from CLAUDE.md's Citation V1 spec). error is the only
+			// terminal event on this path; the message is generic Chinese
+			// text, never the raw DB error (see persistFinalAssistantTurn's
+			// own log line for the real cause).
+			turnErr = persistErr
+			invalidCitationCount = invalidCount
+			trySend(ctx, events, StreamEvent{Type: EventError, TraceID: traceID, Error: "保存回答失败，请稍后重试"})
+			return
+		}
+		validCitationCount, invalidCitationCount = len(citations), invalidCount
+
+		// final carries the authoritative, citation-normalized content and
+		// structured citations — see model.go's EventFinal doc comment.
+		// Sent even if the send below is dropped by a disconnected client:
+		// the message is already durably saved by persistFinalAssistantTurn
+		// regardless of who's still listening (CLAUDE.md spec section
+		// 10.9's "final 发送失败不能回滚已保存内容" — there's simply nothing
+		// to roll back here, the DB write already happened).
+		if !trySend(ctx, events, StreamEvent{Type: EventFinal, TraceID: traceID, Content: finalContent, Citations: toCitationResponses(citations)}) {
+			slog.Warn("conversation: final event not delivered (client disconnected), content already persisted", "conversation_id", conversationID)
+			return
+		}
 		trySend(ctx, events, StreamEvent{Type: EventDone, TraceID: traceID})
 		return
 	}
@@ -329,37 +395,41 @@ var (
 )
 
 // recordLLMCallSpan records one ChatStream call (one loop iteration) as a
-// kind=llm_call span. messages is the exact request sent (summarized, not
-// stored verbatim, to keep the row size sane); usage is best-effort (see
+// kind=llm_call span. Input/Output deliberately stay empty — messages can
+// carry the Agent's system prompt, the user's question, and (via the
+// review fix in context.go) retrieved knowledge base content, none of
+// which trace_spans may hold a full copy of by default (see CLAUDE.md's
+// trace-privacy fix); AttrMessageCount/AttrInputLength/AttrOutputLength
+// give a debugger enough signal (how big was this request/answer) without
+// ever persisting what's actually in it. usage is best-effort (see
 // provider.Usage's doc comment) and simply omitted from Attrs when zero.
 func (s *service) recordLLMCallSpan(traceID, conversationID, model string, start time.Time, messages []provider.Message, output, finishReason, status, errMsg string, usage provider.Usage) {
 	s.recordSpan(trace.Span{
 		ID: platform.NewID(), TraceID: traceID, ParentSpanID: traceID,
 		ConversationID: conversationID, Kind: trace.KindLLMCall, Name: "llm.chat_stream",
-		Status: status, Input: summarizeMessages(messages), Output: output, ErrorMessage: errMsg,
+		Status: status, ErrorMessage: errMsg,
 		Attrs: trace.Attrs(map[string]any{
 			trace.AttrRequestModel:      model,
 			trace.AttrFinishReasons:     finishReason,
 			trace.AttrUsageInputTokens:  usage.PromptTokens,
 			trace.AttrUsageOutputTokens: usage.CompletionTokens,
+			trace.AttrMessageCount:      len(messages),
+			trace.AttrInputLength:       messageContentRuneTotal(messages),
+			trace.AttrOutputLength:      len([]rune(output)),
 		}),
 		StartedAt: start, FinishedAt: time.Now(),
 	})
 }
 
-// summarizeMessages renders a request's message list as "role: content"
-// lines for a span's Input field — plain text is enough for a human
-// reading the trace later; it doesn't need to round-trip back into a
-// provider.Message.
-func summarizeMessages(messages []provider.Message) string {
-	var sb strings.Builder
-	for i, m := range messages {
-		if i > 0 {
-			sb.WriteString("\n")
-		}
-		fmt.Fprintf(&sb, "%s: %s", m.Role, m.Content)
+// messageContentRuneTotal sums every message's content length for
+// AttrInputLength — a size signal for the llm_call span that doesn't
+// require (and must not become) storing the messages themselves.
+func messageContentRuneTotal(messages []provider.Message) int {
+	total := 0
+	for _, m := range messages {
+		total += len([]rune(m.Content))
 	}
-	return sb.String()
+	return total
 }
 
 // trySend delivers evt on events but never blocks past ctx's cancellation.
@@ -413,17 +483,27 @@ func (s *service) runToolCall(ctx context.Context, tc provider.ToolCall, toolNam
 		}
 	}
 
+	// spanErrMsg/Input/Output deliberately never carry tc.Arguments or
+	// result verbatim — a tool's return value is exactly the "工具返回的
+	// 敏感原文" CLAUDE.md's trace-privacy fix forbids storing by default;
+	// a generic marker plus AttrInputLength/AttrOutputLength below is
+	// enough to see that (and how much) a tool call failed without ever
+	// persisting what it actually returned.
 	spanStatus := trace.StatusOK
 	spanErrMsg := ""
 	if status == "error" {
 		spanStatus = trace.StatusError
-		spanErrMsg = result
+		spanErrMsg = "tool call reported an error"
 	}
 	s.recordSpan(trace.Span{
 		ID: platform.NewID(), TraceID: traceID, ParentSpanID: traceID,
 		ConversationID: conversationID, Kind: trace.KindToolCall, Name: tc.Name,
-		Status: spanStatus, Input: string(tc.Arguments), Output: result, ErrorMessage: spanErrMsg,
-		Attrs:      trace.Attrs(map[string]any{trace.AttrToolName: tc.Name}),
+		Status: spanStatus, ErrorMessage: spanErrMsg,
+		Attrs: trace.Attrs(map[string]any{
+			trace.AttrToolName:     tc.Name,
+			trace.AttrInputLength:  len([]rune(string(tc.Arguments))),
+			trace.AttrOutputLength: len([]rune(result)),
+		}),
 		StartedAt:  spanStart,
 		FinishedAt: time.Now(),
 	})
@@ -474,6 +554,49 @@ func (s *service) persistAssistantTurn(conversationID, content string, toolCalls
 	if err := s.repo.touchConversation(persistCtx, conversationID, time.Now()); err != nil {
 		slog.Warn("conversation: touch after assistant message failed", "err", err, "conversation_id", conversationID)
 	}
+}
+
+// persistFinalAssistantTurn is the terminal-answer counterpart to
+// persistAssistantTurn — it owns the one place raw model output becomes
+// the authoritative saved/returned content: normalizeCitations strips any
+// [Sx] the model wasn't actually offered, evidenceToCitations turns the
+// refs that survive into message_citations rows (quotes taken verbatim
+// from evidence, never re-derived from the model's own text), and
+// createMessageWithCitations saves message+citations as one MySQL
+// transaction — a citation write failure rolls the message back too (see
+// CLAUDE.md's Citation V1 spec section 4), rather than ever leaving a
+// saved message with silently missing citations.
+//
+// On success, returns the normalized content (== what gets sent as
+// EventFinal.Content and == what's now in messages.content) and the
+// persisted citations (empty, never nil, when the model cited nothing).
+// On a transaction failure, err is non-nil and content/citations are the
+// zero value — the caller (runStream) MUST treat this as "nothing was
+// saved": no touchConversation call happens on this path (below), and the
+// caller must not send final/done, only an error event, or the client
+// would be told an answer was saved when it wasn't (see the code-review
+// fix this closes — final.content/citations must always equal what's
+// actually in MySQL, never what merely rendered locally). invalidCount is
+// still returned on failure since it comes from the (side-effect-free)
+// normalizeCitations parse, not from the DB write, and remains useful for
+// the caller's trace attrs regardless of persistence outcome.
+func (s *service) persistFinalAssistantTurn(conversationID, rawContent string, evidence []Evidence, allowedRefs map[string]struct{}) (content string, citations []Citation, invalidCount int, err error) {
+	content, validRefs, invalidCount := normalizeCitations(rawContent, allowedRefs)
+
+	persistCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	msg := Message{ID: platform.NewID(), ConversationID: conversationID, Role: string(provider.RoleAssistant), Content: content}
+	citations = evidenceToCitations(msg.ID, evidence, validRefs)
+
+	if err := s.repo.createMessageWithCitations(persistCtx, msg, citations); err != nil {
+		slog.Error("conversation: persist final assistant message with citations failed", "err", err, "conversation_id", conversationID)
+		return "", nil, invalidCount, err
+	}
+	if err := s.repo.touchConversation(persistCtx, conversationID, time.Now()); err != nil {
+		slog.Warn("conversation: touch after assistant message failed", "err", err, "conversation_id", conversationID)
+	}
+	return content, citations, invalidCount, nil
 }
 
 // storedToolCall is the messages.tool_calls JSON shape — a small,

@@ -5,13 +5,22 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"hify/internal/db/gen"
+	"hify/internal/platform"
 )
 
-// Repository is constructed via NewRepository in wire.go.
+// Repository is constructed via NewRepository in wire.go. db is kept
+// alongside queries (rather than only ever going through queries) because
+// createMessageWithCitations needs platform.WithTx's raw *sql.Tx to bind a
+// fresh gen.Queries for the transaction — the same shape knowledge's
+// Repository already uses for its own PG transactions.
 type Repository struct {
+	db      *sql.DB
 	queries *gen.Queries
 }
 
@@ -101,6 +110,130 @@ func (r *Repository) createMessage(ctx context.Context, m Message) error {
 		return fmt.Errorf("conversation: create message: %w", err)
 	}
 	return nil
+}
+
+// createMessageWithCitations is the one write path where an assistant
+// message and its citations must succeed or fail together — see
+// CLAUDE.md's Citation V1 spec section 4: a citation write failure must
+// roll back the message too, never leave a message saved with its
+// citations silently missing. Both statements run in the same MySQL
+// transaction via platform.WithTx; citations is allowed to be empty (a
+// normal answer with no [Sx] refs), in which case this is just the message
+// insert.
+func (r *Repository) createMessageWithCitations(ctx context.Context, m Message, citations []Citation) error {
+	toolCalls := m.ToolCalls
+	if len(toolCalls) == 0 {
+		toolCalls = []byte("null")
+	}
+
+	return platform.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+		q := r.queries.WithTx(tx)
+		if err := q.CreateMessage(ctx, gen.CreateMessageParams{
+			ID:             m.ID,
+			ConversationID: m.ConversationID,
+			Role:           m.Role,
+			Content:        m.Content,
+			ToolCalls:      toolCalls,
+			ToolCallID:     stringToNullString(m.ToolCallID),
+			TokenCount:     int32(m.TokenCount),
+		}); err != nil {
+			return fmt.Errorf("conversation: create message: %w", err)
+		}
+		for _, c := range citations {
+			if err := q.CreateMessageCitation(ctx, gen.CreateMessageCitationParams{
+				MessageID:       c.MessageID,
+				Ref:             c.Ref,
+				KnowledgeBaseID: c.KnowledgeBaseID,
+				DocumentID:      c.DocumentID,
+				DocumentName:    c.DocumentName,
+				ChunkID:         c.ChunkID,
+				ChunkIndex:      int32(c.ChunkIndex),
+				Quote:           c.Quote,
+				Score:           formatCitationScore(c.Score),
+			}); err != nil {
+				return fmt.Errorf("conversation: create message citation: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
+// listCitationsByMessageIDs batch-loads every citation for a page of
+// messages in one query — see CLAUDE.md's N+1 rule (spec section 11.1).
+// The returned map only ever has entries for message IDs that actually
+// have citations; callers must treat a missing key the same as an empty
+// slice.
+func (r *Repository) listCitationsByMessageIDs(ctx context.Context, messageIDs []string) (map[string][]Citation, error) {
+	if len(messageIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := r.queries.ListCitationsByMessageIDs(ctx, messageIDs)
+	if err != nil {
+		return nil, fmt.Errorf("conversation: list citations by message ids: %w", err)
+	}
+	out := make(map[string][]Citation, len(messageIDs))
+	for _, row := range rows {
+		c, err := toDomainCitation(row)
+		if err != nil {
+			return nil, err
+		}
+		out[c.MessageID] = append(out[c.MessageID], c)
+	}
+	// Sort each message's citations by ref number ascending (S1, S2, S10,
+	// ...) — the SQL's ORDER BY message_id says nothing about intra-group
+	// order, and a lexicographic ref sort would put "S10" before "S2".
+	for id := range out {
+		refs := out[id]
+		sort.Slice(refs, func(i, j int) bool { return refNumber(refs[i].Ref) < refNumber(refs[j].Ref) })
+	}
+	return out, nil
+}
+
+// refNumber parses the numeric suffix of a "S<n>" ref for sorting — every
+// ref in message_citations was produced by evidenceToCitations from a
+// selectEvidence-assigned Ref, so the "S" prefix and valid integer suffix
+// are guaranteed; a malformed value (which should be unreachable) sorts as
+// 0 rather than panicking.
+func refNumber(ref string) int {
+	n, err := strconv.Atoi(strings.TrimPrefix(ref, "S"))
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// formatCitationScore/parseCitationScore bridge Citation.Score (float64,
+// the shape every other layer works with) and message_citations.score's
+// DECIMAL(5,4) column, which sqlc represents as a plain string — MySQL
+// drivers don't have a native decimal Go type, and round-tripping through
+// float64 via Sprintf/ParseFloat (rather than passing arbitrary-precision
+// strings around) is fine here since a similarity score is never used for
+// exact/financial comparisons.
+func formatCitationScore(score float64) string {
+	return strconv.FormatFloat(score, 'f', 4, 64)
+}
+
+func parseCitationScore(s string) (float64, error) {
+	return strconv.ParseFloat(s, 64)
+}
+
+func toDomainCitation(row gen.MessageCitation) (Citation, error) {
+	score, err := parseCitationScore(row.Score)
+	if err != nil {
+		return Citation{}, fmt.Errorf("conversation: parse citation score %q: %w", row.Score, err)
+	}
+	return Citation{
+		MessageID:       row.MessageID,
+		Ref:             row.Ref,
+		KnowledgeBaseID: row.KnowledgeBaseID,
+		DocumentID:      row.DocumentID,
+		DocumentName:    row.DocumentName,
+		ChunkID:         row.ChunkID,
+		ChunkIndex:      int(row.ChunkIndex),
+		Quote:           row.Quote,
+		Score:           score,
+		CreatedAt:       row.CreatedAt,
+	}, nil
 }
 
 // listRecentMessages returns up to limit messages, newest first — always

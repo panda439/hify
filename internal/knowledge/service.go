@@ -447,12 +447,18 @@ func (s *service) ProcessDocument(ctx context.Context, documentID string, versio
 		}
 	}
 
+	// DocumentName is the Citation V1 source-attribution snapshot (see
+	// Chunk's doc comment) — doc.FileName at processing time, not a live
+	// pointer back to the documents row. PageNumber/SectionTitle stay nil:
+	// parseFile has no reliable page/section signal to offer, and Citation
+	// V1 must never fabricate one.
 	chunks := make([]Chunk, 0, len(pieces))
 	for i, piece := range pieces {
 		chunks = append(chunks, Chunk{
 			ID:                 platform.NewID(),
 			KnowledgeBaseID:    doc.KnowledgeBaseID,
 			DocumentID:         documentID,
+			DocumentName:       doc.FileName,
 			ChunkIndex:         i,
 			Content:            piece,
 			ContentLength:      len([]rune(piece)),

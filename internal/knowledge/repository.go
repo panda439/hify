@@ -385,6 +385,9 @@ func (r *Repository) createChunks(ctx context.Context, chunks []Chunk, version i
 				EmbeddingDimension: int32(c.EmbeddingDimension),
 				DocumentVersion:    version,
 				IsPublished:        false,
+				DocumentName:       c.DocumentName,
+				PageNumber:         intPtrToNullInt32(c.PageNumber),
+				SectionTitle:       stringPtrToNullString(c.SectionTitle),
 			}); err != nil {
 				return fmt.Errorf("knowledge: create chunk: %w", err)
 			}
@@ -456,6 +459,7 @@ func (r *Repository) searchChunks(ctx context.Context, kbIDs []string, queryVec 
 				ID:              row.ID,
 				KnowledgeBaseID: row.KnowledgeBaseID,
 				DocumentID:      row.DocumentID,
+				DocumentName:    row.DocumentName,
 				ChunkIndex:      int(row.ChunkIndex),
 				Content:         row.Content,
 				ContentLength:   int(row.ContentLength),
@@ -463,6 +467,8 @@ func (r *Repository) searchChunks(ctx context.Context, kbIDs []string, queryVec 
 				// (conversation/workflow only use Content), and shipping
 				// vectors back defeats the point of scoring in-database.
 				EmbeddingDimension: int(row.EmbeddingDimension),
+				PageNumber:         nullInt32ToIntPtr(row.PageNumber),
+				SectionTitle:       nullStringToStringPtr(row.SectionTitle),
 				CreatedAt:          row.CreatedAt,
 			},
 			Score: row.Score,
@@ -549,4 +555,41 @@ func stringToNullString(s string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: s, Valid: true}
+}
+
+// intPtrToNullInt32/stringPtrToNullString/nullInt32ToIntPtr/
+// nullStringToStringPtr bridge Chunk's PageNumber/SectionTitle (*int/
+// *string — genuinely optional, unlike the empty-string-means-absent fields
+// above) at the pggen boundary. A nil pointer is the only way to write PG
+// NULL here; an empty string is a real (if unlikely) section title, not
+// "absent", so stringToNullString's empty-string convention would be wrong
+// for this field.
+func intPtrToNullInt32(p *int) sql.NullInt32 {
+	if p == nil {
+		return sql.NullInt32{}
+	}
+	return sql.NullInt32{Int32: int32(*p), Valid: true}
+}
+
+func stringPtrToNullString(p *string) sql.NullString {
+	if p == nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: *p, Valid: true}
+}
+
+func nullInt32ToIntPtr(n sql.NullInt32) *int {
+	if !n.Valid {
+		return nil
+	}
+	v := int(n.Int32)
+	return &v
+}
+
+func nullStringToStringPtr(n sql.NullString) *string {
+	if !n.Valid {
+		return nil
+	}
+	v := n.String
+	return &v
 }

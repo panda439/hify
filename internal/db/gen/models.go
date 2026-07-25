@@ -117,6 +117,19 @@ type Message struct {
 	CreatedAt      time.Time       `json:"created_at"`
 }
 
+type MessageCitation struct {
+	MessageID       string    `json:"message_id"`
+	Ref             string    `json:"ref"`
+	KnowledgeBaseID string    `json:"knowledge_base_id"`
+	DocumentID      string    `json:"document_id"`
+	DocumentName    string    `json:"document_name"`
+	ChunkID         string    `json:"chunk_id"`
+	ChunkIndex      int32     `json:"chunk_index"`
+	Quote           string    `json:"quote"`
+	Score           string    `json:"score"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
 type ModelProvider struct {
 	ID              string          `json:"id"`
 	Name            string          `json:"name"`

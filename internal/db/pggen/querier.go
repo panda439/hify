@@ -17,6 +17,9 @@ type Querier interface {
 	CountChunksByKnowledgeBase(ctx context.Context, knowledgeBaseID string) (int64, error)
 	// 新版本 chunks 一律以 is_published=false 写入——"新版本写入"这一步不改变
 	// 任何已发布的旧版本可见性，发布是 PublishChunkVersion 单独一步。
+	// document_name 是处理时刻的 Document.FileName 快照（Citation 用的来源
+	// 展示名，见 pgmigrations 000003）；page_number/section_title 当前解析器
+	// 不产出可靠值，调用方一律传 NULL，不允许伪造。
 	CreateChunk(ctx context.Context, arg CreateChunkParams) error
 	// 整份文档删除用（DeleteDocument）：不分版本、不看发布状态，全部清空。
 	DeleteChunksByDocument(ctx context.Context, documentID string) error
@@ -37,6 +40,8 @@ type Querier interface {
 	// 向量直接报错；is_published 过滤是版本可见性网关——未发布的草稿版本永远
 	// 不能被检索命中，即使已经物理写入。::text[] cast 也不可省——sqlc 生成的
 	// 代码用 pq.Array 传字符串数组，显式 cast 消除 PG 的类型推断歧义。
+	// document_name/page_number/section_title 是 Citation V1 需要的来源
+	// metadata，随 chunk 一起返回给 conversation 层，knowledge 自己不解释它们。
 	SearchChunks(ctx context.Context, arg SearchChunksParams) ([]SearchChunksRow, error)
 }
 

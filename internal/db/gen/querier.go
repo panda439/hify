@@ -55,6 +55,9 @@ type Querier interface {
 	CreateKnowledgeBase(ctx context.Context, arg CreateKnowledgeBaseParams) error
 	CreateMCPServer(ctx context.Context, arg CreateMCPServerParams) error
 	CreateMessage(ctx context.Context, arg CreateMessageParams) error
+	// 单条插入，由 repository.go 在写 assistant message 的同一个 MySQL 事务里
+	// 循环调用（一轮 turn 最多 maxTopK=50 条，批量不值得单独写一条多值 INSERT）。
+	CreateMessageCitation(ctx context.Context, arg CreateMessageCitationParams) error
 	CreateProvider(ctx context.Context, arg CreateProviderParams) error
 	CreateProviderModel(ctx context.Context, arg CreateProviderModelParams) error
 	CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) error
@@ -92,6 +95,11 @@ type Querier interface {
 	ListAgentIDsByKnowledgeBase(ctx context.Context, knowledgeBaseID string) ([]string, error)
 	ListAgentIDsByMCPTool(ctx context.Context, mcpToolID string) ([]string, error)
 	ListAgents(ctx context.Context, arg ListAgentsParams) ([]Agent, error)
+	// 历史消息接口的批量加载入口——一次查询覆盖一页消息里所有 assistant
+	// message 的 citations，避免按每条消息各查一次（见 CLAUDE.md N+1 规则）。
+	// ORDER BY message_id 让调用方按 message_id 分组后，组内已经是 ref 的字符
+	// 序（S1 < S10 < S2 ...）——repository.go 按数字排序重排，不依赖这里的顺序。
+	ListCitationsByMessageIDs(ctx context.Context, messageIds []string) ([]MessageCitation, error)
 	// last_message backs the sidebar preview snippet — a correlated subquery
 	// against messages is fine here because conversations is a small,
 	// offset-paginated table (per CLAUDE.md's pagination rules) and each

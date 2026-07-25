@@ -16,7 +16,7 @@ import (
 )
 
 func NewRepository(db *sql.DB) *Repository {
-	return &Repository{queries: gen.New(db)}
+	return &Repository{db: db, queries: gen.New(db)}
 }
 
 // traceStore is a concrete *trace.Store, not a Service interface — trace

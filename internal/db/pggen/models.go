@@ -5,6 +5,7 @@
 package pggen
 
 import (
+	"database/sql"
 	"time"
 
 	pgvector "github.com/pgvector/pgvector-go"
@@ -22,4 +23,7 @@ type Chunk struct {
 	CreatedAt          time.Time       `json:"created_at"`
 	DocumentVersion    int64           `json:"document_version"`
 	IsPublished        bool            `json:"is_published"`
+	DocumentName       string          `json:"document_name"`
+	PageNumber         sql.NullInt32   `json:"page_number"`
+	SectionTitle       sql.NullString  `json:"section_title"`
 }

@@ -7,6 +7,7 @@ package pggen
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/lib/pq"
@@ -47,8 +48,9 @@ func (q *Queries) CountChunksByKnowledgeBase(ctx context.Context, knowledgeBaseI
 const createChunk = `-- name: CreateChunk :exec
 INSERT INTO chunks (
     id, knowledge_base_id, document_id, chunk_index, content,
-    content_length, embedding, embedding_dimension, document_version, is_published
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    content_length, embedding, embedding_dimension, document_version, is_published,
+    document_name, page_number, section_title
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 `
 
 type CreateChunkParams struct {
@@ -62,10 +64,16 @@ type CreateChunkParams struct {
 	EmbeddingDimension int32           `json:"embedding_dimension"`
 	DocumentVersion    int64           `json:"document_version"`
 	IsPublished        bool            `json:"is_published"`
+	DocumentName       string          `json:"document_name"`
+	PageNumber         sql.NullInt32   `json:"page_number"`
+	SectionTitle       sql.NullString  `json:"section_title"`
 }
 
 // 新版本 chunks 一律以 is_published=false 写入——"新版本写入"这一步不改变
 // 任何已发布的旧版本可见性，发布是 PublishChunkVersion 单独一步。
+// document_name 是处理时刻的 Document.FileName 快照（Citation 用的来源
+// 展示名，见 pgmigrations 000003）；page_number/section_title 当前解析器
+// 不产出可靠值，调用方一律传 NULL，不允许伪造。
 func (q *Queries) CreateChunk(ctx context.Context, arg CreateChunkParams) error {
 	_, err := q.db.ExecContext(ctx, createChunk,
 		arg.ID,
@@ -78,6 +86,9 @@ func (q *Queries) CreateChunk(ctx context.Context, arg CreateChunkParams) error 
 		arg.EmbeddingDimension,
 		arg.DocumentVersion,
 		arg.IsPublished,
+		arg.DocumentName,
+		arg.PageNumber,
+		arg.SectionTitle,
 	)
 	return err
 }
@@ -144,6 +155,7 @@ func (q *Queries) PublishChunkVersion(ctx context.Context, arg PublishChunkVersi
 const searchChunks = `-- name: SearchChunks :many
 SELECT id, knowledge_base_id, document_id, chunk_index, content,
        content_length, embedding_dimension, created_at,
+       document_name, page_number, section_title,
        (1 - (embedding <=> $1))::float8 AS score
 FROM chunks
 WHERE knowledge_base_id = ANY($2::text[])
@@ -161,15 +173,18 @@ type SearchChunksParams struct {
 }
 
 type SearchChunksRow struct {
-	ID                 string    `json:"id"`
-	KnowledgeBaseID    string    `json:"knowledge_base_id"`
-	DocumentID         string    `json:"document_id"`
-	ChunkIndex         int32     `json:"chunk_index"`
-	Content            string    `json:"content"`
-	ContentLength      int32     `json:"content_length"`
-	EmbeddingDimension int32     `json:"embedding_dimension"`
-	CreatedAt          time.Time `json:"created_at"`
-	Score              float64   `json:"score"`
+	ID                 string         `json:"id"`
+	KnowledgeBaseID    string         `json:"knowledge_base_id"`
+	DocumentID         string         `json:"document_id"`
+	ChunkIndex         int32          `json:"chunk_index"`
+	Content            string         `json:"content"`
+	ContentLength      int32          `json:"content_length"`
+	EmbeddingDimension int32          `json:"embedding_dimension"`
+	CreatedAt          time.Time      `json:"created_at"`
+	DocumentName       string         `json:"document_name"`
+	PageNumber         sql.NullInt32  `json:"page_number"`
+	SectionTitle       sql.NullString `json:"section_title"`
+	Score              float64        `json:"score"`
 }
 
 // <=> 是 pgvector 的余弦「距离」（0=同向 2=反向），1 - 距离 = 余弦相似度，
@@ -179,6 +194,8 @@ type SearchChunksRow struct {
 // 向量直接报错；is_published 过滤是版本可见性网关——未发布的草稿版本永远
 // 不能被检索命中，即使已经物理写入。::text[] cast 也不可省——sqlc 生成的
 // 代码用 pq.Array 传字符串数组，显式 cast 消除 PG 的类型推断歧义。
+// document_name/page_number/section_title 是 Citation V1 需要的来源
+// metadata，随 chunk 一起返回给 conversation 层，knowledge 自己不解释它们。
 func (q *Queries) SearchChunks(ctx context.Context, arg SearchChunksParams) ([]SearchChunksRow, error) {
 	rows, err := q.db.QueryContext(ctx, searchChunks,
 		arg.QueryEmbedding,
@@ -202,6 +219,9 @@ func (q *Queries) SearchChunks(ctx context.Context, arg SearchChunksParams) ([]S
 			&i.ContentLength,
 			&i.EmbeddingDimension,
 			&i.CreatedAt,
+			&i.DocumentName,
+			&i.PageNumber,
+			&i.SectionTitle,
 			&i.Score,
 		); err != nil {
 			return nil, err

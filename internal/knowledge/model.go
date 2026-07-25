@@ -170,15 +170,31 @@ type Document struct {
 // Chunk is one embedded slice of a Document. It's immutable derived data —
 // content changes mean delete-and-regenerate, never update-in-place, same
 // as conversation.Message.
+//
+// DocumentName is a snapshot of Document.FileName taken at processing time
+// (see service.go's ProcessDocument) — a source-attribution label, not a
+// live join back to MySQL's documents table, so it survives the document
+// being renamed, reprocessed, or later deleted. Chunks written before this
+// field existed carry DocumentName == "" (see pgmigrations 000003); callers
+// needing a display name must fall back to DocumentID themselves rather
+// than treating "" as an error.
+//
+// PageNumber/SectionTitle are nil unless the parser can honestly produce
+// them — parse.go currently never does (see CLAUDE.md's Citation V1 note:
+// no PDF page/section extraction), so both stay nil for every chunk today.
+// Never fabricate a value here.
 type Chunk struct {
 	ID                 string
 	KnowledgeBaseID    string
 	DocumentID         string
+	DocumentName       string
 	ChunkIndex         int
 	Content            string
 	ContentLength      int
 	Embedding          []float32
 	EmbeddingDimension int
+	PageNumber         *int
+	SectionTitle       *string
 	CreatedAt          time.Time
 }
 

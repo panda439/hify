@@ -1559,6 +1559,64 @@ func TestIntegrationProcessDocumentMultiBatchConsistentDimensionSucceeds(t *test
 	}
 }
 
+// --- Citation V1：chunk 来源 metadata ---
+
+func TestIntegrationProcessDocumentWritesDocumentNameSnapshot(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	dir := t.TempDir()
+	svc := newTestService(repo, fp, dir)
+	ctx := context.Background()
+
+	seedKB(t, repo, "kb-docname", "m3", "u1", true)
+	path := filepath.Join(dir, "architecture.txt")
+	if err := os.WriteFile(path, []byte("aaaaa"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	doc := Document{ID: "doc-docname", KnowledgeBaseID: "kb-docname", FileName: "architecture.txt",
+		FileType: FileTypeTxt, FileSize: 5, StoragePath: path, CreatedBy: "u1"}
+	if err := repo.createDocument(ctx, doc); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ProcessDocument(ctx, "doc-docname", 1); err != nil {
+		t.Fatalf("ProcessDocument: %v", err)
+	}
+
+	got, err := repo.searchChunks(ctx, []string{"kb-docname"}, []float32{1, 0, 0}, 10)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("searchChunks = %v (err %v), want 1 chunk", ids(got), err)
+	}
+	if got[0].DocumentName != "architecture.txt" {
+		t.Fatalf("DocumentName = %q, want the processed document's FileName snapshot", got[0].DocumentName)
+	}
+	// 当前解析器没有可靠页码/章节信息——绝不允许伪造，必须是 nil。
+	if got[0].PageNumber != nil || got[0].SectionTitle != nil {
+		t.Fatalf("PageNumber/SectionTitle must stay nil (never fabricated): page=%v section=%v", got[0].PageNumber, got[0].SectionTitle)
+	}
+}
+
+func TestIntegrationSearchChunksHistoricalEmptyMetadataStillRetrievable(t *testing.T) {
+	// 存量 chunk（迁移前写入，从未带 document_name）不能因为 metadata 缺失
+	// 而检索失败或被排除——seedChunk 故意不设置 DocumentName，模拟这种
+	// 历史行。
+	repo := setupIntegration(t)
+	ctx := context.Background()
+
+	seedKB(t, repo, "kb-legacy", "m3", "u1", true)
+	seedChunk(t, repo, "kb-legacy", "doc-legacy", "legacy-c1", []float32{1, 0, 0})
+
+	got, err := repo.searchChunks(ctx, []string{"kb-legacy"}, []float32{1, 0, 0}, 10)
+	if err != nil {
+		t.Fatalf("searchChunks must not fail on empty source metadata: %v", err)
+	}
+	if len(got) != 1 || got[0].DocumentName != "" {
+		t.Fatalf("got %+v, want 1 chunk with empty (not fabricated) DocumentName", got)
+	}
+	if got[0].PageNumber != nil || got[0].SectionTitle != nil {
+		t.Fatalf("legacy chunk must not have fabricated page/section: page=%v section=%v", got[0].PageNumber, got[0].SectionTitle)
+	}
+}
+
 func ids(chunks []RetrievedChunk) []string {
 	out := make([]string, len(chunks))
 	for i, c := range chunks {

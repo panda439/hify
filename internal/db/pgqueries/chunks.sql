@@ -1,10 +1,14 @@
 -- name: CreateChunk :exec
 -- 新版本 chunks 一律以 is_published=false 写入——"新版本写入"这一步不改变
 -- 任何已发布的旧版本可见性，发布是 PublishChunkVersion 单独一步。
+-- document_name 是处理时刻的 Document.FileName 快照（Citation 用的来源
+-- 展示名，见 pgmigrations 000003）；page_number/section_title 当前解析器
+-- 不产出可靠值，调用方一律传 NULL，不允许伪造。
 INSERT INTO chunks (
     id, knowledge_base_id, document_id, chunk_index, content,
-    content_length, embedding, embedding_dimension, document_version, is_published
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
+    content_length, embedding, embedding_dimension, document_version, is_published,
+    document_name, page_number, section_title
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13);
 
 -- name: SearchChunks :many
 -- <=> 是 pgvector 的余弦「距离」（0=同向 2=反向），1 - 距离 = 余弦相似度，
@@ -14,8 +18,11 @@ INSERT INTO chunks (
 -- 向量直接报错；is_published 过滤是版本可见性网关——未发布的草稿版本永远
 -- 不能被检索命中，即使已经物理写入。::text[] cast 也不可省——sqlc 生成的
 -- 代码用 pq.Array 传字符串数组，显式 cast 消除 PG 的类型推断歧义。
+-- document_name/page_number/section_title 是 Citation V1 需要的来源
+-- metadata，随 chunk 一起返回给 conversation 层，knowledge 自己不解释它们。
 SELECT id, knowledge_base_id, document_id, chunk_index, content,
        content_length, embedding_dimension, created_at,
+       document_name, page_number, section_title,
        (1 - (embedding <=> sqlc.arg(query_embedding)))::float8 AS score
 FROM chunks
 WHERE knowledge_base_id = ANY(sqlc.arg(knowledge_base_ids)::text[])
