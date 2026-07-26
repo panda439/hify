@@ -19,10 +19,18 @@ type judgeVerdict struct {
 }
 
 // Judge asks judgeClient to score one case's reply against its rubric,
-// given the trace of what the agent actually did (which tool calls fired,
-// what retrieval returned) — the rubric can require "must have called the
-// weather tool", and the judge can only verify that from the trace, not
-// from the reply text alone.
+// expected/forbidden facts, and the trace of which tool calls or retrieval
+// fired (kind/status/timing only — see buildJudgePrompt's prompt text: the
+// trace no longer carries retrieved text, the user's question, or tool
+// call arguments/results after the privacy rewrite, and this prompt does
+// not claim otherwise). Judge is responsible for the semantic calls that
+// can't be done with plain string/id comparison — fact coverage, forbidden
+// content, answer relevance/quality — deterministic retrieval/citation
+// correctness is computeRAGMetrics' job, not this prompt's (see runner.go).
+// V1 does not attempt a general faithfulness score (checking the reply
+// against the full retrieved text) — that would require re-exposing
+// retrieved content to the judge, which the privacy design in eval's
+// package doc rules out.
 func Judge(ctx context.Context, judgeClient provider.Client, judgeModel string, tc TestCase, reply string, spans []trace.Span) (score int, reasoning string, err error) {
 	prompt := buildJudgePrompt(tc, reply, spans)
 	msg, err := judgeClient.Chat(ctx, provider.ChatRequest{
@@ -48,8 +56,22 @@ func buildJudgePrompt(tc TestCase, reply string, spans []trace.Span) string {
 	sb.WriteString("你是一个严格的 AI 助手回复质量评审员。请根据评分标准给这次对话打 1-5 分（5 分最好），只输出 JSON，不要输出其它任何文字：{\"score\": <1-5的整数>, \"reasoning\": \"<简短中文理由>\"}\n\n")
 	fmt.Fprintf(&sb, "用户问题：%s\n\n", tc.Prompt)
 	fmt.Fprintf(&sb, "评分标准：%s\n\n", tc.Rubric)
+	if len(tc.ExpectedFacts) > 0 {
+		sb.WriteString("回复中应当正确表达以下事实点（缺失或表达错误要在打分中体现）：\n")
+		for _, f := range tc.ExpectedFacts {
+			fmt.Fprintf(&sb, "- %s\n", f)
+		}
+		sb.WriteString("\n")
+	}
+	if len(tc.ForbiddenFacts) > 0 {
+		sb.WriteString("回复中不应当出现以下内容（出现要在打分中体现）：\n")
+		for _, f := range tc.ForbiddenFacts {
+			fmt.Fprintf(&sb, "- %s\n", f)
+		}
+		sb.WriteString("\n")
+	}
 	fmt.Fprintf(&sb, "助手最终回复：%s\n\n", reply)
-	sb.WriteString("执行过程（供核实评分标准里提到的工具调用/检索是否真的发生，以及调用参数、检索内容是否正确——不要只看名字和状态就判定通过）：\n")
+	sb.WriteString("执行过程（只能用于核实评分标准/事实点里提到的工具调用或检索这类动作是否真的发生——每个 span 只有状态、耗时等元数据，不包含检索到的文档原文、用户问题原文、工具调用参数或结果，这些已经在 Trace 隐私改造中移除；不要假设能看到或还原这些被删除的原文，也不要仅仅因为看不到原文就扣分，检索/引用是否命中期望文档已由确定性指标单独判断，不需要你在这里核实）：\n")
 	for _, sp := range spans {
 		fmt.Fprintf(&sb, "- [%s] %s status=%s\n", sp.Kind, sp.Name, sp.Status)
 		if in := truncateForJudge(sp.Input); in != "" {

@@ -44,7 +44,10 @@ func Load(path string) (RunReport, error) {
 // Compare renders a Markdown regression report: current vs baseline score
 // per case, with a dedicated "退步" section calling out anything that
 // dropped — that section is the whole point of running this against a
-// baseline instead of just reading the current run in isolation.
+// baseline instead of just reading the current run in isolation. A second
+// table shows the deterministic RAG metrics (Hit/MRR/CitationRequirement/
+// ExpectedDocumentCited) side by side with their baseline values — see
+// Regressed's doc comment for why these don't (yet) affect the exit code.
 func Compare(current, baseline RunReport) string {
 	baseByName := make(map[string]CaseResult, len(baseline.Results))
 	for _, r := range baseline.Results {
@@ -86,13 +89,80 @@ func Compare(current, baseline RunReport) string {
 			sb.WriteString(line + "\n")
 		}
 	}
+
+	sb.WriteString("\n## 检索 / 引用指标\n\n")
+	sb.WriteString("“—”表示该 case 未配置对应字段（expected_document_ids / require_citation），不代表指标为 false/0——旧版 baseline（跑在这次改造之前）里所有 case 在这张表都会显示“—”，属于正常的“基线缺少这些字段”情形，不是数据异常。\n\n")
+	sb.WriteString("| Case | RetrievalHit 本次/基线/变化 | MRR 本次/基线/变化 | CitationRequirementMet 本次/基线/变化 | ExpectedDocumentCited 本次/基线/变化 |\n")
+	sb.WriteString("|---|---|---|---|---|\n")
+	for _, r := range current.Results {
+		base := baseByName[r.Name] // zero value (all Evaluated=false) when absent — renders as "—/—/—"
+		fmt.Fprintf(&sb, "| %s | %s | %s | %s | %s |\n",
+			r.Name,
+			boolMetricTriple(r.Metrics.RetrievalHit, base.Metrics.RetrievalHit),
+			floatMetricTriple(r.Metrics.MRR, base.Metrics.MRR),
+			boolMetricTriple(r.Metrics.CitationRequirementMet, base.Metrics.CitationRequirementMet),
+			boolMetricTriple(r.Metrics.ExpectedDocumentCited, base.Metrics.ExpectedDocumentCited),
+		)
+	}
+
 	return sb.String()
+}
+
+func boolMetricCell(m BoolMetric) string {
+	if !m.Evaluated {
+		return "—"
+	}
+	if m.Value {
+		return "true"
+	}
+	return "false"
+}
+
+func floatMetricCell(m FloatMetric) string {
+	if !m.Evaluated {
+		return "—"
+	}
+	return fmt.Sprintf("%.2f", m.Value)
+}
+
+func boolMetricTriple(cur, base BoolMetric) string {
+	delta := "—"
+	if cur.Evaluated && base.Evaluated {
+		switch {
+		case cur.Value == base.Value:
+			delta = "="
+		case cur.Value:
+			delta = "+"
+		default:
+			delta = "-"
+		}
+	}
+	return fmt.Sprintf("%s / %s / %s", boolMetricCell(cur), boolMetricCell(base), delta)
+}
+
+func floatMetricTriple(cur, base FloatMetric) string {
+	delta := "—"
+	if cur.Evaluated && base.Evaluated {
+		delta = fmt.Sprintf("%+.2f", cur.Value-base.Value)
+	}
+	return fmt.Sprintf("%s / %s / %s", floatMetricCell(cur), floatMetricCell(base), delta)
 }
 
 // Regressed reports whether any case's score dropped by at least
 // threshold points versus baseline — cmd/evalrunner uses this to decide
 // its exit code, so a regression can gate CI without a human reading the
 // Markdown output every time.
+//
+// It deliberately still only looks at Judge Score, not the RAGMetrics
+// added alongside it. Score is a single stable number a threshold can gate
+// cleanly; RetrievalHit/MRR/citation correctness depend on knowledge base
+// content and retrieval behavior that can legitimately shift for reasons
+// that have nothing to do with a code regression (a document being
+// re-uploaded, an embedding model change) — wiring those into the CI exit
+// code now would risk failing builds on noise. They're surfaced in
+// Compare's second table for a human to read, and can graduate into the
+// gate later once there's enough run history to know what a real
+// regression threshold for them should be.
 func Regressed(current, baseline RunReport, threshold int) bool {
 	baseByName := make(map[string]CaseResult, len(baseline.Results))
 	for _, r := range baseline.Results {

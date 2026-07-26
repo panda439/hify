@@ -37,6 +37,23 @@ make test-race   # 加 race detector
 
 测试策略围绕 [docs/critical-paths.md](docs/critical-paths.md)——9 条"改造时容易出问题"的核心链路清单：纯逻辑用 characterization test 锁行为（弹性装饰器的故障注入、tool_calls 分片合并等），跨库契约用真实 MySQL + pgvector 集成测试验证（`internal/testutil` 每包独立测试库，支持并行）。CI 里用 service containers 跑全量。
 
+## Eval
+
+`internal/eval` + `cmd/evalrunner`（`make eval`）是开发者自用的 agent 回归工具：跑 `eval/testset.yaml` 里固定的一组 prompt，记录每个 case 的执行轨迹，产出结构化报告，和上一次的基线对比。不进数据库、不对外暴露，结果只写本地文件（`eval/runs/*.json`、`eval/baseline.json`）。
+
+```bash
+go run ./cmd/evalrunner --judge-model-id <UUID> --user-id <UUID>
+# 或
+make eval JUDGE_MODEL_ID=<UUID> EVAL_USER_ID=<UUID>
+```
+
+**两类指标，职责分开**：
+
+- **确定性指标**（`internal/eval/metrics.go`，代码算出来的，不经过任何 LLM）：`RetrievalHit`（期望文档是否至少命中一个）、`MRR`（期望文档集合里排名最靠前的那次命中的排名倒数，`expected_document_ids` 数组顺序不影响结果）、`ExpectedDocumentCited`（最终引用是否指向期望文档）、`CitationRequirementMet`（`require_citation=true` 时是否真的带了引用）。每个指标都是 `{evaluated, value}` 的形状——`evaluated=false` 表示这条 case 没配置对应字段（比如没写 `expected_document_ids`），不是"评估了但是 false"，报告里显示成"—"。
+- **LLM Judge 指标**：1-5 分的整体质量分，负责 `expected_facts`/`forbidden_facts` 有没有被正确表达、回答相关性、表达质量这类需要语义理解的判断。Judge 看不到、也不再声称能看到已脱敏的 Trace 原文（检索到的文档内容、用户原始问题、工具调用参数/结果）——这些在 Citation/Trace 隐私改造后已经从 Trace 里移除，Judge 只能看到 span 的状态/耗时元数据。V1 不做严格意义的 Faithfulness（逐字比对检索原文与回答）评分。
+
+`TestCase` 的 `expected_document_ids`/`require_citation`/`expected_facts`/`forbidden_facts` 都是可选字段，见 `eval/testset.yaml` 的注释和示例。`Compare` 输出的 Markdown 报告里，Judge 分数和这四个确定性指标都会显示"本次 / 基线 / 变化"；`Regressed`（决定 `evalrunner` 退出码的函数）目前只看 Judge 分数——确定性指标可能因为知识库内容变化等非代码原因波动，暂不接入 CI 退出码，只供人工审阅。旧版（改造前）跑出来的 `baseline.json` 缺这些新字段也能正常加载对比，缺的部分统一显示"—"。
+
 ## 架构决策记录
 
 关键设计取舍（为什么 pgvector 而不是专用向量库、为什么无维度声明的 vector 列、跨库删除为什么靠顺序而不是分布式事务、流式重试的边界在哪）散落在各模块的包注释和 `docs/` 里，整理中。

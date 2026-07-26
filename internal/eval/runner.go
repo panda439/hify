@@ -3,19 +3,28 @@ package eval
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"hify/internal/conversation"
 	"hify/internal/platform/trace"
 	"hify/internal/provider"
 )
 
+// traceLister is the subset of *trace.Store the runner needs. Declared as
+// an interface (not the concrete *trace.Store parameter type the runner
+// used before this change) purely so runCase is unit-testable with a fake
+// in-memory implementation instead of a real MySQL connection — *trace.Store
+// itself is untouched and still satisfies this interface, so cmd/evalrunner
+// needs no changes.
+type traceLister interface {
+	ListByConversation(ctx context.Context, conversationID string) ([]trace.Span, error)
+}
+
 // Run drives each test case through a fresh conversation, collects the
 // resulting trace, and has judgeClient score it against the case's rubric.
 // A case that errors out (conversation/judge failure) still produces a
 // CaseResult — with Err set and Score left at 0 — rather than aborting the
 // whole run, so one broken case doesn't hide the results of the others.
-func Run(ctx context.Context, convSvc conversation.Service, traceStore *trace.Store, judgeClient provider.Client, judgeModel, userID string, cases []TestCase) RunReport {
+func Run(ctx context.Context, convSvc conversation.Service, traceStore traceLister, judgeClient provider.Client, judgeModel, userID string, cases []TestCase) RunReport {
 	results := make([]CaseResult, 0, len(cases))
 	for _, tc := range cases {
 		results = append(results, runCase(ctx, convSvc, traceStore, judgeClient, judgeModel, userID, tc))
@@ -23,8 +32,78 @@ func Run(ctx context.Context, convSvc conversation.Service, traceStore *trace.St
 	return RunReport{Results: results}
 }
 
-func runCase(ctx context.Context, convSvc conversation.Service, traceStore *trace.Store, judgeClient provider.Client, judgeModel, userID string, tc TestCase) CaseResult {
-	result := CaseResult{Name: tc.Name}
+// streamCollection is the deterministic, DB- and judge-free product of
+// draining one case's StreamEvent channel — split out from runCase so it's
+// unit testable without a real conversation.Service (see runner_test.go).
+// Retrievals/Citations are always non-nil so CaseResult never serializes
+// them as JSON null (see CaseResult's doc comment).
+type streamCollection struct {
+	TraceID    string
+	Reply      string
+	GotFinal   bool
+	Retrievals []RetrievalResult
+	Citations  []CitationResult
+	Err        string
+}
+
+// collectStream drains events to completion. EventFinal.Content is the
+// only source of Reply — EventDelta frames are ignored here (the model's
+// answer isn't final/citation-normalized until EventFinal, see
+// conversation/model.go's EventFinal doc comment), and a stream that
+// closes without ever sending EventFinal leaves GotFinal false so the
+// caller can fail the case rather than judge a reply that was never
+// actually finalized.
+func collectStream(events <-chan conversation.StreamEvent) streamCollection {
+	sc := streamCollection{
+		Retrievals: make([]RetrievalResult, 0),
+		Citations:  make([]CitationResult, 0),
+	}
+	for evt := range events {
+		if evt.TraceID != "" {
+			sc.TraceID = evt.TraceID
+		}
+		switch evt.Type {
+		case conversation.EventRetrieval:
+			for i, r := range evt.Retrieved {
+				sc.Retrievals = append(sc.Retrievals, RetrievalResult{
+					Rank:            i + 1,
+					Ref:             r.Ref,
+					KnowledgeBaseID: r.KnowledgeBaseID,
+					DocumentID:      r.DocumentID,
+					DocumentName:    r.DocumentName,
+					Score:           r.Score,
+				})
+			}
+		case conversation.EventFinal:
+			sc.GotFinal = true
+			sc.Reply = evt.Content
+			for _, c := range evt.Citations {
+				sc.Citations = append(sc.Citations, CitationResult{
+					Ref:             c.Ref,
+					KnowledgeBaseID: c.KnowledgeBaseID,
+					DocumentID:      c.DocumentID,
+					DocumentName:    c.DocumentName,
+					ChunkID:         c.ChunkID,
+					Score:           c.Score,
+				})
+			}
+		case conversation.EventDelta:
+			// Ignored — EventFinal.Content is the authoritative reply, not
+			// the concatenation of deltas (they can differ: citation
+			// normalization strips invalid [Sx] refs from the final text).
+		case conversation.EventError:
+			sc.Err = evt.Error
+		}
+	}
+	return sc
+}
+
+func runCase(ctx context.Context, convSvc conversation.Service, traceStore traceLister, judgeClient provider.Client, judgeModel, userID string, tc TestCase) CaseResult {
+	result := CaseResult{
+		Name:       tc.Name,
+		Retrievals: make([]RetrievalResult, 0),
+		Citations:  make([]CitationResult, 0),
+	}
 
 	conv, err := convSvc.CreateConversation(ctx, userID, tc.AgentID)
 	if err != nil {
@@ -38,22 +117,25 @@ func runCase(ctx context.Context, convSvc conversation.Service, traceStore *trac
 		return result
 	}
 
-	var reply strings.Builder
-	for evt := range events {
-		if evt.TraceID != "" {
-			result.TraceID = evt.TraceID
-		}
-		switch evt.Type {
-		case conversation.EventDelta:
-			reply.WriteString(evt.Content)
-		case conversation.EventError:
-			result.Err = evt.Error
-		}
-	}
-	result.Reply = reply.String()
-	if result.Err != "" {
+	sc := collectStream(events)
+	result.TraceID = sc.TraceID
+	result.Reply = sc.Reply
+	result.Retrievals = sc.Retrievals
+	result.Citations = sc.Citations
+
+	if sc.Err != "" {
+		result.Err = sc.Err
 		return result
 	}
+	if !sc.GotFinal {
+		// The stream closed (no error event) without ever sending
+		// EventFinal — there is no authoritative reply to judge, so this
+		// case fails rather than silently scoring an empty/partial answer.
+		result.Err = "stream ended without a final event"
+		return result
+	}
+
+	result.Metrics = computeRAGMetrics(tc, result.Retrievals, result.Citations)
 
 	spans, err := traceStore.ListByConversation(ctx, conv.ID)
 	if err != nil {

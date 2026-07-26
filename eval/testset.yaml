@@ -5,7 +5,17 @@
 # 用法见 README 或 `go run ./cmd/evalrunner -h`：
 #   go run ./cmd/evalrunner --judge-model-id <UUID> --user-id <UUID>
 #
-# 下面这两条是示例，跑之前请替换成你自己环境里真实的 agent_id。
+# 下面几条是示例，跑之前请替换成你自己环境里真实的 agent_id / expected_document_ids。
+#
+# RAG Eval V1 新增字段（全部可选，见 internal/eval/model.go 的 TestCase 注释）：
+#   expected_document_ids: 一组"命中其中任意一个就算对"的可接受文档 id 集合，
+#     数组顺序不影响任何指标——Hit/ExpectedDocumentCited 只要命中集合里任意
+#     一个即为 true；MRR 取"排名最靠前（rank 最小）的那次命中"算 1/rank，
+#     和这些 id 在数组里写的先后顺序无关。不配置则跳过 Hit/MRR/
+#     ExpectedDocumentCited 这几个确定性指标（Metrics 里显示 evaluated=false）。
+#   require_citation: true 表示最终回复必须至少带一条结构化引用。
+#   expected_facts / forbidden_facts: 交给 LLM Judge 做语义核对的事实点列表，
+#     不是关键词匹配。
 cases:
   - name: "basic_qa"
     agent_id: "REPLACE_WITH_REAL_AGENT_ID"
@@ -16,3 +26,21 @@ cases:
     agent_id: "REPLACE_WITH_REAL_AGENT_ID_WITH_MCP_TOOL"
     prompt: "帮我查一下现在几点了"
     rubric: "必须实际调用了对应的 MCP 工具（不能瞎编答案），并且把工具结果转述给用户"
+    # 纯工具调用场景，不涉及知识库检索——不配置 expected_document_ids，
+    # Hit/MRR/ExpectedDocumentCited 会在报告里显示为"—"（未配置，不是未命中）。
+
+  - name: "rag_pgvector_citation"
+    agent_id: "REPLACE_WITH_REAL_AGENT_ID_WITH_KNOWLEDGE_BASE"
+    prompt: "Hify 的向量检索是怎么设计的？"
+    rubric: "回答必须准确描述 pgvector 检索方案，引用要覆盖回答中的关键技术点"
+    # 这条真实跑过之后，把命中的文档 id 换成知识库里那份"RAG 设计"文档的
+    # 真实 document_id（从一次 EventRetrieval/eval report 的 retrievals 字段里
+    # 拷贝，那里只有 id/名称/分数，没有原文，可以放心复制）。
+    expected_document_ids:
+      - "REPLACE_WITH_REAL_DOCUMENT_ID"
+    require_citation: true
+    expected_facts:
+      - "检索基于 PostgreSQL + pgvector"
+      - "打分/排序/topK 下推到 SQL 执行"
+    forbidden_facts:
+      - "使用了 Milvus 或 Weaviate 这类独立向量数据库"
