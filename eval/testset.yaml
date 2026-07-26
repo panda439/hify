@@ -5,7 +5,8 @@
 # 用法见 README 或 `go run ./cmd/evalrunner -h`：
 #   go run ./cmd/evalrunner --judge-model-id <UUID> --user-id <UUID>
 #
-# 下面几条是示例，跑之前请替换成你自己环境里真实的 agent_id / expected_document_ids。
+# 下面是本地 Hify 学习环境的首套真实 RAG baseline 用例；如果数据库重建，
+# 需要用新环境里的专用 Eval Agent/document id 同步替换这些标识。
 #
 # RAG Eval V1 新增字段（全部可选，见 internal/eval/model.go 的 TestCase 注释）：
 #   expected_document_ids: 一组"命中其中任意一个就算对"的可接受文档 id 集合，
@@ -17,30 +18,71 @@
 #   expected_facts / forbidden_facts: 交给 LLM Judge 做语义核对的事实点列表，
 #     不是关键词匹配。
 cases:
-  - name: "basic_qa"
-    agent_id: "REPLACE_WITH_REAL_AGENT_ID"
-    prompt: "Hify 用什么数据库做向量检索？"
-    rubric: "回答必须提到 pgvector 和 PostgreSQL，语气专业，不能编造未知信息"
-
-  - name: "tool_call"
-    agent_id: "REPLACE_WITH_REAL_AGENT_ID_WITH_MCP_TOOL"
-    prompt: "帮我查一下现在几点了"
-    rubric: "必须实际调用了对应的 MCP 工具（不能瞎编答案），并且把工具结果转述给用户"
-    # 纯工具调用场景，不涉及知识库检索——不配置 expected_document_ids，
-    # Hit/MRR/ExpectedDocumentCited 会在报告里显示为"—"（未配置，不是未命中）。
-
-  - name: "rag_pgvector_citation"
-    agent_id: "REPLACE_WITH_REAL_AGENT_ID_WITH_KNOWLEDGE_BASE"
-    prompt: "Hify 的向量检索是怎么设计的？"
-    rubric: "回答必须准确描述 pgvector 检索方案，引用要覆盖回答中的关键技术点"
-    # 这条真实跑过之后，把命中的文档 id 换成知识库里那份"RAG 设计"文档的
-    # 真实 document_id（从一次 EventRetrieval/eval report 的 retrievals 字段里
-    # 拷贝，那里只有 id/名称/分数，没有原文，可以放心复制）。
+  - name: "forgot_password"
+    agent_id: "019f9d3a-a045-719a-ae79-270a0bbbd739"
+    prompt: "我忘记 Hify 的登录密码了，可以自己找回吗？"
+    rubric: "必须准确说明当前不能自助找回，并给出联系管理员重置临时密码的处理方式"
     expected_document_ids:
-      - "REPLACE_WITH_REAL_DOCUMENT_ID"
+      - "019f5f88-eaf7-722e-84ec-48e1e6dea400"
+      - "019f5f9c-c256-75e7-91e2-e3a00fac9fea"
     require_citation: true
     expected_facts:
-      - "检索基于 PostgreSQL + pgvector"
-      - "打分/排序/topK 下推到 SQL 执行"
+      - "Hify 目前不支持用户自助找回密码"
+      - "需要联系管理员重置临时密码"
+      - "首次使用临时密码登录后必须立即修改密码"
     forbidden_facts:
-      - "使用了 Milvus 或 Weaviate 这类独立向量数据库"
+      - "可以通过忘记密码邮件自行重置"
+
+  - name: "login_rate_limit"
+    agent_id: "019f9d3a-a045-719a-ae79-270a0bbbd739"
+    prompt: "我连续登录失败很多次，现在应该怎么办？"
+    rubric: "必须说明登录限流阈值、等待窗口以及账号禁用这一备选排查方向"
+    expected_document_ids:
+      - "019f5f9c-c256-75e7-91e2-e3a00fac9fea"
+    require_citation: true
+    expected_facts:
+      - "15 分钟内连续登录失败 10 次会被临时限流"
+      - "等待窗口期结束后可以重试"
+      - "密码无误仍无法登录时应联系管理员确认账号是否被禁用"
+    forbidden_facts:
+      - "必须立即联系管理员解除登录限流"
+
+  - name: "supported_file_formats"
+    agent_id: "019f9d3a-a045-719a-ae79-270a0bbbd739"
+    prompt: "知识库可以上传哪些文件，单个文件最大多大？"
+    rubric: "必须完整列出支持格式并准确说明单文件大小限制"
+    expected_document_ids:
+      - "019f5f9c-c256-75e7-91e2-e3a00fac9fea"
+    require_citation: true
+    expected_facts:
+      - "支持 txt、markdown、pdf"
+      - "单个文件不超过 10MB"
+    forbidden_facts:
+      - "支持 Word 或 Excel"
+
+  - name: "immutable_knowledge_config"
+    agent_id: "019f9d3a-a045-719a-ae79-270a0bbbd739"
+    prompt: "知识库创建以后还能修改向量模型、分块大小和重叠参数吗？"
+    rubric: "必须明确说明三个参数均不可修改，并解释兼容性原因和替代方案"
+    expected_document_ids:
+      - "019f5f9c-c256-75e7-91e2-e3a00fac9fea"
+    require_citation: true
+    expected_facts:
+      - "向量模型、分块大小、分块重叠在知识库创建后不可修改"
+      - "修改会导致新旧数据不兼容"
+      - "需要更换模型时应新建知识库并重新上传文档"
+    forbidden_facts:
+      - "可以直接修改并自动兼容历史分片"
+
+  - name: "conversation_privacy"
+    agent_id: "019f9d3a-a045-719a-ae79-270a0bbbd739"
+    prompt: "管理员能通过接口查看我的对话记录吗？"
+    rubric: "必须准确说明对话私有且管理员也不能通过接口直接查看"
+    expected_document_ids:
+      - "019f5f9c-c256-75e7-91e2-e3a00fac9fea"
+    require_citation: true
+    expected_facts:
+      - "对话记录只有用户自己能看到"
+      - "管理员也无法通过接口直接查看别人的对话内容"
+    forbidden_facts:
+      - "管理员可以随时查看所有用户的对话内容"
