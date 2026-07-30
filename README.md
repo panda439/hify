@@ -2,7 +2,9 @@
 
 [![CI](https://github.com/panda439/hify/actions/workflows/ci.yml/badge.svg)](https://github.com/panda439/hify/actions/workflows/ci.yml)
 
-一个从零实现的简化版 LLM 应用开发平台（对标 Dify 的核心能力），Go + React。不依赖任何 Agent 编排框架——LLM 供应商抽象、RAG 流水线、Agent 工具调用循环、工作流引擎全部手写，用来把这些系统的工作原理真正吃透。
+一个 AI 辅助完成的简化版 LLM 应用开发平台学习项目（对标 Dify 的核心能力），Go + React。项目用于理解和验证 LLM 供应商抽象、RAG 流水线、Agent 工具调用循环与工作流引擎等系统的实现取舍；代码实现、测试和前端均有 AI 工具协助，不将其表述为个人独立完成的生产平台。
+
+我在项目中的学习重点是：能基于代码和提交记录解释关键数据流、参与方案判断，审查 AI 辅助实现的边界，并通过测试和真实接口验证结果。项目介绍与面试提纲见 [docs/portfolio-interview.md](docs/portfolio-interview.md)。
 
 ## 核心能力
 
@@ -57,3 +59,10 @@ make eval JUDGE_MODEL_ID=<UUID> EVAL_USER_ID=<UUID>
 ## 架构决策记录
 
 关键设计取舍（为什么 pgvector 而不是专用向量库、为什么无维度声明的 vector 列、跨库删除为什么靠顺序而不是分布式事务、流式重试的边界在哪）散落在各模块的包注释和 `docs/` 里，整理中。
+
+## 已知限制
+
+- 这是学习型模块化单体，不是生产级 Dify 替代品；当前文档存储使用本地磁盘，不适合多实例共享。
+- Eval V1 不做严格的 citation faithfulness（逐字验证回答是否被检索原文支持）；确定性指标会出现在报告中，但当前回归退出码只依据 LLM Judge 分数，仍需人工审阅。
+- Trace 会脱敏检索文档、原始问题和工具参数/结果；这降低了观测数据的泄露风险，也意味着 Judge 不能据此审查原文内容。
+- `make eval` 需要已有的裁判模型和用户配置，会产生本地评测报告；它是开发回归工具，不是对外在线评测服务。
