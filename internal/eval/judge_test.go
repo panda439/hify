@@ -38,3 +38,51 @@ func TestBuildJudgePrompt_DoesNotClaimAccessToRedactedTraceContent(t *testing.T)
 		t.Fatalf("prompt must include ForbiddenFacts, got:\n%s", prompt)
 	}
 }
+
+func TestBuildJudgePrompt_SingleTurnRendersPromptAsBefore(t *testing.T) {
+	tc := TestCase{Prompt: "知识库支持哪些文件格式？", Rubric: "标准"}
+	prompt := buildJudgePrompt(tc, "回复内容", nil)
+
+	if !strings.Contains(prompt, "用户问题：知识库支持哪些文件格式？") {
+		t.Fatalf("single-turn prompt must render 用户问题：<Prompt> unchanged, got:\n%s", prompt)
+	}
+}
+
+// TestBuildJudgePrompt_MultiTurnIncludesFirstAndLastTurn is the direct
+// regression test for the bug this fix addresses: a multi-turn case's
+// judge prompt used to be built from tc.Prompt, which is empty when Turns
+// is set — the judge never saw the user's actual question(s) at all. It
+// must now see every turn, including the first (context the last turn's
+// coreference depends on) and the last (the turn actually being scored).
+func TestBuildJudgePrompt_MultiTurnIncludesFirstAndLastTurn(t *testing.T) {
+	tc := TestCase{
+		Turns:  []string{"知识库创建以后还能修改用的向量模型吗？", "那分块大小呢，也不能改吗？"},
+		Rubric: "标准",
+	}
+	prompt := buildJudgePrompt(tc, "分块大小同样不能改", nil)
+
+	if !strings.Contains(prompt, "知识库创建以后还能修改用的向量模型吗？") {
+		t.Fatalf("multi-turn prompt must include the first turn (coreference context), got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "那分块大小呢，也不能改吗？") {
+		t.Fatalf("multi-turn prompt must include the last turn (the one being scored), got:\n%s", prompt)
+	}
+	// Must not silently fall back to the empty Prompt field.
+	if strings.Contains(prompt, "用户问题：\n") {
+		t.Fatalf("multi-turn prompt must not render an empty 用户问题 from the unused Prompt field, got:\n%s", prompt)
+	}
+}
+
+// TestBuildJudgePrompt_MultiTurnLabelsFinalTurnAsScored guards against
+// silently handing the judge an isolated last turn with no indication of
+// which turn its "助手最终回复" actually answers — without a label, a
+// multi-turn prompt reads ambiguously (which turn does the reply belong
+// to?) even though all the turns are present.
+func TestBuildJudgePrompt_MultiTurnLabelsFinalTurnAsScored(t *testing.T) {
+	tc := TestCase{Turns: []string{"第一轮", "第二轮"}, Rubric: "标准"}
+	prompt := buildJudgePrompt(tc, "回复", nil)
+
+	if !strings.Contains(prompt, "最后一轮") {
+		t.Fatalf("multi-turn prompt must mark which turn is the one being scored, got:\n%s", prompt)
+	}
+}

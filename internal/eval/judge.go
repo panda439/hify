@@ -54,7 +54,7 @@ func Judge(ctx context.Context, judgeClient provider.Client, judgeModel string, 
 func buildJudgePrompt(tc TestCase, reply string, spans []trace.Span) string {
 	var sb strings.Builder
 	sb.WriteString("你是一个严格的 AI 助手回复质量评审员。请根据评分标准给这次对话打 1-5 分（5 分最好），只输出 JSON，不要输出其它任何文字：{\"score\": <1-5的整数>, \"reasoning\": \"<简短中文理由>\"}\n\n")
-	fmt.Fprintf(&sb, "用户问题：%s\n\n", tc.Prompt)
+	sb.WriteString(formatJudgeTurns(tc))
 	fmt.Fprintf(&sb, "评分标准：%s\n\n", tc.Rubric)
 	if len(tc.ExpectedFacts) > 0 {
 		sb.WriteString("回复中应当正确表达以下事实点（缺失或表达错误要在打分中体现）：\n")
@@ -81,6 +81,37 @@ func buildJudgePrompt(tc TestCase, reply string, spans []trace.Span) string {
 			fmt.Fprintf(&sb, "  output: %s\n", out)
 		}
 	}
+	return sb.String()
+}
+
+// formatJudgeTurns renders the conversation's user-side prompt(s) for the
+// judge. Single-turn cases (TestCase.Turns unset) render exactly as
+// before — just "用户问题：<prompt>". Multi-turn cases render *every* turn
+// in order, not just the last one: handing the judge an isolated final
+// turn like "那分块大小呢" without the turn it refers back to would strand
+// it without the coreference context that question depends on, defeating
+// the point of testing coreference at all. The final turn is labeled
+// explicitly as the one being scored, since only its
+// reply/retrievals/citations feed into Score/Metrics (see runCase and
+// TestCase.Turns' doc comment) — earlier turns are conversational context
+// for the judge to read, not something it should be grading on their own
+// merits.
+func formatJudgeTurns(tc TestCase) string {
+	turns := caseTurns(tc)
+	if len(turns) == 1 {
+		return fmt.Sprintf("用户问题：%s\n\n", turns[0])
+	}
+
+	var sb strings.Builder
+	sb.WriteString("多轮对话（同一个会话里按顺序发生，后面的问题可能用代词或省略指代前面的内容，请结合上下文理解）：\n")
+	for i, turn := range turns {
+		if i == len(turns)-1 {
+			fmt.Fprintf(&sb, "第 %d 轮（最后一轮，下面的“助手最终回复”是对这一轮的回复，只评这一轮）：%s\n", i+1, turn)
+		} else {
+			fmt.Fprintf(&sb, "第 %d 轮：%s\n", i+1, turn)
+		}
+	}
+	sb.WriteString("\n")
 	return sb.String()
 }
 

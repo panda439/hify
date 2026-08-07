@@ -1589,9 +1589,158 @@ func TestIntegrationProcessDocumentWritesDocumentNameSnapshot(t *testing.T) {
 	if got[0].DocumentName != "architecture.txt" {
 		t.Fatalf("DocumentName = %q, want the processed document's FileName snapshot", got[0].DocumentName)
 	}
-	// 当前解析器没有可靠页码/章节信息——绝不允许伪造，必须是 nil。
+	// txt 从不产生页码/章节信息（该信息只对 pdf/md 有意义）——见
+	// TestIntegrationProcessDocumentPDFPageNumbers /
+	// TestIntegrationProcessDocumentMarkdownSectionTitleAndBreadcrumb。
 	if got[0].PageNumber != nil || got[0].SectionTitle != nil {
-		t.Fatalf("PageNumber/SectionTitle must stay nil (never fabricated): page=%v section=%v", got[0].PageNumber, got[0].SectionTitle)
+		t.Fatalf("PageNumber/SectionTitle must stay nil for txt (never fabricated): page=%v section=%v", got[0].PageNumber, got[0].SectionTitle)
+	}
+}
+
+func TestIntegrationProcessDocumentPDFPageNumbers(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	dir := t.TempDir()
+	svc := newTestService(repo, fp, dir)
+	ctx := context.Background()
+
+	// seedKB's hardcoded ChunkSize=5 would shatter "alphaword"/"betaword"
+	// into unrecognizable fragments — this test needs whole words intact
+	// to prove cross-page isolation by content, so it creates the KB
+	// directly with a size generous enough to keep each page's repeated
+	// word whole.
+	if err := repo.createKnowledgeBase(ctx, KnowledgeBase{
+		ID: "kb-pdfpage", Name: "kb-pdfpage", EmbeddingModelID: "m3",
+		ChunkSize: 60, ChunkOverlap: 10, CreatedBy: "u1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pdfPath := writeTestPDF(t, []string{
+		strings.Repeat("alphaword ", 15), // page 1, long enough to split into >=1 chunk
+		strings.Repeat("betaword ", 15),  // page 2
+	})
+	if err := repo.createDocument(ctx, Document{ID: "doc-pdfpage", KnowledgeBaseID: "kb-pdfpage",
+		FileName: "pages.pdf", FileType: FileTypePDF, FileSize: 1, StoragePath: pdfPath, CreatedBy: "u1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.ProcessDocument(ctx, "doc-pdfpage", 1); err != nil {
+		t.Fatalf("ProcessDocument: %v", err)
+	}
+	got, err := repo.getDocument(ctx, "doc-pdfpage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusReady || got.ChunkCount == 0 {
+		t.Fatalf("doc status=%s chunkCount=%d, want ready with >0 chunks (err=%q)", got.Status, got.ChunkCount, got.ErrorMessage)
+	}
+
+	chunks, err := repo.searchChunks(ctx, []string{"kb-pdfpage"}, []float32{1, 0, 0}, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) == 0 {
+		t.Fatal("expected at least one searchable chunk")
+	}
+	for _, c := range chunks {
+		if c.SectionTitle != nil {
+			t.Fatalf("pdf chunk must never fabricate a section title: %+v", c)
+		}
+		if c.PageNumber == nil {
+			t.Fatalf("pdf chunk missing page number: %+v", c)
+		}
+		hasAlpha := strings.Contains(c.Content, "alphaword")
+		hasBeta := strings.Contains(c.Content, "betaword")
+		if hasAlpha && hasBeta {
+			t.Fatalf("chunk spans both pages, page number would be unreliable: %+v", c)
+		}
+		if hasAlpha && *c.PageNumber != 1 {
+			t.Fatalf("alpha content tagged with page %d, want 1: %+v", *c.PageNumber, c)
+		}
+		if hasBeta && *c.PageNumber != 2 {
+			t.Fatalf("beta content tagged with page %d, want 2: %+v", *c.PageNumber, c)
+		}
+	}
+}
+
+func TestIntegrationProcessDocumentMarkdownSectionTitleAndBreadcrumb(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	dir := t.TempDir()
+	svc := newTestService(repo, fp, dir)
+	ctx := context.Background()
+
+	// Same reasoning as TestIntegrationProcessDocumentPDFPageNumbers:
+	// seedKB's ChunkSize=5 would split each section's body far past one
+	// chunk per heading, defeating this test's "exactly 2 chunks" check.
+	if err := repo.createKnowledgeBase(ctx, KnowledgeBase{
+		ID: "kb-mdsection", Name: "kb-mdsection", EmbeddingModelID: "m3",
+		ChunkSize: 200, ChunkOverlap: 0, CreatedBy: "u1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "doc.md")
+	content := "# Guide\n\nIntro paragraph.\n\n## Setup\n\nSetup instructions go here."
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.createDocument(ctx, Document{ID: "doc-mdsection", KnowledgeBaseID: "kb-mdsection",
+		FileName: "doc.md", FileType: FileTypeMD, FileSize: len(content), StoragePath: path, CreatedBy: "u1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.ProcessDocument(ctx, "doc-mdsection", 1); err != nil {
+		t.Fatalf("ProcessDocument: %v", err)
+	}
+	chunks, err := repo.searchChunks(ctx, []string{"kb-mdsection"}, []float32{1, 0, 0}, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 2 {
+		t.Fatalf("got %d chunks, want 2 (one per section): %+v", len(chunks), ids(chunks))
+	}
+	var sawSetup bool
+	for _, c := range chunks {
+		if c.PageNumber != nil {
+			t.Fatalf("md chunk must never fabricate a page number: %+v", c)
+		}
+		if c.SectionTitle != nil && *c.SectionTitle == "Setup" {
+			sawSetup = true
+			if !strings.Contains(c.Content, "Guide > Setup") {
+				t.Fatalf("Setup chunk content missing heading breadcrumb: %q", c.Content)
+			}
+			if !strings.Contains(c.Content, "Setup instructions go here.") {
+				t.Fatalf("Setup chunk content missing body: %q", c.Content)
+			}
+		}
+	}
+	if !sawSetup {
+		t.Fatalf("expected one chunk with SectionTitle=Setup, got %+v", chunks)
+	}
+}
+
+func TestIntegrationProcessDocumentEmptyContentFails(t *testing.T) {
+	repo := setupIntegration(t)
+	dir := t.TempDir()
+	svc := newTestService(repo, newFakeProvider(), dir)
+	ctx := context.Background()
+
+	seedKB(t, repo, "kb-empty", "m3", "u1", true)
+	path := filepath.Join(dir, "empty.txt")
+	if err := os.WriteFile(path, []byte("   \n\n  \n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.createDocument(ctx, Document{ID: "doc-empty", KnowledgeBaseID: "kb-empty",
+		FileName: "empty.txt", FileType: FileTypeTxt, FileSize: 7, StoragePath: path, CreatedBy: "u1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.ProcessDocument(ctx, "doc-empty", 1); !errors.Is(err, ErrEmptyContent) {
+		t.Fatalf("ProcessDocument err = %v, want ErrEmptyContent", err)
+	}
+	got, _ := repo.getDocument(ctx, "doc-empty")
+	if got.Status != StatusFailed || !strings.Contains(got.ErrorMessage, "空") {
+		t.Fatalf("status=%s err=%q, want failed with empty-content message", got.Status, got.ErrorMessage)
 	}
 }
 

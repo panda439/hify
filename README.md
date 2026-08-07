@@ -10,7 +10,7 @@
 
 - **LLM Provider 抽象层**：统一 `Client` 接口（Chat / ChatStream / Embed），OpenAI 兼容协议适配多家供应商；API Key AES-256-GCM 加密落库。
 - **弹性调用装饰器**：per-provider 熔断（gobreaker）、并发限流 + Redis 令牌桶、指数退避重试（流式场景只重试首连，断流绝不重试以避免向客户端重复推送）、空闲超时。
-- **RAG 全流程**：文档解析分块（含 PDF 逐字形位置重建）→ 批量 embedding → **PostgreSQL + pgvector** 在库内打分/排序/topK（无维度声明 vector 列支撑混合维度知识库）→ 检索结果注入对话上下文并通过 SSE 暴露调试信息。
+- **RAG 全流程**：结构感知文档解析分块（md 保留标题/段落/列表/代码块/表格并把标题带入 embedding 内容、txt 按段落/句子边界切、pdf 逐字形位置重建后按页切分保留页码；单个结构超限统一回退定长切分；PDF 无 OCR，扫描版/无文字层直接报错，Markdown 解析是行级启发式而非完整 CommonMark）→ 批量 embedding → **PostgreSQL + pgvector** 在库内打分/排序/topK（无维度声明 vector 列支撑混合维度知识库）→ 检索结果注入对话上下文并通过 SSE 暴露调试信息。
 - **Agent 工具调用循环**：OpenAI 风格 function calling，流式 tool_calls 按 Index 合并分片，MCP（stdio + SSE）工具发现/同步/调用，最大迭代保护。
 - **SSE 流式架构**：断线时部分内容仍落库；goroutine / 信号量泄漏防护（trySend + context 联动）。
 - **简化工作流引擎**：DAG 校验（无环/可达性）、条件分支（expr-lang）、模板变量渲染、执行轨迹持久化——一个迷你版工作流编排器。
@@ -51,10 +51,10 @@ make eval JUDGE_MODEL_ID=<UUID> EVAL_USER_ID=<UUID>
 
 **两类指标，职责分开**：
 
-- **确定性指标**（`internal/eval/metrics.go`，代码算出来的，不经过任何 LLM）：`RetrievalHit`（期望文档是否至少命中一个）、`MRR`（期望文档集合里排名最靠前的那次命中的排名倒数，`expected_document_ids` 数组顺序不影响结果）、`ExpectedDocumentCited`（最终引用是否指向期望文档）、`CitationRequirementMet`（`require_citation=true` 时是否真的带了引用）。每个指标都是 `{evaluated, value}` 的形状——`evaluated=false` 表示这条 case 没配置对应字段（比如没写 `expected_document_ids`），不是"评估了但是 false"，报告里显示成"—"。
+- **确定性指标**（`internal/eval/metrics.go`，代码算出来的，不经过任何 LLM）：`RetrievalHit`（期望文档是否至少命中一个）、`MRR`（期望文档集合里排名最靠前的那次命中的排名倒数，`expected_document_ids` 数组顺序不影响结果）、`RecallAt1`/`RecallAt3`（期望文档是否落在检索结果的前 1/前 3 名内，即 Hit@K——不是多相关文档意义上的召回率，`RetrievalHit` 已经覆盖"整批检索结果里有没有命中"，这两个指标补的是排名靠不靠前的分辨率）、`ExpectedDocumentCited`（最终引用是否指向期望文档）、`CitationRequirementMet`（`require_citation=true` 时是否真的带了引用）。每个指标都是 `{evaluated, value}` 的形状——`evaluated=false` 表示这条 case 没配置对应字段（比如没写 `expected_document_ids`），不是"评估了但是 false"，报告里显示成"—"。
 - **LLM Judge 指标**：1-5 分的整体质量分，负责 `expected_facts`/`forbidden_facts` 有没有被正确表达、回答相关性、表达质量这类需要语义理解的判断。Judge 看不到、也不再声称能看到已脱敏的 Trace 原文（检索到的文档内容、用户原始问题、工具调用参数/结果）——这些在 Citation/Trace 隐私改造后已经从 Trace 里移除，Judge 只能看到 span 的状态/耗时元数据。V1 不做严格意义的 Faithfulness（逐字比对检索原文与回答）评分。
 
-`TestCase` 的 `expected_document_ids`/`require_citation`/`expected_facts`/`forbidden_facts` 都是可选字段，见 `eval/testset.yaml` 的注释和示例。`Compare` 输出的 Markdown 报告里，Judge 分数和这四个确定性指标都会显示"本次 / 基线 / 变化"；`Regressed`（决定 `evalrunner` 退出码的函数）目前只看 Judge 分数——确定性指标可能因为知识库内容变化等非代码原因波动，暂不接入 CI 退出码，只供人工审阅。旧版（改造前）跑出来的 `baseline.json` 缺这些新字段也能正常加载对比，缺的部分统一显示"—"。
+`TestCase` 的 `expected_document_ids`/`require_citation`/`expected_facts`/`forbidden_facts` 都是可选字段，见 `eval/testset.yaml` 的注释和示例。`turns`（阶段一新增）让一个 case 在同一个 conversation 里依次发送多条 prompt，只有最后一轮的回复/检索/引用参与打分，用来测多轮指代（后一轮用代词/省略指代前一轮，不重复说出关键信息）。`Compare` 输出的 Markdown 报告里，Judge 分数和这六个确定性指标都会显示"本次 / 基线 / 变化"；`Regressed`（决定 `evalrunner` 退出码的函数）目前只看 Judge 分数——确定性指标可能因为知识库内容变化等非代码原因波动，暂不接入 CI 退出码，只供人工审阅。旧版（改造前）跑出来的 `baseline.json` 缺这些新字段也能正常加载对比，缺的部分统一显示"—"。
 
 ## 架构决策记录
 

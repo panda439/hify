@@ -166,6 +166,46 @@ func TestComputeRAGMetrics_CitationPointsAtNonExpectedDocument(t *testing.T) {
 	}
 }
 
+func TestComputeRAGMetrics_RecallAtKHitWithinCutoff(t *testing.T) {
+	tc := TestCase{ExpectedDocumentIDs: []string{"doc-3"}}
+	retrievals := []RetrievalResult{retrieval(1, "doc-1"), retrieval(2, "doc-2"), retrieval(3, "doc-3")}
+	m := computeRAGMetrics(tc, retrievals, nil)
+
+	if !m.RecallAt1.Evaluated || m.RecallAt1.Value {
+		t.Fatalf("RecallAt1 = %+v, want evaluated=true value=false (match is at rank 3, outside top-1)", m.RecallAt1)
+	}
+	if !m.RecallAt3.Evaluated || !m.RecallAt3.Value {
+		t.Fatalf("RecallAt3 = %+v, want evaluated=true value=true (match is at rank 3, within top-3)", m.RecallAt3)
+	}
+}
+
+func TestComputeRAGMetrics_RecallAtKMissOutsideCutoff(t *testing.T) {
+	tc := TestCase{ExpectedDocumentIDs: []string{"doc-5"}}
+	retrievals := []RetrievalResult{
+		retrieval(1, "doc-1"), retrieval(2, "doc-2"), retrieval(3, "doc-3"),
+		retrieval(4, "doc-4"), retrieval(5, "doc-5"),
+	}
+	m := computeRAGMetrics(tc, retrievals, nil)
+
+	if m.RecallAt1.Value || m.RecallAt3.Value {
+		t.Fatalf("RecallAt1/RecallAt3 = %+v/%+v, want both false (match is at rank 5, outside both cutoffs)", m.RecallAt1, m.RecallAt3)
+	}
+	// RetrievalHit still true — it looks at the whole retrieved set, not
+	// just top-K, which is exactly the distinction RecallAt1/3 add.
+	if !m.RetrievalHit.Value {
+		t.Fatalf("RetrievalHit.Value = false, want true (RetrievalHit is not rank-bounded)")
+	}
+}
+
+func TestComputeRAGMetrics_RecallAtKUnevaluatedWithoutExpectedDocumentIDs(t *testing.T) {
+	tc := TestCase{RequireCitation: true}
+	m := computeRAGMetrics(tc, []RetrievalResult{retrieval(1, "doc-1")}, nil)
+
+	if m.RecallAt1.Evaluated || m.RecallAt3.Evaluated {
+		t.Fatalf("RecallAt1/RecallAt3 = %+v/%+v, want Evaluated=false when ExpectedDocumentIDs unset", m.RecallAt1, m.RecallAt3)
+	}
+}
+
 func TestComputeRAGMetrics_RetrievalEmpty(t *testing.T) {
 	tc := TestCase{ExpectedDocumentIDs: []string{"doc-1"}}
 	m := computeRAGMetrics(tc, nil, nil)

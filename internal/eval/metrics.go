@@ -18,6 +18,8 @@ func computeRAGMetrics(tc TestCase, retrievals []RetrievalResult, citations []Ci
 
 		m.RetrievalHit = BoolMetric{Evaluated: true, Value: anyDocumentIn(retrievalDocumentIDs(retrievals), expected)}
 		m.MRR = FloatMetric{Evaluated: true, Value: reciprocalRank(retrievals, expected)}
+		m.RecallAt1 = BoolMetric{Evaluated: true, Value: recallAtK(retrievals, expected, 1)}
+		m.RecallAt3 = BoolMetric{Evaluated: true, Value: recallAtK(retrievals, expected, 3)}
 		m.ExpectedDocumentCited = BoolMetric{Evaluated: true, Value: anyDocumentIn(citationDocumentIDs(citations), expected)}
 	}
 
@@ -69,4 +71,24 @@ func reciprocalRank(retrievals []RetrievalResult, expected map[string]struct{}) 
 		}
 	}
 	return 0
+}
+
+// recallAtK reports whether any retrieval within the top-k ranks (Rank <=
+// k, 1-based) matches the expected document set — see RAGMetrics'
+// RecallAt1/RecallAt3 doc comment for why this is Hit@K against an
+// acceptable-document set rather than fraction-of-relevant-retrieved
+// recall. retrievals need not be sorted by Rank for this to be correct
+// (every element is checked against the k cutoff independently), unlike
+// reciprocalRank which relies on ascending order to short-circuit on the
+// first match.
+func recallAtK(retrievals []RetrievalResult, expected map[string]struct{}, k int) bool {
+	for _, r := range retrievals {
+		if r.Rank > k {
+			continue
+		}
+		if _, ok := expected[r.DocumentID]; ok {
+			return true
+		}
+	}
+	return false
 }

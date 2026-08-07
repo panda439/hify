@@ -386,17 +386,28 @@ func (s *service) ProcessDocument(ctx context.Context, documentID string, versio
 		return s.failDocument(ctx, documentID, version, err)
 	}
 
-	text, err := parseFile(doc.StoragePath, doc.FileType)
+	parsed, err := parseFile(doc.StoragePath, doc.FileType)
 	if err != nil {
 		return s.failDocument(ctx, documentID, version, err)
 	}
 
-	pieces := chunkText(text, kb.ChunkSize, kb.ChunkOverlap)
+	// Structure-aware chunking (chunkDocument dispatches by file type —
+	// see chunk.go): markdown keeps headings/paragraphs/lists/code
+	// blocks/tables intact where possible, txt splits on
+	// paragraph/sentence boundaries, pdf chunks per page so PageNumber is
+	// never attributed across a page boundary. Every path still falls
+	// back to the fixed-length chunkText for a single structural unit
+	// too large to fit in kb.ChunkSize on its own.
+	pieces := chunkDocument(doc.FileType, parsed, kb.ChunkSize, kb.ChunkOverlap)
 	if len(pieces) == 0 {
 		return s.failDocument(ctx, documentID, version, ErrEmptyContent)
 	}
 	if len(pieces) > maxChunksPerDocument {
 		return s.failDocument(ctx, documentID, version, ErrTooManyChunks)
+	}
+	contents := make([]string, len(pieces))
+	for i, piece := range pieces {
+		contents[i] = piece.Content
 	}
 
 	model, err := s.providerSvc.GetModel(ctx, kb.EmbeddingModelID)
@@ -417,7 +428,7 @@ func (s *service) ProcessDocument(ctx context.Context, documentID string, versio
 	// in a partial or mis-tagged publish.
 	embeddings := make([][]float32, 0, len(pieces))
 	var expectedDimension int
-	for batchIndex, batch := range batchStrings(pieces, embedBatchSize) {
+	for batchIndex, batch := range batchStrings(contents, embedBatchSize) {
 		result, err := client.Embed(ctx, provider.EmbedRequest{Model: model.ModelName, Input: batch})
 		if err != nil {
 			return s.failDocument(ctx, documentID, version, provider.WrapClientError(err))
@@ -449,9 +460,11 @@ func (s *service) ProcessDocument(ctx context.Context, documentID string, versio
 
 	// DocumentName is the Citation V1 source-attribution snapshot (see
 	// Chunk's doc comment) — doc.FileName at processing time, not a live
-	// pointer back to the documents row. PageNumber/SectionTitle stay nil:
-	// parseFile has no reliable page/section signal to offer, and Citation
-	// V1 must never fabricate one.
+	// pointer back to the documents row. PageNumber/SectionTitle come
+	// straight from chunkDocument's per-piece metadata — nil wherever the
+	// source format/parser genuinely can't support it (txt never sets
+	// either; pdf never sets SectionTitle; md never sets PageNumber), never
+	// fabricated.
 	chunks := make([]Chunk, 0, len(pieces))
 	for i, piece := range pieces {
 		chunks = append(chunks, Chunk{
@@ -460,10 +473,12 @@ func (s *service) ProcessDocument(ctx context.Context, documentID string, versio
 			DocumentID:         documentID,
 			DocumentName:       doc.FileName,
 			ChunkIndex:         i,
-			Content:            piece,
-			ContentLength:      len([]rune(piece)),
+			Content:            piece.Content,
+			ContentLength:      len([]rune(piece.Content)),
 			Embedding:          embeddings[i],
 			EmbeddingDimension: expectedDimension,
+			PageNumber:         piece.PageNumber,
+			SectionTitle:       piece.SectionTitle,
 		})
 	}
 	if err := s.repo.createChunks(ctx, chunks, version); err != nil {

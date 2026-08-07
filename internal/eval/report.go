@@ -91,15 +91,17 @@ func Compare(current, baseline RunReport) string {
 	}
 
 	sb.WriteString("\n## 检索 / 引用指标\n\n")
-	sb.WriteString("“—”表示该 case 未配置对应字段（expected_document_ids / require_citation），不代表指标为 false/0——旧版 baseline（跑在这次改造之前）里所有 case 在这张表都会显示“—”，属于正常的“基线缺少这些字段”情形，不是数据异常。\n\n")
-	sb.WriteString("| Case | RetrievalHit 本次/基线/变化 | MRR 本次/基线/变化 | CitationRequirementMet 本次/基线/变化 | ExpectedDocumentCited 本次/基线/变化 |\n")
-	sb.WriteString("|---|---|---|---|---|\n")
+	sb.WriteString("“—”表示该 case 未配置对应字段（expected_document_ids / require_citation），不代表指标为 false/0——旧版 baseline（跑在这次改造之前）里所有 case 在这张表都会显示“—”，属于正常的“基线缺少这些字段”情形，不是数据异常。RecallAt1/RecallAt3 是否命中的定义见 RAGMetrics 的字段注释（Hit@K，不是多相关文档意义上的召回率）。\n\n")
+	sb.WriteString("| Case | RetrievalHit 本次/基线/变化 | MRR 本次/基线/变化 | Recall@1 本次/基线/变化 | Recall@3 本次/基线/变化 | CitationRequirementMet 本次/基线/变化 | ExpectedDocumentCited 本次/基线/变化 |\n")
+	sb.WriteString("|---|---|---|---|---|---|---|\n")
 	for _, r := range current.Results {
 		base := baseByName[r.Name] // zero value (all Evaluated=false) when absent — renders as "—/—/—"
-		fmt.Fprintf(&sb, "| %s | %s | %s | %s | %s |\n",
+		fmt.Fprintf(&sb, "| %s | %s | %s | %s | %s | %s | %s |\n",
 			r.Name,
 			boolMetricTriple(r.Metrics.RetrievalHit, base.Metrics.RetrievalHit),
 			floatMetricTriple(r.Metrics.MRR, base.Metrics.MRR),
+			boolMetricTriple(r.Metrics.RecallAt1, base.Metrics.RecallAt1),
+			boolMetricTriple(r.Metrics.RecallAt3, base.Metrics.RecallAt3),
 			boolMetricTriple(r.Metrics.CitationRequirementMet, base.Metrics.CitationRequirementMet),
 			boolMetricTriple(r.Metrics.ExpectedDocumentCited, base.Metrics.ExpectedDocumentCited),
 		)

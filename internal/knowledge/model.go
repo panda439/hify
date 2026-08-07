@@ -180,8 +180,10 @@ type Document struct {
 // than treating "" as an error.
 //
 // PageNumber/SectionTitle are nil unless the parser can honestly produce
-// them — parse.go currently never does (see CLAUDE.md's Citation V1 note:
-// no PDF page/section extraction), so both stay nil for every chunk today.
+// them (see chunk.go's chunkDocument and its per-file-type chunkers):
+// txt chunks never set either, md chunks may set SectionTitle but never
+// PageNumber, pdf chunks may set PageNumber but never SectionTitle (the
+// reconstructed-from-glyph-positions text has no reliable heading signal).
 // Never fabricate a value here.
 type Chunk struct {
 	ID                 string

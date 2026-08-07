@@ -19,10 +19,21 @@ type caseFixture struct {
 	createErr error
 	streamErr error
 	events    []conversation.StreamEvent
+	// turnsEvents, when set, overrides events with one event sequence per
+	// StreamMessage call on the same conversation (indexed by call order)
+	// — this is what lets a test fixture answer differently per turn for
+	// multi-turn (TestCase.Turns) cases. nil means "use events for every
+	// call", matching the pre-multi-turn behavior.
+	turnsEvents [][]conversation.StreamEvent
 }
 
 type fakeConvService struct {
 	fixtures map[string]caseFixture
+	// calls counts StreamMessage invocations per conversationID, used only
+	// to index into turnsEvents. Lazily initialized — fine for
+	// single-goroutine test use, not meant to be a general concurrency
+	// pattern.
+	calls map[string]int
 }
 
 func (f *fakeConvService) CreateConversation(_ context.Context, _, agentID string) (conversation.Conversation, error) {
@@ -47,8 +58,23 @@ func (f *fakeConvService) StreamMessage(_ context.Context, _, conversationID, _ 
 	if fx.streamErr != nil {
 		return nil, fx.streamErr
 	}
-	ch := make(chan conversation.StreamEvent, len(fx.events))
-	for _, e := range fx.events {
+
+	events := fx.events
+	if fx.turnsEvents != nil {
+		if f.calls == nil {
+			f.calls = make(map[string]int)
+		}
+		idx := f.calls[conversationID]
+		f.calls[conversationID] = idx + 1
+		if idx < len(fx.turnsEvents) {
+			events = fx.turnsEvents[idx]
+		} else {
+			events = nil
+		}
+	}
+
+	ch := make(chan conversation.StreamEvent, len(events))
+	for _, e := range events {
 		ch <- e
 	}
 	close(ch)
@@ -251,5 +277,139 @@ func TestRunCase_RetrievalCollectedWithoutContent(t *testing.T) {
 	}
 	if !result.Metrics.RetrievalHit.Value || !result.Metrics.ExpectedDocumentCited.Value {
 		t.Fatalf("Metrics = %+v, want RetrievalHit and ExpectedDocumentCited both true", result.Metrics)
+	}
+}
+
+func TestRunCase_MultiTurnJudgesOnlyFinalTurn(t *testing.T) {
+	fx := caseFixture{turnsEvents: [][]conversation.StreamEvent{
+		{
+			{Type: conversation.EventRetrieval, Retrieved: []conversation.RetrievedChunkInfo{
+				{Ref: "S1", DocumentID: "doc-first-turn", Score: 0.9},
+			}},
+			{Type: conversation.EventFinal, Content: "第一轮回复", Citations: []conversation.CitationResponse{
+				{Ref: "S1", DocumentID: "doc-first-turn", ChunkID: "c1", Score: 0.9},
+			}},
+			{Type: conversation.EventDone},
+		},
+		{
+			{Type: conversation.EventRetrieval, Retrieved: []conversation.RetrievedChunkInfo{
+				{Ref: "S1", DocumentID: "doc-final-turn", Score: 0.8},
+			}},
+			{Type: conversation.EventFinal, Content: "第二轮回复（指代第一轮）", Citations: []conversation.CitationResponse{
+				{Ref: "S1", DocumentID: "doc-final-turn", ChunkID: "c2", Score: 0.8},
+			}},
+			{Type: conversation.EventDone},
+		},
+	}}
+	convSvc := &fakeConvService{fixtures: map[string]caseFixture{"agent-1": fx}}
+	tc := TestCase{
+		Name:                "multi-turn",
+		AgentID:             "agent-1",
+		Rubric:              "r",
+		Turns:               []string{"第一轮问题", "那第二个呢？"},
+		ExpectedDocumentIDs: []string{"doc-final-turn"},
+	}
+
+	result := runCase(context.Background(), convSvc, &fakeTraceLister{}, okJudge(5), "judge-model", "user-1", tc)
+
+	if result.Err != "" {
+		t.Fatalf("unexpected error: %s", result.Err)
+	}
+	if result.Reply != "第二轮回复（指代第一轮）" {
+		t.Fatalf("Reply = %q, want the final turn's reply", result.Reply)
+	}
+	if len(result.Retrievals) != 1 || result.Retrievals[0].DocumentID != "doc-final-turn" {
+		t.Fatalf("Retrievals = %+v, want only the final turn's retrieval (doc-first-turn must not leak in)", result.Retrievals)
+	}
+	if len(result.Citations) != 1 || result.Citations[0].DocumentID != "doc-final-turn" {
+		t.Fatalf("Citations = %+v, want only the final turn's citation", result.Citations)
+	}
+	if !result.Metrics.RetrievalHit.Value {
+		t.Fatalf("expected RetrievalHit true from the final turn's retrieval matching ExpectedDocumentIDs")
+	}
+}
+
+func TestRunCase_MultiTurnFailsIfAnyTurnErrors(t *testing.T) {
+	fx := caseFixture{turnsEvents: [][]conversation.StreamEvent{
+		{
+			{Type: conversation.EventFinal, Content: "第一轮回复", Citations: []conversation.CitationResponse{}},
+			{Type: conversation.EventDone},
+		},
+		{
+			{Type: conversation.EventError, Error: "第二轮失败"},
+		},
+	}}
+	convSvc := &fakeConvService{fixtures: map[string]caseFixture{"agent-1": fx}}
+	judge := okJudge(5)
+	tc := TestCase{Name: "multi-turn-fail", AgentID: "agent-1", Rubric: "r", Turns: []string{"第一轮", "第二轮"}}
+
+	result := runCase(context.Background(), convSvc, &fakeTraceLister{}, judge, "judge-model", "user-1", tc)
+
+	if result.Err != "第二轮失败" {
+		t.Fatalf("Err = %q, want the second turn's error message", result.Err)
+	}
+	if judge.called {
+		t.Fatalf("judge must not be called when a turn errors")
+	}
+}
+
+func TestCaseTurns_FallsBackToPromptWhenTurnsUnset(t *testing.T) {
+	got := caseTurns(TestCase{Prompt: "单轮问题"})
+	if len(got) != 1 || got[0] != "单轮问题" {
+		t.Fatalf("caseTurns = %v, want [\"单轮问题\"]", got)
+	}
+}
+
+// TestRunCase_MultiTurnJudgeRequestIncludesFirstAndLastTurn is the
+// end-to-end regression test (on top of judge_test.go's direct
+// buildJudgePrompt tests) that the actual request sent to the judge model
+// via provider.Client.Chat — not just some intermediate string — carries
+// both the first turn (coreference context) and the last turn (the one
+// being scored). Before this fix, runCase/Judge built the prompt from
+// tc.Prompt, which is empty for a Turns-based case, so the judge received
+// no user question at all.
+func TestRunCase_MultiTurnJudgeRequestIncludesFirstAndLastTurn(t *testing.T) {
+	fx := caseFixture{turnsEvents: [][]conversation.StreamEvent{
+		{
+			{Type: conversation.EventFinal, Content: "第一轮回复", Citations: []conversation.CitationResponse{}},
+			{Type: conversation.EventDone},
+		},
+		{
+			{Type: conversation.EventFinal, Content: "第二轮回复", Citations: []conversation.CitationResponse{}},
+			{Type: conversation.EventDone},
+		},
+	}}
+	convSvc := &fakeConvService{fixtures: map[string]caseFixture{"agent-1": fx}}
+
+	var capturedPrompt string
+	judge := &fakeJudgeClient{chatFn: func(_ context.Context, req provider.ChatRequest) (provider.Message, error) {
+		capturedPrompt = req.Messages[0].Content
+		return provider.Message{Content: `{"score":4,"reasoning":"ok"}`}, nil
+	}}
+
+	tc := TestCase{
+		Name:    "multi-turn-judge-request",
+		AgentID: "agent-1",
+		Rubric:  "r",
+		Turns:   []string{"知识库创建以后还能修改用的向量模型吗？", "那分块大小呢，也不能改吗？"},
+	}
+
+	result := runCase(context.Background(), convSvc, &fakeTraceLister{}, judge, "judge-model", "user-1", tc)
+
+	if result.Err != "" {
+		t.Fatalf("unexpected error: %s", result.Err)
+	}
+	if !strings.Contains(capturedPrompt, "知识库创建以后还能修改用的向量模型吗？") {
+		t.Fatalf("judge request must include the first turn, got:\n%s", capturedPrompt)
+	}
+	if !strings.Contains(capturedPrompt, "那分块大小呢，也不能改吗？") {
+		t.Fatalf("judge request must include the last (scored) turn, got:\n%s", capturedPrompt)
+	}
+}
+
+func TestCaseTurns_UsesTurnsWhenSet(t *testing.T) {
+	got := caseTurns(TestCase{Prompt: "被忽略", Turns: []string{"第一轮", "第二轮"}})
+	if len(got) != 2 || got[0] != "第一轮" || got[1] != "第二轮" {
+		t.Fatalf("caseTurns = %v, want [\"第一轮\" \"第二轮\"] (Turns must take priority over Prompt)", got)
 	}
 }

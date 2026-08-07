@@ -98,6 +98,16 @@ func collectStream(events <-chan conversation.StreamEvent) streamCollection {
 	return sc
 }
 
+// caseTurns returns the sequence of user prompts to send for tc — Turns
+// when set (multi-turn case), otherwise the single legacy Prompt. See
+// TestCase.Turns' doc comment.
+func caseTurns(tc TestCase) []string {
+	if len(tc.Turns) > 0 {
+		return tc.Turns
+	}
+	return []string{tc.Prompt}
+}
+
 func runCase(ctx context.Context, convSvc conversation.Service, traceStore traceLister, judgeClient provider.Client, judgeModel, userID string, tc TestCase) CaseResult {
 	result := CaseResult{
 		Name:       tc.Name,
@@ -111,29 +121,39 @@ func runCase(ctx context.Context, convSvc conversation.Service, traceStore trace
 		return result
 	}
 
-	events, err := convSvc.StreamMessage(ctx, userID, conv.ID, tc.Prompt)
-	if err != nil {
-		result.Err = fmt.Sprintf("send message: %v", err)
-		return result
+	// Every turn is sent in the same conversation so later turns see
+	// earlier ones as history (that's what makes multi-turn coreference
+	// cases meaningful) — only the final turn's outcome is kept for
+	// scoring, see TestCase.Turns' doc comment. A single-Prompt case is
+	// just the len(turns)==1 case of this same loop.
+	var sc streamCollection
+	turns := caseTurns(tc)
+	for i, turn := range turns {
+		events, err := convSvc.StreamMessage(ctx, userID, conv.ID, turn)
+		if err != nil {
+			result.Err = fmt.Sprintf("send message (turn %d/%d): %v", i+1, len(turns), err)
+			return result
+		}
+
+		sc = collectStream(events)
+		if sc.Err != "" {
+			result.Err = sc.Err
+			return result
+		}
+		if !sc.GotFinal {
+			// The stream closed (no error event) without ever sending
+			// EventFinal — there is no authoritative reply to judge, so
+			// this case fails rather than silently scoring an empty/
+			// partial answer.
+			result.Err = fmt.Sprintf("turn %d/%d: stream ended without a final event", i+1, len(turns))
+			return result
+		}
 	}
 
-	sc := collectStream(events)
 	result.TraceID = sc.TraceID
 	result.Reply = sc.Reply
 	result.Retrievals = sc.Retrievals
 	result.Citations = sc.Citations
-
-	if sc.Err != "" {
-		result.Err = sc.Err
-		return result
-	}
-	if !sc.GotFinal {
-		// The stream closed (no error event) without ever sending
-		// EventFinal — there is no authoritative reply to judge, so this
-		// case fails rather than silently scoring an empty/partial answer.
-		result.Err = "stream ended without a final event"
-		return result
-	}
 
 	result.Metrics = computeRAGMetrics(tc, result.Retrievals, result.Citations)
 
