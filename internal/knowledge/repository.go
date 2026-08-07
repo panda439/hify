@@ -436,21 +436,25 @@ func (r *Repository) deleteChunksByDocumentVersion(ctx context.Context, document
 	return nil
 }
 
-// searchChunks pushes similarity scoring and topK selection down to
-// pgvector (`ORDER BY embedding <=> query LIMIT topK`), replacing the old
-// load-everything-and-score-in-Go path. The dimension filter comes from the
-// query vector itself: only chunks embedded by a same-dimension model are
-// comparable, which is what keeps mixed-dimension knowledge bases in one
-// table from ever colliding.
-func (r *Repository) searchChunks(ctx context.Context, kbIDs []string, queryVec []float32, topK int) ([]RetrievedChunk, error) {
-	rows, err := r.pgQueries.SearchChunks(ctx, pggen.SearchChunksParams{
+// searchVectorChunks pushes similarity scoring and topK/candidateK
+// selection down to pgvector (`ORDER BY embedding <=> query LIMIT n`),
+// replacing the old load-everything-and-score-in-Go path. The dimension
+// filter comes from the query vector itself: only chunks embedded by a
+// same-dimension model are comparable, which is what keeps mixed-dimension
+// knowledge bases in one table from ever colliding. n is candidateK in the
+// Hybrid Search path (service.go's Retrieve) — a wider window than the
+// final topK, left for rrfFuse to re-rank and truncate — but the method
+// itself doesn't know or care which caller it is; it just returns the top
+// n rows by cosine similarity.
+func (r *Repository) searchVectorChunks(ctx context.Context, kbIDs []string, queryVec []float32, n int) ([]RetrievedChunk, error) {
+	rows, err := r.pgQueries.SearchVectorChunks(ctx, pggen.SearchVectorChunksParams{
 		QueryEmbedding:     pgvector.NewVector(queryVec),
 		KnowledgeBaseIds:   kbIDs,
 		EmbeddingDimension: int32(len(queryVec)),
-		TopK:               int32(topK),
+		TopK:               int32(n),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("knowledge: search chunks: %w", err)
+		return nil, fmt.Errorf("knowledge: search vector chunks: %w", err)
 	}
 	out := make([]RetrievedChunk, 0, len(rows))
 	for _, row := range rows {
@@ -466,6 +470,48 @@ func (r *Repository) searchChunks(ctx context.Context, kbIDs []string, queryVec 
 				// Embedding stays nil on purpose: no consumer reads it
 				// (conversation/workflow only use Content), and shipping
 				// vectors back defeats the point of scoring in-database.
+				EmbeddingDimension: int(row.EmbeddingDimension),
+				PageNumber:         nullInt32ToIntPtr(row.PageNumber),
+				SectionTitle:       nullStringToStringPtr(row.SectionTitle),
+				CreatedAt:          row.CreatedAt,
+			},
+			Score: row.Score,
+		})
+	}
+	return out, nil
+}
+
+// searchKeywordChunks is the trigram/lexical counterpart to
+// searchVectorChunks — pg_trgm word-similarity instead of pgvector cosine
+// distance, no embedding involved at all (see pgqueries/chunks.sql's
+// SearchKeywordChunks for why that's exactly what lets this path keep
+// working when the embedding provider is down). Empty query returns
+// (nil, nil) without a round trip — SQL also guards this (query_text <> ”),
+// but short-circuiting here means a caller sees literally zero DB cost for
+// the case Retrieve already treats as "nothing to search".
+func (r *Repository) searchKeywordChunks(ctx context.Context, kbIDs []string, query string, n int) ([]RetrievedChunk, error) {
+	if query == "" || len(kbIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := r.pgQueries.SearchKeywordChunks(ctx, pggen.SearchKeywordChunksParams{
+		QueryText:        query,
+		KnowledgeBaseIds: kbIDs,
+		CandidateK:       int32(n),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("knowledge: search keyword chunks: %w", err)
+	}
+	out := make([]RetrievedChunk, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, RetrievedChunk{
+			Chunk: Chunk{
+				ID:                 row.ID,
+				KnowledgeBaseID:    row.KnowledgeBaseID,
+				DocumentID:         row.DocumentID,
+				DocumentName:       row.DocumentName,
+				ChunkIndex:         int(row.ChunkIndex),
+				Content:            row.Content,
+				ContentLength:      int(row.ContentLength),
 				EmbeddingDimension: int(row.EmbeddingDimension),
 				PageNumber:         nullInt32ToIntPtr(row.PageNumber),
 				SectionTitle:       nullStringToStringPtr(row.SectionTitle),

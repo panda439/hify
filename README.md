@@ -10,7 +10,7 @@
 
 - **LLM Provider 抽象层**：统一 `Client` 接口（Chat / ChatStream / Embed），OpenAI 兼容协议适配多家供应商；API Key AES-256-GCM 加密落库。
 - **弹性调用装饰器**：per-provider 熔断（gobreaker）、并发限流 + Redis 令牌桶、指数退避重试（流式场景只重试首连，断流绝不重试以避免向客户端重复推送）、空闲超时。
-- **RAG 全流程**：结构感知文档解析分块（md 保留标题/段落/列表/代码块/表格并把标题带入 embedding 内容、txt 按段落/句子边界切、pdf 逐字形位置重建后按页切分保留页码；单个结构超限统一回退定长切分；PDF 无 OCR，扫描版/无文字层直接报错，Markdown 解析是行级启发式而非完整 CommonMark）→ 批量 embedding → **PostgreSQL + pgvector** 在库内打分/排序/topK（无维度声明 vector 列支撑混合维度知识库）→ 检索结果注入对话上下文并通过 SSE 暴露调试信息。
+- **RAG 全流程**：结构感知文档解析分块（md 保留标题/段落/列表/代码块/表格并把标题带入 embedding 内容、txt 按段落/句子边界切、pdf 逐字形位置重建后按页切分保留页码；单个结构超限统一回退定长切分；PDF 无 OCR，扫描版/无文字层直接报错，Markdown 解析是行级启发式而非完整 CommonMark）→ 批量 embedding →  **Hybrid Search**：**PostgreSQL + pgvector** 余弦向量检索 + **pg_trgm** 字符级 trigram/word-similarity 关键词检索（不是 BM25，中英文一视同仁）并行召回，各自在库内打分/排序取宽候选窗口（`candidateK`），**Reciprocal Rank Fusion** 按 chunk ID 去重融合、截断全局 topK（无维度声明 vector 列支撑混合维度知识库；关键词一路不依赖 embedding，向量一路的 embedding 服务失败时仍可退化返回关键词结果）→ 检索结果注入对话上下文并通过 SSE 暴露调试信息。详见 [docs/eval-phase3-hybrid-search-report.md](docs/eval-phase3-hybrid-search-report.md)。
 - **Agent 工具调用循环**：OpenAI 风格 function calling，流式 tool_calls 按 Index 合并分片，MCP（stdio + SSE）工具发现/同步/调用，最大迭代保护。
 - **SSE 流式架构**：断线时部分内容仍落库；goroutine / 信号量泄漏防护（trySend + context 联动）。
 - **简化工作流引擎**：DAG 校验（无环/可达性）、条件分支（expr-lang）、模板变量渲染、执行轨迹持久化——一个迷你版工作流编排器。

@@ -1,0 +1,353 @@
+package knowledge
+
+import (
+	"fmt"
+	"reflect"
+	"testing"
+)
+
+// rc is a tiny test-only constructor — only ID and Score matter for
+// rrfFuse's own logic; the rest of Chunk just needs to round-trip
+// unchanged through fusion (see TestRRFFusePreservesChunkMetadata).
+func rc(id string, score float64) RetrievedChunk {
+	return RetrievedChunk{Chunk: Chunk{ID: id}, Score: score}
+}
+
+func idsOf(chunks []RetrievedChunk) []string {
+	out := make([]string, len(chunks))
+	for i, c := range chunks {
+		out[i] = c.ID
+	}
+	return out
+}
+
+// 1. 同时命中 vector 和 keyword 的 chunk 排名提升.
+func TestRRFFusePromotesChunkHitByBothPaths(t *testing.T) {
+	// "both" is a weak vector hit (rank 3) but the #1 keyword hit — RRF's
+	// additive score should still push it above pure vector-only hits
+	// ranked ahead of it in the vector list alone.
+	vector := []RetrievedChunk{rc("v1", 0.9), rc("v2", 0.8), rc("both", 0.5)}
+	keyword := []RetrievedChunk{rc("both", 0.7), rc("k2", 0.4)}
+
+	got := rrfFuse(vector, keyword, 10)
+
+	if len(got) != 4 {
+		t.Fatalf("got %d results %v, want 4 distinct chunks", len(got), idsOf(got))
+	}
+	if got[0].ID != "both" {
+		t.Fatalf("rank 1 = %s, want both (hit by both paths should be promoted): %v", got[0].ID, idsOf(got))
+	}
+}
+
+// 2. 两路重复 chunk 正确去重.
+func TestRRFFuseDedupesChunkPresentInBothPaths(t *testing.T) {
+	vector := []RetrievedChunk{rc("dup", 0.9), rc("v-only", 0.5)}
+	keyword := []RetrievedChunk{rc("dup", 0.6), rc("k-only", 0.4)}
+
+	got := rrfFuse(vector, keyword, 10)
+
+	seen := map[string]int{}
+	for _, c := range got {
+		seen[c.ID]++
+	}
+	if seen["dup"] != 1 {
+		t.Fatalf("chunk hit by both paths appeared %d times, want exactly 1: %v", seen["dup"], idsOf(got))
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d results, want 3 distinct chunks (dup, v-only, k-only): %v", len(got), idsOf(got))
+	}
+}
+
+// 3. vector-only 正常返回.
+func TestRRFFuseVectorOnly(t *testing.T) {
+	vector := []RetrievedChunk{rc("v1", 0.9), rc("v2", 0.5), rc("v3", 0.1)}
+
+	got := rrfFuse(vector, nil, 10)
+
+	want := []string{"v1", "v2", "v3"}
+	if !reflect.DeepEqual(idsOf(got), want) {
+		t.Fatalf("vector-only order = %v, want %v (vector rank order preserved with no keyword input)", idsOf(got), want)
+	}
+	for i, c := range got {
+		if c.Score != vector[i].Score {
+			t.Fatalf("chunk %s Score = %f, want the original vector cosine score %f (vector-only: no fusion should change it)", c.ID, c.Score, vector[i].Score)
+		}
+	}
+}
+
+// 4. keyword-only 正常返回.
+func TestRRFFuseKeywordOnly(t *testing.T) {
+	keyword := []RetrievedChunk{rc("k1", 0.8), rc("k2", 0.4)}
+
+	got := rrfFuse(nil, keyword, 10)
+
+	want := []string{"k1", "k2"}
+	if !reflect.DeepEqual(idsOf(got), want) {
+		t.Fatalf("keyword-only order = %v, want %v", idsOf(got), want)
+	}
+	for i, c := range got {
+		if c.Score != keyword[i].Score {
+			t.Fatalf("chunk %s Score = %f, want the original keyword word-similarity score %f", c.ID, c.Score, keyword[i].Score)
+		}
+	}
+}
+
+// 5. 相同融合分数时排序稳定，最终按 chunk ID 升序.
+//
+// vectorWeight/(rrfK+r) and keywordWeight/(rrfK+s) are two independent
+// binary64 divisions — mathematically equal at infinitely many (r, s)
+// pairs (e.g. r=57, s=3 both equal the exact rational 1/180), but that
+// doesn't guarantee IEEE754 produces bit-identical float64 results,
+// because 0.65 and 0.35 are themselves not exactly representable in
+// binary, so their rounding errors don't generally cancel out across
+// different divisors. (r, s) = (70, 10) is a pair verified (by brute
+// force, see the phase report) to actually round to the exact same
+// float64 in Go — that's the genuine tie this test exercises, not just a
+// mathematical coincidence that floating point then quietly breaks.
+func TestRRFFuseTiedFusionScoreBreaksByIDWhenScoreAlsoTies(t *testing.T) {
+	const vectorRank = 70
+	const keywordRank = 10
+	if got, want := vectorWeight/(rrfK+vectorRank), keywordWeight/(rrfK+keywordRank); got != want {
+		t.Fatalf("precondition failed: vectorWeight/(rrfK+%d) = %v != keywordWeight/(rrfK+%d) = %v — pick a different verified-equal (rank, rank) pair", vectorRank, got, keywordRank, want)
+	}
+
+	vector := make([]RetrievedChunk, vectorRank)
+	for i := range vector {
+		vector[i] = rc(fmt.Sprintf("vfiller%02d", i), 0.99)
+	}
+	vector[vectorRank-1] = rc("zzz-vector-hit", 0.5)
+
+	keyword := make([]RetrievedChunk, keywordRank)
+	for i := range keyword {
+		keyword[i] = rc(fmt.Sprintf("kfiller%02d", i), 0.99)
+	}
+	keyword[keywordRank-1] = rc("aaa-keyword-hit", 0.5)
+
+	got := rrfFuse(vector, keyword, len(vector)+len(keyword))
+
+	var rankOfA, rankOfZ = -1, -1
+	for i, c := range got {
+		switch c.ID {
+		case "aaa-keyword-hit":
+			rankOfA = i
+		case "zzz-vector-hit":
+			rankOfZ = i
+		}
+	}
+	if rankOfA == -1 || rankOfZ == -1 {
+		t.Fatalf("both tied chunks must appear in the fused output: got %v", idsOf(got))
+	}
+	if rankOfA >= rankOfZ {
+		t.Fatalf("aaa-keyword-hit (rank %d) should sort before zzz-vector-hit (rank %d) on equal fusionScore+Score: ID ascending was not applied", rankOfA, rankOfZ)
+	}
+}
+
+// 6. 最终结果不超过 topK.
+func TestRRFFuseTruncatesToTopK(t *testing.T) {
+	vector := []RetrievedChunk{rc("v1", 0.9), rc("v2", 0.8), rc("v3", 0.7), rc("v4", 0.6)}
+	keyword := []RetrievedChunk{rc("k1", 0.5), rc("k2", 0.4)}
+
+	got := rrfFuse(vector, keyword, 3)
+
+	if len(got) != 3 {
+		t.Fatalf("got %d results, want exactly topK=3: %v", len(got), idsOf(got))
+	}
+}
+
+// 7. RetrievedChunk.Score 不能直接使用未归一化的原始 RRF 小数——fusionScore
+// values are ~1/60 ≈ 0.016 at best; if Score ever leaked the fusion value
+// instead of the original relevance, every one of these chunks would fall
+// below budget.go's ragMinSimilarityScore=0.2 floor and get silently
+// dropped from the model's context. Assert Score stays in the original
+// relevance domain the caller supplied.
+func TestRRFFuseScoreIsRelevanceNotRawFusionScore(t *testing.T) {
+	vector := []RetrievedChunk{rc("v1", 0.93)}
+	keyword := []RetrievedChunk{rc("k1", 0.81)}
+
+	got := rrfFuse(vector, keyword, 10)
+
+	byID := map[string]RetrievedChunk{}
+	for _, c := range got {
+		byID[c.ID] = c
+	}
+	if byID["v1"].Score != 0.93 {
+		t.Fatalf("v1.Score = %f, want the original vector relevance 0.93 (not an RRF fraction)", byID["v1"].Score)
+	}
+	if byID["k1"].Score != 0.81 {
+		t.Fatalf("k1.Score = %f, want the original keyword relevance 0.81 (not an RRF fraction)", byID["k1"].Score)
+	}
+	// A raw single-path RRF contribution at best rank is
+	// max(vectorWeight, keywordWeight)/(rrfK+1) ≈ 0.65/61 ≈ 0.0107 — every
+	// Score above must stay far above that, confirming it was never
+	// overwritten by a fusion fraction.
+	const maxPlausibleRawRRFValue = 0.02
+	for _, c := range got {
+		if c.Score < maxPlausibleRawRRFValue {
+			t.Fatalf("chunk %s Score = %f looks like a raw RRF fraction, not a 0..1 relevance score", c.ID, c.Score)
+		}
+	}
+}
+
+// hit-by-both-paths: Score must be the MAX of the two original relevance
+// numbers, not their sum, not the fusion score.
+func TestRRFFuseScoreForBothPathsHitIsMaxNotSum(t *testing.T) {
+	vector := []RetrievedChunk{rc("both", 0.4)}
+	keyword := []RetrievedChunk{rc("both", 0.9)}
+
+	got := rrfFuse(vector, keyword, 10)
+	if len(got) != 1 {
+		t.Fatalf("got %d results, want 1: %v", len(got), idsOf(got))
+	}
+	if got[0].Score != 0.9 {
+		t.Fatalf("both.Score = %f, want max(0.4, 0.9) = 0.9", got[0].Score)
+	}
+}
+
+// rrfFuse itself treats each input slice's POSITION as that path's RRF
+// rank, so literally shuffling vector/keyword before calling rrfFuse would
+// change what the input means (a chunk moved to a different index now
+// has a different rank), not just how it's expressed — there's no
+// meaningful "same rank data, different input order" to feed rrfFuse
+// directly. What this test actually establishes is narrower but still
+// real: rrfFuse builds an internal map (entries) before converting it
+// back to a slice, and Go randomizes map iteration order per run — this
+// confirms that internal randomness never leaks into the final order
+// (the fusionScore/Score/ID sort fully re-establishes it every time).
+// See TestVectorCandidateBuildOrderDoesNotAffectFinalHybridResult below
+// for the test that actually covers "upstream candidate order changes,
+// final result doesn't" — that's a property of
+// sortVectorCandidatesByScoreThenID (hybrid.go), which runs BEFORE
+// rrfFuse, not of rrfFuse itself.
+func TestRRFFuseInternalMapIterationDoesNotLeakIntoOutputOrder(t *testing.T) {
+	vector := []RetrievedChunk{rc("v1", 0.9), rc("v2", 0.7), rc("both", 0.5), rc("v3", 0.3)}
+	keyword := []RetrievedChunk{rc("both", 0.6), rc("k1", 0.4), rc("k2", 0.2)}
+
+	first := idsOf(rrfFuse(vector, keyword, 10))
+	for i := 0; i < 20; i++ {
+		got := idsOf(rrfFuse(vector, keyword, 10))
+		if !reflect.DeepEqual(got, first) {
+			t.Fatalf("run %d: order changed across repeated calls with identical input: got %v, want %v", i, got, first)
+		}
+	}
+}
+
+// sortVectorCandidatesByScoreThenID: 多个向量候选 Score 完全相同时，必须
+// 按 chunk ID 升序稳定排序，不管输入进来的顺序是什么样的——这是
+// service.go 在合并多个 embedding model 分组的结果时依赖的不变量（分组
+// 来自一个 map，Go 每次运行的遍历顺序都不同）。
+func TestSortVectorCandidatesByScoreThenIDStableOnTiedScores(t *testing.T) {
+	orderings := [][]RetrievedChunk{
+		{rc("c3", 0.5), rc("c1", 0.5), rc("c2", 0.5)},
+		{rc("c1", 0.5), rc("c2", 0.5), rc("c3", 0.5)},
+		{rc("c2", 0.5), rc("c3", 0.5), rc("c1", 0.5)},
+	}
+	want := []string{"c1", "c2", "c3"}
+	for i, candidates := range orderings {
+		cp := append([]RetrievedChunk(nil), candidates...)
+		sortVectorCandidatesByScoreThenID(cp)
+		if got := idsOf(cp); !reflect.DeepEqual(got, want) {
+			t.Fatalf("input order %d: got %v, want %v (equal Score must sort by ID ascending regardless of input order)", i, got, want)
+		}
+	}
+}
+
+// 不同相关度的候选绝不能被 ID 兜底规则重排——ID 只在 Score 相等时才生效。
+func TestSortVectorCandidatesByScoreThenIDNeverReordersDifferentScores(t *testing.T) {
+	// "zzz" has the highest Score despite the largest ID, "aaa" has the
+	// lowest Score despite the smallest ID — if the tie-break rule were
+	// ever applied unconditionally, this would come out ID-ascending
+	// (aaa, mmm, zzz) instead of Score-descending (zzz, mmm, aaa).
+	candidates := []RetrievedChunk{rc("aaa", 0.1), rc("zzz", 0.9), rc("mmm", 0.5)}
+	sortVectorCandidatesByScoreThenID(candidates)
+	want := []string{"zzz", "mmm", "aaa"}
+	if got := idsOf(candidates); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v — differing Score must never be overridden by the ID tie-break", got, want)
+	}
+}
+
+// 改变模型分组/候选追加顺序（模拟 kbsByModel 的 map 遍历顺序在不同运行间
+// 变化），送进 rrfFuse 之前先跑 sortVectorCandidatesByScoreThenID，最终
+// hybrid 结果必须完全一致——这是 service.go 真实调用序列
+// (concat -> sortVectorCandidatesByScoreThenID -> rrfFuse) 的端到端覆盖，
+// 不只是 rrfFuse 自己的内部稳定性。
+func TestVectorCandidateBuildOrderDoesNotAffectFinalHybridResult(t *testing.T) {
+	// Two "model groups" worth of candidates, some with tied Score across
+	// groups (c-tie-a/c-tie-b both 0.5) — exactly the scenario a map
+	// iteration reorder would otherwise expose.
+	groupA := []RetrievedChunk{rc("g-a1", 0.8), rc("c-tie-a", 0.5)}
+	groupB := []RetrievedChunk{rc("g-b1", 0.6), rc("c-tie-b", 0.5)}
+	keyword := []RetrievedChunk{rc("k1", 0.7)}
+
+	buildOrders := [][]RetrievedChunk{
+		append(append([]RetrievedChunk{}, groupA...), groupB...),
+		append(append([]RetrievedChunk{}, groupB...), groupA...),
+		{groupA[1], groupB[0], groupA[0], groupB[1]}, // fully interleaved, arbitrary
+	}
+
+	var want []string
+	for i, order := range buildOrders {
+		cp := append([]RetrievedChunk(nil), order...)
+		sortVectorCandidatesByScoreThenID(cp)
+		got := idsOf(rrfFuse(cp, keyword, 10))
+		if i == 0 {
+			want = got
+			continue
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("build order %d: got %v, want %v (same underlying candidates, different concatenation order, must fuse identically)", i, got, want)
+		}
+	}
+}
+
+// Chunk metadata (everything besides ID/Score) must round-trip through
+// fusion untouched — rrfFuse only ever overwrites Score, never any other
+// field, so Citation-relevant metadata (DocumentName/PageNumber/
+// SectionTitle, checked at the repository/integration level in
+// integration_test.go) can't be silently dropped by the fusion step
+// itself.
+func TestRRFFusePreservesChunkMetadata(t *testing.T) {
+	docName := "handbook.pdf"
+	page := 7
+	section := "3.2 Refunds"
+	c := RetrievedChunk{
+		Chunk: Chunk{
+			ID:           "meta1",
+			DocumentName: docName,
+			PageNumber:   &page,
+			SectionTitle: &section,
+		},
+		Score: 0.77,
+	}
+
+	got := rrfFuse([]RetrievedChunk{c}, nil, 10)
+	if len(got) != 1 {
+		t.Fatalf("got %d results, want 1", len(got))
+	}
+	if got[0].DocumentName != docName {
+		t.Fatalf("DocumentName = %q, want %q", got[0].DocumentName, docName)
+	}
+	if got[0].PageNumber == nil || *got[0].PageNumber != page {
+		t.Fatalf("PageNumber = %v, want %d", got[0].PageNumber, page)
+	}
+	if got[0].SectionTitle == nil || *got[0].SectionTitle != section {
+		t.Fatalf("SectionTitle = %v, want %q", got[0].SectionTitle, section)
+	}
+}
+
+func TestCandidateKBounds(t *testing.T) {
+	cases := []struct {
+		topK int
+		want int
+	}{
+		{topK: 1, want: 4},
+		{topK: 5, want: 20},
+		{topK: 30, want: 100}, // 30*4=120, clamped to 100
+		{topK: 50, want: 100}, // maxTopK, 50*4=200, clamped to 100
+		{topK: 0, want: 0},    // defensive: callers always pass a clamped topK, but the formula itself shouldn't panic or go negative
+	}
+	for _, tc := range cases {
+		if got := candidateK(tc.topK); got != tc.want {
+			t.Fatalf("candidateK(%d) = %d, want %d", tc.topK, got, tc.want)
+		}
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -178,7 +179,7 @@ func countAllChunksForDocument(t *testing.T, repo *Repository, documentID string
 
 // --- 链路 3：pgvector 检索 ---
 
-func TestIntegrationSearchChunksOrderingAndDimensionFilter(t *testing.T) {
+func TestIntegrationSearchVectorChunksOrderingAndDimensionFilter(t *testing.T) {
 	repo := setupIntegration(t)
 	ctx := context.Background()
 
@@ -188,7 +189,7 @@ func TestIntegrationSearchChunksOrderingAndDimensionFilter(t *testing.T) {
 	seedChunk(t, repo, kb, "doc-s", "c-ortho", []float32{0, 1, 0}) // cos = 0
 	seedChunk(t, repo, kb, "doc-s", "c-2d", []float32{1, 0})       // 异维度，必须被过滤
 
-	got, err := repo.searchChunks(ctx, []string{kb}, []float32{1, 0, 0}, 10)
+	got, err := repo.searchVectorChunks(ctx, []string{kb}, []float32{1, 0, 0}, 10)
 	if err != nil {
 		t.Fatalf("searchChunks: %v", err)
 	}
@@ -207,13 +208,13 @@ func TestIntegrationSearchChunksOrderingAndDimensionFilter(t *testing.T) {
 	}
 
 	// topK 下推：LIMIT 生效且取的是最相似的。
-	top1, err := repo.searchChunks(ctx, []string{kb}, []float32{1, 0, 0}, 1)
+	top1, err := repo.searchVectorChunks(ctx, []string{kb}, []float32{1, 0, 0}, 1)
 	if err != nil || len(top1) != 1 || top1[0].ID != "c-exact" {
 		t.Fatalf("topK=1 = %v (err %v), want [c-exact]", ids(top1), err)
 	}
 
 	// knowledge_base_id 过滤：别的 KB 查不到这些 chunk。
-	other, err := repo.searchChunks(ctx, []string{"kb-nonexistent"}, []float32{1, 0, 0}, 10)
+	other, err := repo.searchVectorChunks(ctx, []string{"kb-nonexistent"}, []float32{1, 0, 0}, 10)
 	if err != nil || len(other) != 0 {
 		t.Fatalf("other-KB search = %v (err %v), want empty", ids(other), err)
 	}
@@ -568,7 +569,7 @@ func TestIntegrationDeleteDuringProcessingLeavesNoSearchableOrphan(t *testing.T)
 	}
 
 	// 即使 chunk 物理写入了，因为从未发布，检索永远看不到它。
-	got, err := repo.searchChunks(ctx, []string{"kb-race"}, []float32{1, 0, 0}, 10)
+	got, err := repo.searchVectorChunks(ctx, []string{"kb-race"}, []float32{1, 0, 0}, 10)
 	if err != nil || len(got) != 0 {
 		t.Fatalf("searchChunks = %v (err %v), want empty (unpublished chunk must not be searchable)", ids(got), err)
 	}
@@ -860,7 +861,7 @@ func TestIntegrationReconcileRecoversPublishNeverAttempted(t *testing.T) {
 	}
 
 	// 此时文档处于 publishing，chunks 未发布，检索不到。
-	if got, err := repo.searchChunks(ctx, []string{"kb-pubfail"}, []float32{1, 0, 0}, 10); err != nil || len(got) != 0 {
+	if got, err := repo.searchVectorChunks(ctx, []string{"kb-pubfail"}, []float32{1, 0, 0}, 10); err != nil || len(got) != 0 {
 		t.Fatalf("pre-recovery searchChunks = %v (err %v), want empty", ids(got), err)
 	}
 
@@ -880,7 +881,7 @@ func TestIntegrationReconcileRecoversPublishNeverAttempted(t *testing.T) {
 		t.Fatalf("doc status=%s chunkCount=%d, want ready/2", got.Status, got.ChunkCount)
 	}
 
-	found, err := repo.searchChunks(ctx, []string{"kb-pubfail"}, []float32{1, 0, 0}, 10)
+	found, err := repo.searchVectorChunks(ctx, []string{"kb-pubfail"}, []float32{1, 0, 0}, 10)
 	if err != nil || len(found) != 2 {
 		t.Fatalf("post-recovery searchChunks = %v (err %v), want 2 chunks", ids(found), err)
 	}
@@ -918,7 +919,7 @@ func TestIntegrationReconcileRecoversPublishSucceededBeforeReadyCrash(t *testing
 	if err := repo.publishDocumentVersion(ctx, "doc-pubcrash", 1); err != nil {
 		t.Fatalf("simulate pre-crash publish: %v", err)
 	}
-	if got, err := repo.searchChunks(ctx, []string{"kb-pubcrash"}, []float32{1, 0, 0}, 10); err != nil || len(got) != 1 {
+	if got, err := repo.searchVectorChunks(ctx, []string{"kb-pubcrash"}, []float32{1, 0, 0}, 10); err != nil || len(got) != 1 {
 		t.Fatalf("chunk should already be published: %v (err %v)", ids(got), err)
 	}
 
@@ -1040,7 +1041,7 @@ func TestIntegrationReconcileOnlyRecoversPublishingAfterLeaseExpires(t *testing.
 	if got.Status != StatusReady || got.ChunkCount != 1 {
 		t.Fatalf("doc status=%s chunkCount=%d, want ready/1", got.Status, got.ChunkCount)
 	}
-	if found, err := repo.searchChunks(ctx, []string{"kb-publease"}, []float32{1, 0, 0}, 10); err != nil || len(found) != 1 {
+	if found, err := repo.searchVectorChunks(ctx, []string{"kb-publease"}, []float32{1, 0, 0}, 10); err != nil || len(found) != 1 {
 		t.Fatalf("searchChunks after recovery = %v (err %v), want 1", ids(found), err)
 	}
 }
@@ -1346,7 +1347,7 @@ func TestIntegrationClaimPublishingRecoveryRejectsRenewedLeaseUsingStaleScanSnap
 	if got.LeaseExpiresAt == nil || !got.LeaseExpiresAt.Equal(newLease) {
 		t.Fatalf("lease = %v, want unchanged at the worker's renewed value %v", got.LeaseExpiresAt, newLease)
 	}
-	if found, err := repo.searchChunks(ctx, []string{"kb-toctou-pub"}, []float32{1, 0, 0}, 10); err != nil || len(found) != 0 {
+	if found, err := repo.searchVectorChunks(ctx, []string{"kb-toctou-pub"}, []float32{1, 0, 0}, 10); err != nil || len(found) != 0 {
 		t.Fatalf("searchChunks = %v (err %v), want empty (must not have been published)", ids(found), err)
 	}
 }
@@ -1421,7 +1422,7 @@ func TestIntegrationClaimPublishingRecoveryConcurrentOnlyOneWinsThenPublishes(t 
 	if n := countAllChunksForDocument(t, repo, "doc-toctou-pub2"); n != 1 {
 		t.Fatalf("total chunk rows = %d, want 1 (no duplicates)", n)
 	}
-	found, err := repo.searchChunks(ctx, []string{"kb-toctou-pub2"}, []float32{1, 0, 0}, 10)
+	found, err := repo.searchVectorChunks(ctx, []string{"kb-toctou-pub2"}, []float32{1, 0, 0}, 10)
 	if err != nil || len(found) != 1 {
 		t.Fatalf("searchChunks = %v (err %v), want 1 result (published and searchable)", ids(found), err)
 	}
@@ -1582,7 +1583,7 @@ func TestIntegrationProcessDocumentWritesDocumentNameSnapshot(t *testing.T) {
 		t.Fatalf("ProcessDocument: %v", err)
 	}
 
-	got, err := repo.searchChunks(ctx, []string{"kb-docname"}, []float32{1, 0, 0}, 10)
+	got, err := repo.searchVectorChunks(ctx, []string{"kb-docname"}, []float32{1, 0, 0}, 10)
 	if err != nil || len(got) != 1 {
 		t.Fatalf("searchChunks = %v (err %v), want 1 chunk", ids(got), err)
 	}
@@ -1635,7 +1636,7 @@ func TestIntegrationProcessDocumentPDFPageNumbers(t *testing.T) {
 		t.Fatalf("doc status=%s chunkCount=%d, want ready with >0 chunks (err=%q)", got.Status, got.ChunkCount, got.ErrorMessage)
 	}
 
-	chunks, err := repo.searchChunks(ctx, []string{"kb-pdfpage"}, []float32{1, 0, 0}, 100)
+	chunks, err := repo.searchVectorChunks(ctx, []string{"kb-pdfpage"}, []float32{1, 0, 0}, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1692,7 +1693,7 @@ func TestIntegrationProcessDocumentMarkdownSectionTitleAndBreadcrumb(t *testing.
 	if err := svc.ProcessDocument(ctx, "doc-mdsection", 1); err != nil {
 		t.Fatalf("ProcessDocument: %v", err)
 	}
-	chunks, err := repo.searchChunks(ctx, []string{"kb-mdsection"}, []float32{1, 0, 0}, 100)
+	chunks, err := repo.searchVectorChunks(ctx, []string{"kb-mdsection"}, []float32{1, 0, 0}, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1754,7 +1755,7 @@ func TestIntegrationSearchChunksHistoricalEmptyMetadataStillRetrievable(t *testi
 	seedKB(t, repo, "kb-legacy", "m3", "u1", true)
 	seedChunk(t, repo, "kb-legacy", "doc-legacy", "legacy-c1", []float32{1, 0, 0})
 
-	got, err := repo.searchChunks(ctx, []string{"kb-legacy"}, []float32{1, 0, 0}, 10)
+	got, err := repo.searchVectorChunks(ctx, []string{"kb-legacy"}, []float32{1, 0, 0}, 10)
 	if err != nil {
 		t.Fatalf("searchChunks must not fail on empty source metadata: %v", err)
 	}
@@ -1763,6 +1764,436 @@ func TestIntegrationSearchChunksHistoricalEmptyMetadataStillRetrievable(t *testi
 	}
 	if got[0].PageNumber != nil || got[0].SectionTitle != nil {
 		t.Fatalf("legacy chunk must not have fabricated page/section: page=%v section=%v", got[0].PageNumber, got[0].SectionTitle)
+	}
+}
+
+// --- Phase 3: Hybrid Search（keyword / vector-independent-of-MySQL /
+// fusion）集成测试 ---
+//
+// setupIntegration above requires BOTH docker-compose containers (MySQL
+// for knowledge_bases/documents, Postgres for chunks) — evaluated as two
+// separate arguments to NewRepository, so if only MySQL is down the whole
+// test skips before Postgres is ever touched, even for a test body that
+// never calls a single MySQL-backed method. Every test in this section
+// only exercises chunks-table behavior (searchVectorChunks/
+// searchKeywordChunks/createChunks/publishDocumentVersion — all PG-only,
+// see repository.go), the same as TestIntegrationSearchVectorChunksOrderingAndDimensionFilter
+// above already does even though it's gated by setupIntegration's MySQL
+// requirement. setupPGOnlyIntegration drops that unnecessary MySQL
+// dependency so these tests can run — and prove real pg_trgm/pgvector
+// behavior against a real database — in any environment where Postgres
+// alone is reachable, not just ones where the full docker-compose stack
+// (including MySQL) happens to be up. It still skips (not fails) if
+// Postgres itself is unreachable, via testutil.Postgres's own convention.
+func setupPGOnlyIntegration(t *testing.T) *Repository {
+	t.Helper()
+	return NewRepository(nil, testutil.Postgres(t, "hybrid"))
+}
+
+// seedChunkWithContent is seedChunk's variant for keyword-search tests,
+// which need real, distinguishable Content — seedChunk's fixed
+// "content-"+chunkID filler has no meaningful trigram overlap with
+// anything.
+func seedChunkWithContent(t *testing.T, repo *Repository, kbID, docID, chunkID string, vec []float32, content string) {
+	t.Helper()
+	ctx := context.Background()
+	if err := repo.createChunks(ctx, []Chunk{{
+		ID: chunkID, KnowledgeBaseID: kbID, DocumentID: docID, ChunkIndex: 0,
+		Content: content, ContentLength: len([]rune(content)),
+		Embedding: vec, EmbeddingDimension: len(vec),
+	}}, seedChunkVersion); err != nil {
+		t.Fatalf("seed chunk %s: %v", chunkID, err)
+	}
+	if err := repo.publishDocumentVersion(ctx, docID, seedChunkVersion); err != nil {
+		t.Fatalf("publish seeded chunk %s: %v", chunkID, err)
+	}
+}
+
+// seedChunkWithContentSourceMeta is seedChunkWithContent plus the Citation
+// V1 source-attribution fields (DocumentName/PageNumber/SectionTitle) —
+// used only by TestIntegrationHybridSearchPreservesCitationMetadata.
+func seedChunkWithContentSourceMeta(t *testing.T, repo *Repository, kbID, docID, chunkID string, vec []float32, content, documentName string, pageNumber *int, sectionTitle *string) {
+	t.Helper()
+	ctx := context.Background()
+	if err := repo.createChunks(ctx, []Chunk{{
+		ID: chunkID, KnowledgeBaseID: kbID, DocumentID: docID, ChunkIndex: 0,
+		Content: content, ContentLength: len([]rune(content)),
+		Embedding: vec, EmbeddingDimension: len(vec),
+		DocumentName: documentName, PageNumber: pageNumber, SectionTitle: sectionTitle,
+	}}, seedChunkVersion); err != nil {
+		t.Fatalf("seed chunk %s: %v", chunkID, err)
+	}
+	if err := repo.publishDocumentVersion(ctx, docID, seedChunkVersion); err != nil {
+		t.Fatalf("publish seeded chunk %s: %v", chunkID, err)
+	}
+}
+
+// seedUnpublishedChunkWithContent writes a chunk and deliberately never
+// publishes it — used only by the "unpublished chunk must not match"
+// keyword-search test below.
+func seedUnpublishedChunkWithContent(t *testing.T, repo *Repository, kbID, docID, chunkID string, vec []float32, content string) {
+	t.Helper()
+	if err := repo.createChunks(context.Background(), []Chunk{{
+		ID: chunkID, KnowledgeBaseID: kbID, DocumentID: docID, ChunkIndex: 0,
+		Content: content, ContentLength: len([]rune(content)),
+		Embedding: vec, EmbeddingDimension: len(vec),
+	}}, seedChunkVersion); err != nil {
+		t.Fatalf("seed unpublished chunk %s: %v", chunkID, err)
+	}
+}
+
+// 1. 关键词可以找回包含精确中文关键词的 chunk.
+func TestIntegrationSearchKeywordChunksFindsExactChineseKeyword(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	kb := "kb-kw-zh"
+	seedChunkWithContent(t, repo, kb, "doc-kw-zh", "c-hit", []float32{1, 0, 0}, "本章介绍深度学习模型的训练与调参方法")
+	seedChunkWithContent(t, repo, kb, "doc-kw-zh", "c-miss", []float32{1, 0, 0}, "今天天气不错，适合出门散步和摄影")
+
+	got, err := repo.searchKeywordChunks(ctx, []string{kb}, "深度学习模型", 10)
+	if err != nil {
+		t.Fatalf("searchKeywordChunks: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "c-hit" {
+		t.Fatalf("got %v, want exactly [c-hit] (the unrelated Chinese chunk must not clear the similarity floor)", ids(got))
+	}
+	if got[0].Score <= 0 {
+		t.Fatalf("c-hit.Score = %f, want a positive word-similarity score", got[0].Score)
+	}
+}
+
+// 2. 关键词可以找回英文关键词.
+func TestIntegrationSearchKeywordChunksFindsExactEnglishKeyword(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	kb := "kb-kw-en"
+	seedChunkWithContent(t, repo, kb, "doc-kw-en", "c-hit-en", []float32{1, 0, 0}, "PostgreSQL vector search is powered by the pgvector extension")
+	seedChunkWithContent(t, repo, kb, "doc-kw-en", "c-miss-en", []float32{1, 0, 0}, "The quick brown fox jumps over the lazy dog")
+
+	got, err := repo.searchKeywordChunks(ctx, []string{kb}, "pgvector extension", 10)
+	if err != nil {
+		t.Fatalf("searchKeywordChunks: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "c-hit-en" {
+		t.Fatalf("got %v, want exactly [c-hit-en]", ids(got))
+	}
+}
+
+// 3. 未发布 chunk 不能命中.
+func TestIntegrationSearchKeywordChunksExcludesUnpublished(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	kb := "kb-kw-unpub"
+	seedUnpublishedChunkWithContent(t, repo, kb, "doc-kw-unpub", "c-draft", []float32{1, 0, 0}, "机密项目Zeta的详细技术方案说明")
+
+	got, err := repo.searchKeywordChunks(ctx, []string{kb}, "机密项目Zeta", 10)
+	if err != nil {
+		t.Fatalf("searchKeywordChunks: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("got %v, want empty — unpublished chunk must never be keyword-searchable", ids(got))
+	}
+}
+
+// 4. 其他知识库的 chunk 不能命中.
+func TestIntegrationSearchKeywordChunksScopedToKnowledgeBase(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	seedChunkWithContent(t, repo, "kb-kw-a", "doc-kw-a", "c-a", []float32{1, 0, 0}, "跨知识库隔离测试关键词CROSSKBTOKEN")
+	seedChunkWithContent(t, repo, "kb-kw-b", "doc-kw-b", "c-b", []float32{1, 0, 0}, "另一个完全无关的知识库内容")
+
+	got, err := repo.searchKeywordChunks(ctx, []string{"kb-kw-b"}, "跨知识库隔离测试关键词CROSSKBTOKEN", 10)
+	if err != nil {
+		t.Fatalf("searchKeywordChunks: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("got %v, want empty — kb-kw-a's chunk must not leak into a kb-kw-b-scoped search", ids(got))
+	}
+
+	// Sanity check the positive case too, so a bug that made the filter a
+	// no-op wouldn't be masked by both sides returning empty.
+	gotOwn, err := repo.searchKeywordChunks(ctx, []string{"kb-kw-a"}, "跨知识库隔离测试关键词CROSSKBTOKEN", 10)
+	if err != nil {
+		t.Fatalf("searchKeywordChunks: %v", err)
+	}
+	if len(gotOwn) != 1 || gotOwn[0].ID != "c-a" {
+		t.Fatalf("scoped to its own KB, got %v, want [c-a]", ids(gotOwn))
+	}
+}
+
+// 5. keyword search 不受 embedding dimension 不同影响.
+func TestIntegrationSearchKeywordChunksIgnoresEmbeddingDimension(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	kb := "kb-kw-dim"
+	seedChunkWithContent(t, repo, kb, "doc-kw-dim", "c-3d", []float32{1, 0, 0}, "维度隔离验证关键词DIMTOKEN三维版本")
+	seedChunkWithContent(t, repo, kb, "doc-kw-dim", "c-2d", []float32{1, 0}, "维度隔离验证关键词DIMTOKEN二维版本")
+
+	got, err := repo.searchKeywordChunks(ctx, []string{kb}, "维度隔离验证关键词DIMTOKEN", 10)
+	if err != nil {
+		t.Fatalf("searchKeywordChunks: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d chunks %v, want 2 — keyword search must find both the 3-dim and 2-dim chunk (no dimension filter)", len(got), ids(got))
+	}
+}
+
+// 6. vector search 仍保持维度过滤和余弦顺序.
+//
+// TestIntegrationSearchVectorChunksOrderingAndDimensionFilter above
+// already asserts this, but it's gated by setupIntegration's MySQL
+// requirement — in an environment with only Postgres up (like this one),
+// that test skips without ever actually running. This PG-only variant
+// re-asserts the same cosine-order + dimension-filter contract so Phase
+// 3's "vector search behavior must be unchanged" claim has real execution
+// proof, not just a skip.
+func TestIntegrationSearchVectorChunksOrderingAndDimensionFilterPGOnly(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	kb := "kb-vec-pgonly"
+	seedChunk(t, repo, kb, "doc-vec-pgonly", "c-exact-pgonly", []float32{1, 0, 0})
+	seedChunk(t, repo, kb, "doc-vec-pgonly", "c-mid-pgonly", []float32{1, 1, 0})
+	seedChunk(t, repo, kb, "doc-vec-pgonly", "c-ortho-pgonly", []float32{0, 1, 0})
+	seedChunk(t, repo, kb, "doc-vec-pgonly", "c-2d-pgonly", []float32{1, 0}) // 异维度，必须被过滤
+
+	got, err := repo.searchVectorChunks(ctx, []string{kb}, []float32{1, 0, 0}, 10)
+	if err != nil {
+		t.Fatalf("searchVectorChunks: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d chunks, want 3 (2-dim chunk must be filtered out)", len(got))
+	}
+	wantOrder := []string{"c-exact-pgonly", "c-mid-pgonly", "c-ortho-pgonly"}
+	wantScore := []float64{1.0, math.Sqrt2 / 2, 0.0}
+	for i := range got {
+		if got[i].ID != wantOrder[i] {
+			t.Fatalf("rank %d = %s, want %s (full: %v)", i, got[i].ID, wantOrder[i], ids(got))
+		}
+		if math.Abs(got[i].Score-wantScore[i]) > 1e-6 {
+			t.Fatalf("score[%d] = %f, want %f", i, got[i].Score, wantScore[i])
+		}
+	}
+}
+
+// 6b. 多个向量候选余弦距离完全相同时，SearchVectorChunks 必须按 chunk ID
+// 升序稳定排序——这是本轮审核修复的根因：ORDER BY embedding <=> query 单独
+// 存在时，距离相同的行在 PostgreSQL 里返回顺序不定，rrfFuse 把这个返回
+// 顺序当成 RRF 的 rank，顺序不稳会让同一批候选在不同次调用之间拿到不同
+// rank，最终融合结果就跟着不稳定。四个 chunk 用完全相同的 embedding
+// （因此余弦距离/相似度都完全相同）验证 SQL 的 id ASC 兜底真的生效。
+func TestIntegrationSearchVectorChunksTiedScoreSortsStablyByID(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	kb := "kb-vec-tie"
+	vec := []float32{1, 0, 0}
+	// 故意乱序插入，用来确认排序不是"插入顺序凑巧正确"。
+	seedChunk(t, repo, kb, "doc-vec-tie", "tie-c", vec)
+	seedChunk(t, repo, kb, "doc-vec-tie", "tie-a", vec)
+	seedChunk(t, repo, kb, "doc-vec-tie", "tie-d", vec)
+	seedChunk(t, repo, kb, "doc-vec-tie", "tie-b", vec)
+
+	got, err := repo.searchVectorChunks(ctx, []string{kb}, vec, 10)
+	if err != nil {
+		t.Fatalf("searchVectorChunks: %v", err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("got %d chunks, want 4", len(got))
+	}
+	for i, c := range got {
+		if c.Score != 1.0 {
+			t.Fatalf("chunk %d (%s) Score = %f, want 1.0 (identical embeddings must score identically)", i, c.ID, c.Score)
+		}
+	}
+	want := []string{"tie-a", "tie-b", "tie-c", "tie-d"}
+	if got := ids(got); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v (tied cosine score must sort by ID ascending)", got, want)
+	}
+}
+
+// 7. Hybrid Search 能让关键词强匹配结果进入最终 topK.
+//
+// v1..v4 are pure vector hits (decreasing cosine similarity to the [1,0,0]
+// query, no keyword overlap at all). kw1 is the opposite: cosine ~0 to the
+// query (embedding [0,1,0], orthogonal), but its content is an exact match
+// for the keyword query — the #1 keyword hit. A vector-only top4 would be
+// [v1,v2,v3,v4] and would never surface kw1 at all. Fusing real
+// searchVectorChunks/searchKeywordChunks output through rrfFuse must let
+// kw1's strong keyword rank promote it into the final topK=4, displacing
+// the weakest pure-vector hit (v4).
+func TestIntegrationHybridSearchPromotesStrongKeywordMatchIntoTopK(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	kb := "kb-hybrid-promote"
+	queryVec := []float32{1, 0, 0}
+	queryText := "唯一关键词ZZZTOKEN"
+
+	seedChunkWithContent(t, repo, kb, "doc-hybrid", "v1", []float32{1, 0, 0}, "无关内容一：项目进度周报")
+	seedChunkWithContent(t, repo, kb, "doc-hybrid", "v2", []float32{1, 0.1, 0}, "无关内容二：团队建设活动安排")
+	seedChunkWithContent(t, repo, kb, "doc-hybrid", "v3", []float32{1, 0.2, 0}, "无关内容三：会议纪要草稿")
+	seedChunkWithContent(t, repo, kb, "doc-hybrid", "v4", []float32{1, 0.3, 0}, "无关内容四：办公用品申购清单")
+	seedChunkWithContent(t, repo, kb, "doc-hybrid", "kw1", []float32{0, 1, 0}, "本段内容包含唯一关键词ZZZTOKEN用于命中验证")
+
+	const topK = 4
+	cK := candidateK(topK)
+
+	vectorChunks, err := repo.searchVectorChunks(ctx, []string{kb}, queryVec, cK)
+	if err != nil {
+		t.Fatalf("searchVectorChunks: %v", err)
+	}
+	keywordChunks, err := repo.searchKeywordChunks(ctx, []string{kb}, queryText, cK)
+	if err != nil {
+		t.Fatalf("searchKeywordChunks: %v", err)
+	}
+	if len(keywordChunks) != 1 || keywordChunks[0].ID != "kw1" {
+		t.Fatalf("keyword path got %v, want exactly [kw1]", ids(keywordChunks))
+	}
+	// Vector-only top4 (the pre-Hybrid-Search behavior) would have been
+	// exactly these 4 — confirms kw1 really is excluded from a
+	// vector-only view before we assert Hybrid Search rescues it.
+	if len(vectorChunks) < 5 || vectorChunks[4].ID != "kw1" {
+		t.Fatalf("expected kw1 to rank 5th (last) by cosine similarity among 5 seeded chunks, got vector order %v", ids(vectorChunks))
+	}
+	vectorOnlyTop4 := ids(vectorChunks[:4])
+	for _, id := range vectorOnlyTop4 {
+		if id == "kw1" {
+			t.Fatalf("test setup invalid: kw1 must NOT be in the vector-only top4, got %v", vectorOnlyTop4)
+		}
+	}
+
+	fused := rrfFuse(vectorChunks, keywordChunks, topK)
+	if len(fused) != topK {
+		t.Fatalf("got %d fused results, want topK=%d", len(fused), topK)
+	}
+	foundKW1 := false
+	for _, c := range fused {
+		if c.ID == "kw1" {
+			foundKW1 = true
+		}
+	}
+	if !foundKW1 {
+		t.Fatalf("Hybrid Search fused topK = %v, want kw1 present (its strong keyword rank should promote it past the weakest vector-only hit)", ids(fused))
+	}
+	if fused[len(fused)-1].ID == "v4" {
+		t.Fatalf("v4 (weakest vector hit, no keyword match) should have been displaced out of topK by kw1, but final result is %v", ids(fused))
+	}
+}
+
+// 8. 同一 chunk 不重复返回：一个 chunk 如果同时被向量和关键词两路命中，
+// 融合后必须只出现一次.
+func TestIntegrationHybridSearchDeduplicatesChunkHitByBothPaths(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	kb := "kb-hybrid-dedup"
+	queryVec := []float32{1, 0, 0}
+	queryText := "去重验证关键词DEDUPTOKEN"
+
+	// "both" scores well on cosine AND contains the exact keyword phrase
+	// — it must show up in both searchVectorChunks and searchKeywordChunks
+	// results, and rrfFuse must still return it exactly once.
+	seedChunkWithContent(t, repo, kb, "doc-hybrid-dedup", "both", []float32{1, 0, 0}, "去重验证关键词DEDUPTOKEN同时命中向量与关键词两路")
+	seedChunkWithContent(t, repo, kb, "doc-hybrid-dedup", "other", []float32{1, 0.5, 0}, "无关内容，仅用于填充候选集")
+
+	cK := candidateK(5)
+	vectorChunks, err := repo.searchVectorChunks(ctx, []string{kb}, queryVec, cK)
+	if err != nil {
+		t.Fatalf("searchVectorChunks: %v", err)
+	}
+	keywordChunks, err := repo.searchKeywordChunks(ctx, []string{kb}, queryText, cK)
+	if err != nil {
+		t.Fatalf("searchKeywordChunks: %v", err)
+	}
+	bothInVector, bothInKeyword := false, false
+	for _, c := range vectorChunks {
+		if c.ID == "both" {
+			bothInVector = true
+		}
+	}
+	for _, c := range keywordChunks {
+		if c.ID == "both" {
+			bothInKeyword = true
+		}
+	}
+	if !bothInVector || !bothInKeyword {
+		t.Fatalf("test setup invalid: 'both' must appear in both raw candidate lists (vector=%v, keyword=%v)", ids(vectorChunks), ids(keywordChunks))
+	}
+
+	fused := rrfFuse(vectorChunks, keywordChunks, 5)
+	count := 0
+	for _, c := range fused {
+		if c.ID == "both" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("'both' appeared %d times in fused output %v, want exactly 1", count, ids(fused))
+	}
+}
+
+// 9. Citation 的 document_name/page_number/section_title 保持完整——both
+// through the raw repository calls and through rrfFuse's pass-through.
+func TestIntegrationHybridSearchPreservesCitationMetadata(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	kb := "kb-hybrid-citation"
+	page := 12
+	section := "4.3 退款政策"
+	seedChunkWithContentSourceMeta(t, repo, kb, "doc-hybrid-citation", "c-cited", []float32{1, 0, 0},
+		"引用元数据验证关键词CITETOKEN退款政策说明", "policy-handbook.pdf", &page, &section)
+
+	vectorChunks, err := repo.searchVectorChunks(ctx, []string{kb}, []float32{1, 0, 0}, 10)
+	if err != nil {
+		t.Fatalf("searchVectorChunks: %v", err)
+	}
+	if len(vectorChunks) != 1 || vectorChunks[0].DocumentName != "policy-handbook.pdf" ||
+		vectorChunks[0].PageNumber == nil || *vectorChunks[0].PageNumber != page ||
+		vectorChunks[0].SectionTitle == nil || *vectorChunks[0].SectionTitle != section {
+		t.Fatalf("vector path lost Citation metadata: %+v", vectorChunks)
+	}
+
+	keywordChunks, err := repo.searchKeywordChunks(ctx, []string{kb}, "引用元数据验证关键词CITETOKEN", 10)
+	if err != nil {
+		t.Fatalf("searchKeywordChunks: %v", err)
+	}
+	if len(keywordChunks) != 1 || keywordChunks[0].DocumentName != "policy-handbook.pdf" ||
+		keywordChunks[0].PageNumber == nil || *keywordChunks[0].PageNumber != page ||
+		keywordChunks[0].SectionTitle == nil || *keywordChunks[0].SectionTitle != section {
+		t.Fatalf("keyword path lost Citation metadata: %+v", keywordChunks)
+	}
+
+	fused := rrfFuse(vectorChunks, keywordChunks, 10)
+	if len(fused) != 1 || fused[0].DocumentName != "policy-handbook.pdf" ||
+		fused[0].PageNumber == nil || *fused[0].PageNumber != page ||
+		fused[0].SectionTitle == nil || *fused[0].SectionTitle != section {
+		t.Fatalf("rrfFuse lost Citation metadata: %+v", fused)
+	}
+}
+
+// 10. 空 query、空知识库列表返回空.
+func TestIntegrationSearchKeywordChunksEmptyQueryOrKBsReturnsEmpty(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	kb := "kb-kw-empty"
+	seedChunkWithContent(t, repo, kb, "doc-kw-empty", "c1", []float32{1, 0, 0}, "任意内容用于确认过滤条件生效ANYTOKEN")
+
+	if got, err := repo.searchKeywordChunks(ctx, []string{kb}, "", 10); err != nil || got != nil {
+		t.Fatalf("searchKeywordChunks(empty query) = %v, %v; want nil, nil", got, err)
+	}
+	if got, err := repo.searchKeywordChunks(ctx, nil, "ANYTOKEN", 10); err != nil || got != nil {
+		t.Fatalf("searchKeywordChunks(nil kbIDs) = %v, %v; want nil, nil", got, err)
+	}
+	if got, err := repo.searchKeywordChunks(ctx, []string{}, "ANYTOKEN", 10); err != nil || got != nil {
+		t.Fatalf("searchKeywordChunks(empty kbIDs) = %v, %v; want nil, nil", got, err)
 	}
 }
 

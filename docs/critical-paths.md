@@ -2,13 +2,13 @@
 
 > 筛选标准：不是所有链路，只收"改造时容易出问题"的——跨模块协作多、有异步/流式/跨库等隐性契约、或失败后果严重（数据不一致、密钥泄露、静默丢数据）。共 9 条。
 >
-> 生成时间：2026-07-21
+> 生成时间：2026-07-21（链路 3 于 2026-08-07 随 Hybrid Search Phase 3 更新，见 [docs/eval-phase3-hybrid-search-report.md](docs/eval-phase3-hybrid-search-report.md)）
 
 | # | 链路名 | 起点（接口） | 关键节点（service / DB 操作） | 终点（什么状态算成功） |
 |---|--------|--------------|-------------------------------|------------------------|
 | 1 | 对话流式问答主链路 | `POST /api/v1/conversations/:id/messages` | `StreamMessage` → `assembleContext`（历史消息按预算截断 `truncateByBudget`、RAG `knowledge.Retrieve`、`loadTools` 拉 MCP 工具）→ `runStream`（`ChatStream` 流式、`mergeToolCallDeltas` 按 Index 合并分片、`runToolCall` 工具循环 + 最大迭代保护）→ `persistAssistantTurn` | SSE 事件按序推完（含检索调试信息、tool 事件）；user + assistant 消息落库，tool_calls JSON 完整；客户端断流时已生成的部分内容仍落库 |
 | 2 | 文档入库异步流水线 | `POST /api/v1/knowledge-bases/:id/documents` | `UploadDocument`（校验 embedding 模型、`saveFile` 落盘、MySQL 建 document 记录）→ `enqueueProcessDocument` 入 asynq 队列 → `ProcessDocument`（解析 + `chunkDocument` 结构感知分块——md 用 `chunkMarkdown` 保留标题/段落/列表/代码块/表格并带 section_title，txt 用 `chunkPlainText` 按段落/句子边界切，pdf 用 `chunkPDFPages` 逐页切并带 page_number，单个结构超限统一回退 `chunkText` 定长切分、`Embed` 批量生成、向量数与分块数一致性校验、写 PG chunks 表）| document 状态变为 completed；PG 中 chunk 行数 = 分块数、embedding_dimension 正确；任一环节失败时 `failDocument` 把状态置 failed 而不是卡在 processing |
-| 3 | 向量检索链路 | 由链路 1 / 链路 5 内部触发（`knowledge.Retrieve`） | 按 embedding 模型分组 `kbsByModel` → `embedQuery` 生成查询向量 → pgvector `<=>` 余弦距离 SQL（打分/排序/topK 全下推）→ 合并多知识库候选 | 返回 topK 相关 chunk 且相似度排序正确；混合维度知识库互不串扰；空知识库/无命中时返回空而非报错 |
+| 3 | Hybrid Search 检索链路（Phase 3） | 由链路 1 / 链路 5 内部触发（`knowledge.Retrieve`） | 向量一路：按 embedding 模型分组 `kbsByModel` → `embedQuery` → `searchVectorChunks`（pgvector `<=>` 余弦距离，打分/排序/candidateK 全下推）；关键词一路：`searchKeywordChunks`（pg_trgm `<%` word-similarity，GIN 索引，不依赖 embedding）；两路候选各取 `candidateK = min(max(topK*4, topK), 100)` → `rrfFuse` 按 chunk ID 去重、Reciprocal Rank Fusion 排序、截断全局 topK | 返回 topK 相关 chunk 且融合排序正确（fusionScore 降序/Score 降序/ID 升序三级确定性排序）；`RetrievedChunk.Score` 始终是 0..1 相关度（向量命中=余弦相似度，关键词命中=word-similarity，两路命中取较大值），不泄漏 fusionScore；混合维度知识库互不串扰；embedding 服务失败时关键词一路仍可返回结果；两路都失败/无命中时返回空而非报错；context 取消/超时正常传播，不被吞掉 |
 | 4 | 文档删除跨库一致性 | `DELETE /api/v1/knowledge-bases/:id/documents/:docId` | `DeleteDocument`：权限校验 → 先删 PG chunks → 再删 MySQL document 记录（无分布式事务，靠删除顺序保证）| 两库均无残留；删除后立即检索不再返回该文档的 chunk；中途失败不会出现"MySQL 已删、PG 还在"的孤儿向量 |
 | 5 | 工作流执行链路 | `POST /api/v1/workflows/:id/executions` | `Execute` → `Definition.Validate`（无环、可达性）→ `runWorkflow` 按 DAG 顺序执行节点：`runLLMCall` / `runKnowledgeRetrieval` / `runConditional`（expr-lang 求值）/ `runToolCall`，节点间 `renderTemplate` 模板变量渲染 → run + steps 执行轨迹落库 | run 状态 completed，每个已执行节点有 step 轨迹记录且输入输出可回放；条件分支走向正确；SSE 推送的节点事件与 DB 轨迹一致；非法 DAG 在执行前被拒绝 |
 | 6 | Provider 凭证与客户端解析 | `POST /api/v1/providers`、`PUT /api/v1/providers/:id`、`POST /api/v1/providers/:id/test` | `CreateProvider` / `UpdateProvider`（API Key AES-256-GCM 加密后落库）→ `ResolveClient`（读库解密、构造 OpenAI 兼容 client、`WithResilience` 装饰）→ `TestConnection` | DB 中只存密文、任何接口响应不回显明文 Key；ResolveClient 出的 client 能实际调通；更新 Key 后后续调用用的是新 Key（无脏缓存） |
@@ -35,7 +35,7 @@
 |------|------|------|
 | 1 对话流式 | 单测（分片合并/截断）+ 集成（完整工具循环、断流落库、越权、幻觉工具容错） | `conversation/{merge,context,integration}_test.go` |
 | 2 入库流水线 | 单测（结构感知分块：md 标题/段落/列表/代码块/表格、txt 段落/句子边界、pdf 页码隔离、超限回退、非法 overlap 配置、空文档）+ 集成（happy path、向量数不一致、文件丢失、pdf 页码端到端、md section_title 端到端） | `knowledge/{chunk,structure,integration}_test.go` |
-| 3 pgvector 检索 | 集成（`<=>` 排序分数、维度过滤、topK、跨模型合并、inactive 跳过） | `knowledge/integration_test.go` |
+| 3 Hybrid Search 检索 | 单测（`rrfFuse` 纯逻辑：双路命中提升排名、去重、单路场景、确定性排序、topK 截断、Score 语义不被 fusionScore 污染、顺序无关）+ 集成（pgvector `<=>` 排序分数/维度过滤/topK/跨模型合并/inactive 跳过；pg_trgm 中英文关键词命中、未发布/跨知识库过滤、维度无关；融合把强关键词命中提进 topK、去重、Citation 元数据完整、空 query/空知识库返回空） | `knowledge/hybrid_test.go`、`knowledge/integration_test.go` |
 | 4 跨库删除 | 集成（三处清理、越权拒绝、admin 越过归属、删后检索为空） | `knowledge/integration_test.go` |
 | 5 工作流执行 | 单测（DAG 校验、模板、条件）+ 集成（双分支轨迹、步失败收敛、环拒绝、inactive 拒绝） | `workflow/{dag,executor,integration}_test.go` |
 | 6 凭证加密 | 单测（往返、随机 nonce、篡改/错 key 拒绝） | `provider/crypto_test.go` |

@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -746,54 +745,135 @@ func userFacingFailureMessage(cause error) string {
 	return "文档处理失败，请检查文件内容或稍后重试"
 }
 
+// classifyRetrieveErr distinguishes "this ctx/deadline is actually done —
+// propagate immediately" from "some best-effort sub-call failed for its
+// own reasons — log and move on". Retrieve's failure-isolation contract
+// (skip a bad KB ID, skip a model whose embedding call failed, skip a
+// search path that errored) only applies to the latter; a cancelled or
+// timed-out context must never be swallowed as just another skippable
+// error, or the caller (conversation's turn handler) would have no way to
+// tell "no results" apart from "the request was actually aborted".
+// ctx.Err() is checked directly (not just errors.Is against err) because
+// not every wrapped error in this call chain is guaranteed to preserve
+// context.Canceled/DeadlineExceeded through %w — e.g. provider.Client's
+// own error wrapping around an HTTP call. ctx.Err() is the one place that
+// can never lie about whether the context is actually done.
+func classifyRetrieveErr(ctx context.Context, err error) error {
+	if cerr := ctx.Err(); cerr != nil {
+		return cerr
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return nil
+}
+
+// Retrieve runs Hybrid Search: a per-embedding-model vector path (pgvector
+// cosine similarity, unchanged in spirit from before Phase 3) and a single
+// embedding-independent keyword path (pg_trgm word-similarity — see
+// repository.go's searchKeywordChunks), each fetching up to candidateK(topK)
+// rows, fused by Reciprocal Rank Fusion (hybrid.go's rrfFuse) into the
+// final deduped, globally-ranked, topK-truncated result.
+//
+// Failure isolation is best-effort at every sub-call, same convention the
+// pre-Hybrid-Search version already had for a bad knowledge base ID or a
+// failed embedding call — extended here to the two search paths
+// themselves: a failed vector search for one embedding model only drops
+// that model's candidates (other models and the keyword path still run); a
+// failed keyword search only drops the keyword candidates (vector results
+// still return). Both paths failing, or both returning nothing, is not an
+// error — it's an empty result, same as the pre-Hybrid-Search contract.
+// The one thing that is never treated as best-effort is the context itself
+// being cancelled or timed out — see classifyRetrieveErr.
 func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query string, topK int) ([]RetrievedChunk, error) {
 	if len(knowledgeBaseIDs) == 0 || query == "" {
 		return nil, nil
 	}
 	topK = clampTopK(topK)
+	cK := candidateK(topK)
 
 	kbsByModel := make(map[string][]KnowledgeBase)
+	var activeKBIDs []string
 	for _, id := range knowledgeBaseIDs {
 		kb, err := s.repo.getKnowledgeBase(ctx, id)
 		if err != nil {
+			if cerr := classifyRetrieveErr(ctx, err); cerr != nil {
+				return nil, cerr
+			}
 			continue // a deleted/bad ID shouldn't fail the whole conversation turn
 		}
 		if !kb.IsActive {
 			continue
 		}
 		kbsByModel[kb.EmbeddingModelID] = append(kbsByModel[kb.EmbeddingModelID], kb)
+		activeKBIDs = append(activeKBIDs, kb.ID)
 	}
 
-	var candidates []RetrievedChunk
+	// --- vector path: per embedding-model group, same grouping rationale
+	// as before Phase 3 — a query is only embedded once per distinct
+	// model, and pgvector's <=> can't compare vectors of different
+	// dimensions anyway (see searchVectorChunks's dimension filter).
+	var vectorCandidates []RetrievedChunk
 	for modelID, kbs := range kbsByModel {
 		queryVector, err := s.embedQuery(ctx, modelID, query)
 		if err != nil {
-			slog.Warn("knowledge: query embedding failed, skipping these knowledge bases", "err", err, "embedding_model_id", modelID)
+			if cerr := classifyRetrieveErr(ctx, err); cerr != nil {
+				return nil, cerr
+			}
+			// Best-effort: this model's knowledge bases contribute no
+			// vector candidates, but the keyword path below doesn't
+			// depend on embeddings at all and still runs — this is what
+			// keeps Hybrid Search partially available when the embedding
+			// provider is down.
+			slog.Warn("knowledge: query embedding failed, skipping these knowledge bases for vector search", "err", err, "embedding_model_id", modelID)
 			continue
 		}
 		kbIDs := make([]string, 0, len(kbs))
 		for _, kb := range kbs {
 			kbIDs = append(kbIDs, kb.ID)
 		}
-		// Scoring, ranking, and topK all happen inside pgvector now. The
-		// old in-loop dimension guard lives on as the SQL dimension filter
-		// (searchChunks derives it from len(queryVector)).
-		chunks, err := s.repo.searchChunks(ctx, kbIDs, queryVector, topK)
+		chunks, err := s.repo.searchVectorChunks(ctx, kbIDs, queryVector, cK)
 		if err != nil {
-			slog.Warn("knowledge: chunk search failed, skipping these knowledge bases", "err", err, "embedding_model_id", modelID)
+			if cerr := classifyRetrieveErr(ctx, err); cerr != nil {
+				return nil, cerr
+			}
+			slog.Warn("knowledge: vector chunk search failed, skipping these knowledge bases", "err", err, "embedding_model_id", modelID)
 			continue
 		}
-		candidates = append(candidates, chunks...)
+		vectorCandidates = append(vectorCandidates, chunks...)
+	}
+	// Each model group already returns its own candidateK ranked by
+	// score; re-sort + truncate to candidateK across groups so a vector
+	// "rank" fed into rrfFuse reflects the true cross-model order, not
+	// just within-group order — mirrors what the pre-Hybrid-Search
+	// version did at topK before returning. See
+	// sortVectorCandidatesByScoreThenID's doc comment (hybrid.go) for why
+	// this needs a deterministic ID tie-break, not just a Score sort.
+	sortVectorCandidatesByScoreThenID(vectorCandidates)
+	if len(vectorCandidates) > cK {
+		vectorCandidates = vectorCandidates[:cK]
 	}
 
-	// Each model group already returns its own topK ranked by score; the
-	// global re-sort + truncate across groups preserves the exact cross-KB
-	// global-topK semantics the single-process implementation had.
-	sort.Slice(candidates, func(i, j int) bool { return candidates[i].Score > candidates[j].Score })
-	if len(candidates) > topK {
-		candidates = candidates[:topK]
+	// --- keyword path: one global trigram search across every active
+	// knowledge base regardless of embedding model — see
+	// searchKeywordChunks's doc comment for why it doesn't need one. This
+	// is deliberately not inside the model-group loop above: it must run
+	// (and be able to return results) even when every model group's
+	// vector search failed or was skipped.
+	var keywordCandidates []RetrievedChunk
+	if len(activeKBIDs) > 0 {
+		kw, err := s.repo.searchKeywordChunks(ctx, activeKBIDs, query, cK)
+		if err != nil {
+			if cerr := classifyRetrieveErr(ctx, err); cerr != nil {
+				return nil, cerr
+			}
+			slog.Warn("knowledge: keyword chunk search failed, continuing with vector-only results", "err", err)
+		} else {
+			keywordCandidates = kw
+		}
 	}
-	return candidates, nil
+
+	return rrfFuse(vectorCandidates, keywordCandidates, topK), nil
 }
 
 func (s *service) embedQuery(ctx context.Context, modelID, query string) ([]float32, error) {

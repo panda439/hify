@@ -200,8 +200,25 @@ type Chunk struct {
 	CreatedAt          time.Time
 }
 
-// RetrievedChunk is a Chunk annotated with its similarity score against a
-// query — what conversation's context assembly and the debug panel consume.
+// RetrievedChunk is a Chunk annotated with its relevance score against a
+// query — what conversation's context assembly (budget.go's
+// ragMinSimilarityScore floor) and the SSE debug panel consume.
+//
+// Score is always a 0..1 relevance number, never a raw fusion/ranking
+// score — this is the load-bearing invariant Phase 3's Hybrid Search must
+// not break (see hybrid.go's rrfFuse doc comment). Concretely:
+//   - vector-only hit: cosine similarity (unchanged since before Phase 3).
+//   - keyword-only hit: pg_trgm word-similarity.
+//   - hit by both paths: the larger of the two above.
+//
+// The Reciprocal Rank Fusion score that actually decided this chunk's
+// position in the returned slice (fusionScore) is intentionally NOT a
+// field here — it's an internal-only ranking number (see hybrid.go),
+// typically two orders of magnitude smaller than Score, and would silently
+// zero out every retrieval if it ever leaked into this field (budget.go
+// would filter everything below ragMinSimilarityScore=0.2). Order is
+// final by the time Retrieve returns; nothing downstream re-sorts by
+// Score.
 type RetrievedChunk struct {
 	Chunk
 	Score float64
