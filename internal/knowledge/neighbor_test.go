@@ -9,8 +9,15 @@ import (
 // to hybrid_test.go's rc(), but neighbor.go's rules genuinely depend on
 // DocumentID/DocumentVersion/ChunkIndex (unlike rrfFuse, which only cares
 // about ID/Score), so these need to set them explicitly.
+//
+// Content is set to a value unique per id ("content-"+id), same rationale
+// as hybrid_test.go's rc(): since Phase 5, expandWithNeighbors content-
+// dedups its two-tier output, and every anchorRC/neighborRC-built chunk
+// sharing empty Content would otherwise all collapse into one result.
+// Tests that specifically exercise content-dedup build chunks with
+// anchorRCContent/neighborRCContent instead, which take Content explicitly.
 func anchorRC(id, docID string, version int64, chunkIndex int, score float64) RetrievedChunk {
-	return RetrievedChunk{Chunk: Chunk{ID: id, DocumentID: docID, DocumentVersion: version, ChunkIndex: chunkIndex}, Score: score}
+	return RetrievedChunk{Chunk: Chunk{ID: id, DocumentID: docID, DocumentVersion: version, ChunkIndex: chunkIndex, Content: "content-" + id}, Score: score}
 }
 
 // neighborRC is what findPublishedNeighborChunks would return for one row
@@ -21,8 +28,24 @@ func anchorRC(id, docID string, version int64, chunkIndex int, score float64) Re
 func neighborRC(id, docID string, version int64, chunkIndex int, docName string, page *int, section *string) RetrievedChunk {
 	return RetrievedChunk{Chunk: Chunk{
 		ID: id, DocumentID: docID, DocumentVersion: version, ChunkIndex: chunkIndex,
-		DocumentName: docName, PageNumber: page, SectionTitle: section,
+		DocumentName: docName, PageNumber: page, SectionTitle: section, Content: "content-" + id,
 	}}
+}
+
+// anchorRCContent/neighborRCContent are anchorRC/neighborRC plus an
+// explicit, caller-controlled Content — used only by the Phase 5
+// content-dedup tests below, where two chunks deliberately need to share
+// (or deliberately must NOT share) a normalized Content value.
+func anchorRCContent(id, docID string, version int64, chunkIndex int, score float64, content string) RetrievedChunk {
+	rc := anchorRC(id, docID, version, chunkIndex, score)
+	rc.Content = content
+	return rc
+}
+
+func neighborRCContent(id, docID string, version int64, chunkIndex int, docName string, page *int, section *string, content string) RetrievedChunk {
+	rc := neighborRC(id, docID, version, chunkIndex, docName, page, section)
+	rc.Content = content
+	return rc
 }
 
 func neighborsOf(chunks []RetrievedChunk) []string {
@@ -31,6 +54,15 @@ func neighborsOf(chunks []RetrievedChunk) []string {
 		out[i] = c.NeighborOf
 	}
 	return out
+}
+
+// expandIDs is a test-only convenience wrapper: expandWithNeighbors now
+// returns (chunks, neighborDuplicateCount) since Phase 5, so a bare
+// idsOf(expandWithNeighbors(...)) no longer compiles — see
+// hybrid_test.go's fuseIDs for the identical rationale.
+func expandIDs(anchors, neighbors []RetrievedChunk) []string {
+	got, _ := expandWithNeighbors(anchors, neighbors)
+	return idsOf(got)
 }
 
 // --- neighborIndexesFor ---
@@ -101,7 +133,7 @@ func TestExpandWithNeighborsFillsPreviousAndNext(t *testing.T) {
 	prev := neighborRC("n-prev", "doc-1", 1, 4, "handbook.pdf", nil, nil)
 	next := neighborRC("n-next", "doc-1", 1, 6, "handbook.pdf", nil, nil)
 
-	got := expandWithNeighbors([]RetrievedChunk{anchor}, []RetrievedChunk{next, prev}) // order in neighbors slice must not matter
+	got, _ := expandWithNeighbors([]RetrievedChunk{anchor}, []RetrievedChunk{next, prev}) // order in neighbors slice must not matter
 
 	want := []string{"a1", "n-prev", "n-next"}
 	if got := idsOf(got); !reflect.DeepEqual(got, want) {
@@ -114,7 +146,7 @@ func TestExpandWithNeighborsChunkIndexZeroOnlyGetsNext(t *testing.T) {
 	anchor := anchorRC("a1", "doc-1", 1, 0, 0.9)
 	next := neighborRC("n-next", "doc-1", 1, 1, "handbook.pdf", nil, nil)
 
-	got := expandWithNeighbors([]RetrievedChunk{anchor}, []RetrievedChunk{next})
+	got, _ := expandWithNeighbors([]RetrievedChunk{anchor}, []RetrievedChunk{next})
 
 	want := []string{"a1", "n-next"}
 	if got := idsOf(got); !reflect.DeepEqual(got, want) {
@@ -128,7 +160,7 @@ func TestExpandWithNeighborsLastChunkOnlyGetsPrevious(t *testing.T) {
 	prev := neighborRC("n-prev", "doc-1", 1, 8, "handbook.pdf", nil, nil)
 	// no chunk at index 10 in the neighbors slice — it doesn't exist in the document
 
-	got := expandWithNeighbors([]RetrievedChunk{anchor}, []RetrievedChunk{prev})
+	got, _ := expandWithNeighbors([]RetrievedChunk{anchor}, []RetrievedChunk{prev})
 
 	want := []string{"a1", "n-prev"}
 	if got := idsOf(got); !reflect.DeepEqual(got, want) {
@@ -141,7 +173,7 @@ func TestExpandWithNeighborsSkipsMissingIndexes(t *testing.T) {
 	anchor := anchorRC("a1", "doc-1", 1, 5, 0.9)
 	// neighbors slice is empty entirely — simulates both index 4 and 6 missing (deleted/never existed).
 
-	got := expandWithNeighbors([]RetrievedChunk{anchor}, nil)
+	got, _ := expandWithNeighbors([]RetrievedChunk{anchor}, nil)
 
 	want := []string{"a1"}
 	if got := idsOf(got); !reflect.DeepEqual(got, want) {
@@ -156,7 +188,7 @@ func TestExpandWithNeighborsPreservesAnchorRank(t *testing.T) {
 		anchorRC("a1", "doc-1", 1, 5, 0.9),
 		anchorRC("a2", "doc-2", 1, 0, 0.7),
 	}
-	got := expandWithNeighbors(anchors, nil)
+	got, _ := expandWithNeighbors(anchors, nil)
 	want := []string{"a3", "a1", "a2"} // exactly the input order — rrfFuse already decided this
 	if got := idsOf(got); !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v (anchor rank must never be reordered by neighbor expansion)", got, want)
@@ -176,7 +208,7 @@ func TestExpandWithNeighborsNeighborThatIsAlsoAnAnchorAppearsOnlyOnceAtItsOwnRan
 	// in the raw neighbors slice, exactly as a real DB query would return it.
 	wouldBeNeighbor := neighborRC("a2", "doc-1", 1, 6, "handbook.pdf", nil, nil)
 
-	got := expandWithNeighbors([]RetrievedChunk{a1, a2}, []RetrievedChunk{wouldBeNeighbor})
+	got, _ := expandWithNeighbors([]RetrievedChunk{a1, a2}, []RetrievedChunk{wouldBeNeighbor})
 
 	want := []string{"a1", "a2"} // NOT [a1, a2(as neighbor), a2(as anchor)] and NOT [a1, a2, a2]
 	if gotIDs := idsOf(got); !reflect.DeepEqual(gotIDs, want) {
@@ -204,7 +236,7 @@ func TestExpandWithNeighborsSharedNeighborAttributedToHigherRankedAnchor(t *test
 	a2 := anchorRC("a2", "doc-1", 1, 7, 0.6)
 	shared := neighborRC("n-shared", "doc-1", 1, 6, "handbook.pdf", nil, nil)
 
-	got := expandWithNeighbors([]RetrievedChunk{a1, a2}, []RetrievedChunk{shared})
+	got, _ := expandWithNeighbors([]RetrievedChunk{a1, a2}, []RetrievedChunk{shared})
 
 	count := 0
 	var attributedScore float64
@@ -241,7 +273,7 @@ func TestExpandWithNeighborsInheritsOwningAnchorScore(t *testing.T) {
 	a1 := anchorRC("a1", "doc-1", 1, 5, 0.73)
 	next := neighborRC("n-next", "doc-1", 1, 6, "handbook.pdf", nil, nil)
 
-	got := expandWithNeighbors([]RetrievedChunk{a1}, []RetrievedChunk{next})
+	got, _ := expandWithNeighbors([]RetrievedChunk{a1}, []RetrievedChunk{next})
 
 	for _, c := range got {
 		if c.ID == "n-next" && c.Score != 0.73 {
@@ -256,7 +288,7 @@ func TestExpandWithNeighborsSetsNeighborOfToOwningAnchorID(t *testing.T) {
 	prev := neighborRC("n-prev", "doc-1", 1, 4, "handbook.pdf", nil, nil)
 	next := neighborRC("n-next", "doc-1", 1, 6, "handbook.pdf", nil, nil)
 
-	got := expandWithNeighbors([]RetrievedChunk{a1}, []RetrievedChunk{prev, next})
+	got, _ := expandWithNeighbors([]RetrievedChunk{a1}, []RetrievedChunk{prev, next})
 
 	wantNeighborOf := []string{"", "a1", "a1"} // a1 itself, then its two neighbors, in output order
 	if gotNeighborOf := neighborsOf(got); !reflect.DeepEqual(gotNeighborOf, wantNeighborOf) {
@@ -277,7 +309,7 @@ func TestExpandWithNeighborsKeepsNeighborsOwnCitationMetadata(t *testing.T) {
 	neighborSection := "2.2 细节"
 	next := neighborRC("n-next", "doc-1", 1, 6, "neighbor-doc.pdf", &neighborPage, &neighborSection)
 
-	got := expandWithNeighbors([]RetrievedChunk{a1}, []RetrievedChunk{next})
+	got, _ := expandWithNeighbors([]RetrievedChunk{a1}, []RetrievedChunk{next})
 
 	var n RetrievedChunk
 	for _, c := range got {
@@ -317,7 +349,7 @@ func TestExpandWithNeighborsAllAnchorsPrecedeAllNeighbors(t *testing.T) {
 		neighborRC("anchor3.previous", "doc-3", 1, 4, "d3.pdf", nil, nil),
 	}
 
-	got := expandWithNeighbors([]RetrievedChunk{a1, a2, a3}, neighbors)
+	got, _ := expandWithNeighbors([]RetrievedChunk{a1, a2, a3}, neighbors)
 
 	want := []string{
 		"anchor1", "anchor2", "anchor3",
@@ -342,9 +374,9 @@ func TestExpandWithNeighborsIsDeterministicAcrossRuns(t *testing.T) {
 		neighborRC("n3", "doc-2", 1, 1, "d2.pdf", nil, nil),
 	}
 
-	first := idsOf(expandWithNeighbors(anchors, neighbors))
+	first := expandIDs(anchors, neighbors)
 	for i := 0; i < 20; i++ {
-		got := idsOf(expandWithNeighbors(anchors, neighbors))
+		got := expandIDs(anchors, neighbors)
 		if !reflect.DeepEqual(got, first) {
 			t.Fatalf("run %d: output order changed across repeated calls with identical input: got %v, want %v", i, got, first)
 		}
@@ -367,7 +399,7 @@ func TestExpandWithNeighborsNeverExceedsAnchorCountTimesThree(t *testing.T) {
 		)
 	}
 
-	got := expandWithNeighbors(anchors, neighbors)
+	got, _ := expandWithNeighbors(anchors, neighbors)
 	if len(got) > anchorCount*3 {
 		t.Fatalf("got %d results, want at most anchorCount*3=%d", len(got), anchorCount*3)
 	}
@@ -382,7 +414,7 @@ func idsForIndex(i int) string {
 
 // 13. 空核心结果返回空.
 func TestExpandWithNeighborsEmptyAnchorsReturnsEmpty(t *testing.T) {
-	got := expandWithNeighbors(nil, []RetrievedChunk{neighborRC("n1", "doc-1", 1, 0, "d.pdf", nil, nil)})
+	got, _ := expandWithNeighbors(nil, []RetrievedChunk{neighborRC("n1", "doc-1", 1, 0, "d.pdf", nil, nil)})
 	if len(got) != 0 {
 		t.Fatalf("got %v, want empty (no anchors means nothing to expand)", got)
 	}
@@ -394,12 +426,122 @@ func TestExpandWithNeighborsEmptyNeighborsKeepsAnchorsUnchanged(t *testing.T) {
 		anchorRC("a1", "doc-1", 1, 5, 0.9),
 		anchorRC("a2", "doc-2", 1, 3, 0.7),
 	}
-	got := expandWithNeighbors(anchors, nil)
+	got, _ := expandWithNeighbors(anchors, nil)
 	if !reflect.DeepEqual(got, anchors) {
 		t.Fatalf("got %+v, want anchors unchanged %+v", got, anchors)
 	}
-	gotEmpty := expandWithNeighbors(anchors, []RetrievedChunk{})
+	gotEmpty, _ := expandWithNeighbors(anchors, []RetrievedChunk{})
 	if !reflect.DeepEqual(gotEmpty, anchors) {
 		t.Fatalf("got %+v (with empty non-nil neighbors slice), want anchors unchanged %+v", gotEmpty, anchors)
+	}
+}
+
+// --- Phase 5: expandWithNeighbors' second content-dedup pass ---
+
+// 五. 核心块与邻接块正文（规范化后）重复时，保留核心块，绝不能反过来把核心
+// 块挤掉、只留邻接块.
+func TestExpandWithNeighborsDedupPrefersCoreOverDuplicateNeighborContent(t *testing.T) {
+	anchors := []RetrievedChunk{
+		anchorRCContent("anchor1", "doc-1", 1, 5, 0.9, "重复的正文"),
+		anchorRCContent("anchor2", "doc-2", 1, 5, 0.5, "anchor2 自己的正文"),
+	}
+	neighbors := []RetrievedChunk{
+		// anchor1 的 next 邻接块，正文和 anchor1 自己完全相同（规范化后）。
+		neighborRCContent("n-dup-of-anchor1", "doc-1", 1, 6, "d.pdf", nil, nil, "重复的正文"),
+		neighborRCContent("n-unique", "doc-2", 1, 6, "d.pdf", nil, nil, "n-unique 自己的正文"),
+	}
+
+	got, _ := expandWithNeighbors(anchors, neighbors)
+
+	want := []string{"anchor1", "anchor2", "n-unique"}
+	if got := idsOf(got); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v — n-dup-of-anchor1 must be dropped in favor of anchor1, not the other way around", got, want)
+	}
+}
+
+// 六. 两个邻接块正文（规范化后）重复时，保留输出顺序里靠前的那一个.
+func TestExpandWithNeighborsDedupAmongNeighborsKeepsEarlierOutputOrder(t *testing.T) {
+	anchors := []RetrievedChunk{
+		anchorRCContent("anchor1", "doc-1", 1, 5, 0.9, "anchor1 正文"),
+		anchorRCContent("anchor2", "doc-2", 1, 5, 0.8, "anchor2 正文"),
+	}
+	neighbors := []RetrievedChunk{
+		// anchor1 的 next（在两层布局里排在 anchor2 的邻接块之前）。
+		neighborRCContent("anchor1-next", "doc-1", 1, 6, "d.pdf", nil, nil, "共享的邻接正文"),
+		// anchor2 的 previous，和上面内容完全相同（规范化后），但排在后面。
+		neighborRCContent("anchor2-prev", "doc-2", 1, 4, "d.pdf", nil, nil, "共享的邻接正文"),
+	}
+
+	got, _ := expandWithNeighbors(anchors, neighbors)
+
+	want := []string{"anchor1", "anchor2", "anchor1-next"}
+	if got := idsOf(got); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v — anchor1-next sits earlier in the two-tier output than anchor2-prev, so it must be the one kept", got, want)
+	}
+}
+
+// 七（邻接层）: 去重保留下来的邻接块，其 NeighborOf/Score/Citation 元数据都
+// 必须是循环里已经赋好的真实值，去重步骤本身绝不能改写它们。
+func TestExpandWithNeighborsDedupNeverRewritesKeptNeighborFields(t *testing.T) {
+	page := 9
+	section := "9.9"
+	anchors := []RetrievedChunk{
+		anchorRCContent("anchor1", "doc-1", 1, 5, 0.42, "anchor1 正文"),
+	}
+	neighbors := []RetrievedChunk{
+		neighborRCContent("anchor1-next", "doc-1", 1, 6, "real.pdf", &page, &section, "邻接正文"),
+	}
+
+	got, _ := expandWithNeighbors(anchors, neighbors)
+	if len(got) != 2 {
+		t.Fatalf("got %d results %v, want 2 (no duplicate content here, nothing should be dropped)", len(got), idsOf(got))
+	}
+	n := got[1]
+	if n.NeighborOf != "anchor1" {
+		t.Fatalf("NeighborOf = %q, want anchor1", n.NeighborOf)
+	}
+	if n.Score != 0.42 {
+		t.Fatalf("Score = %f, want inherited anchor1 Score 0.42", n.Score)
+	}
+	if n.DocumentName != "real.pdf" || n.PageNumber != &page || n.SectionTitle != &section {
+		t.Fatalf("Citation metadata changed: DocumentName=%q PageNumber=%v SectionTitle=%v", n.DocumentName, n.PageNumber, n.SectionTitle)
+	}
+}
+
+// 待修复项 3（审核修复）: expandWithNeighbors 的第二个返回值是邻接扩展阶段
+// 被内容去重抑制掉的条数——由于到这里的 anchors 已经在 rrfFuse 里做过一轮
+// 核心去重，这一步能抑制的只可能是邻接块（输给核心块或输给排在它前面的另
+// 一个邻接块），从不是核心块。
+func TestExpandWithNeighborsReturnsNeighborDuplicateCount(t *testing.T) {
+	anchors := []RetrievedChunk{
+		anchorRCContent("anchor1", "doc-1", 1, 5, 0.9, "anchor1 正文"),
+		anchorRCContent("anchor2", "doc-2", 1, 5, 0.8, "anchor2 正文"),
+	}
+	neighbors := []RetrievedChunk{
+		// 与 anchor1 正文重复 -> 被丢弃，计入抑制数。
+		neighborRCContent("n-dup-of-anchor1", "doc-1", 1, 6, "d.pdf", nil, nil, "anchor1 正文"),
+		// 与另一个邻接块正文重复 -> 输出顺序靠后的一个被丢弃，计入抑制数。
+		neighborRCContent("anchor1-prev", "doc-1", 1, 4, "d.pdf", nil, nil, "共享邻接正文"),
+		neighborRCContent("anchor2-next", "doc-2", 1, 6, "d.pdf", nil, nil, "共享邻接正文"),
+		// 独有内容 -> 保留，不计入抑制数。
+		neighborRCContent("anchor2-prev", "doc-2", 1, 4, "d.pdf", nil, nil, "anchor2 独有的邻接正文"),
+	}
+
+	got, neighborDuplicateCount := expandWithNeighbors(anchors, neighbors)
+	if neighborDuplicateCount != 2 {
+		t.Fatalf("neighborDuplicateCount = %d, want 2 (n-dup-of-anchor1 loses to anchor1, anchor2-next loses to anchor1-prev)", neighborDuplicateCount)
+	}
+	want := []string{"anchor1", "anchor2", "anchor1-prev", "anchor2-prev"}
+	if gotIDs := idsOf(got); !reflect.DeepEqual(gotIDs, want) {
+		t.Fatalf("got %v, want %v", gotIDs, want)
+	}
+
+	// 无重复邻接内容时计数为 0。
+	_, zeroCount := expandWithNeighbors(
+		[]RetrievedChunk{anchorRCContent("a1", "doc-1", 1, 5, 0.9, "a1 正文")},
+		[]RetrievedChunk{neighborRCContent("a1-next", "doc-1", 1, 6, "d.pdf", nil, nil, "a1-next 独有正文")},
+	)
+	if zeroCount != 0 {
+		t.Fatalf("neighborDuplicateCount = %d, want 0 (no duplicate content)", zeroCount)
 	}
 }

@@ -82,7 +82,27 @@ type fusionEntry struct {
 // processing order of the two input slices never affects the result: every
 // comparison eventually bottoms out at ID, which doesn't depend on input
 // order at all.
-func rrfFuse(vectorChunks, keywordChunks []RetrievedChunk, topK int) []RetrievedChunk {
+//
+// Phase 5 (dedup.go): exact-content dedup runs on the FULL fused,
+// deduped-by-ID, fully-sorted list — BEFORE truncating to topK, not after.
+// This ordering is load-bearing: the fused list here is already a bounded
+// "expanded candidate" set (at most len(vectorChunks)+len(keywordChunks),
+// itself bounded by 2*candidateK ≤ 200 — see candidateK's doc comment), so
+// deduping first and truncating second is what lets a unique, merely
+// lower-fusionScore chunk fill the topK slot a higher-ranked
+// same-content duplicate would otherwise have wasted (see the phase
+// report's "A、A、B、C + topK=3 → A、B、C" acceptance scenario). Deduping
+// AFTER truncation would get this wrong — it could truncate away the very
+// candidate that should have filled the freed slot. Because entries here
+// are already sorted highest-fusionScore-first, dedupExactContentChunks'
+// first-occurrence-wins rule also gives "a duplicate keeps only its
+// highest-ranked occurrence" for free — see that function's doc comment.
+//
+// The second return value is the core-hit content-dedup suppression
+// count (dedupExactContentChunks' own second return value, passed
+// straight through) — service.go's Retrieve logs it as
+// core_duplicate_count via a safe, content-free structured debug line.
+func rrfFuse(vectorChunks, keywordChunks []RetrievedChunk, topK int) ([]RetrievedChunk, int) {
 	entries := make(map[string]*fusionEntry)
 
 	addPath := func(chunks []RetrievedChunk, weight float64) {
@@ -125,10 +145,15 @@ func rrfFuse(vectorChunks, keywordChunks []RetrievedChunk, topK int) []Retrieved
 		return out[i].ID < out[j].ID
 	})
 
+	// Phase 5: content-dedup the full bounded candidate list BEFORE
+	// truncating to topK — see this function's doc comment above for why
+	// the order of these two steps matters.
+	out, coreDuplicateCount := dedupExactContentChunks(out)
+
 	if len(out) > topK {
 		out = out[:topK]
 	}
-	return out
+	return out, coreDuplicateCount
 }
 
 // sortVectorCandidatesByScoreThenID orders a slice of vector-path

@@ -9,8 +9,24 @@ import (
 // rc is a tiny test-only constructor — only ID and Score matter for
 // rrfFuse's own logic; the rest of Chunk just needs to round-trip
 // unchanged through fusion (see TestRRFFusePreservesChunkMetadata).
+//
+// Content is set to a value unique per id ("content-"+id) rather than left
+// empty: since Phase 5, rrfFuse content-dedups its fused candidate list,
+// and every rc-built chunk sharing the same "" Content would otherwise
+// collapse into a single result and silently break every pre-Phase-5 test
+// in this file that expects N distinct chunks back. Tests that actually
+// want to exercise content-dedup build chunks with rcContent instead, so
+// they control Content explicitly.
 func rc(id string, score float64) RetrievedChunk {
-	return RetrievedChunk{Chunk: Chunk{ID: id}, Score: score}
+	return RetrievedChunk{Chunk: Chunk{ID: id, Content: "content-" + id}, Score: score}
+}
+
+// rcContent is rc plus an explicit, caller-controlled Content — used only
+// by the Phase 5 content-dedup tests below, where two chunks deliberately
+// need to share (or deliberately must NOT share) a normalized Content
+// value.
+func rcContent(id string, score float64, content string) RetrievedChunk {
+	return RetrievedChunk{Chunk: Chunk{ID: id, Content: content}, Score: score}
 }
 
 func idsOf(chunks []RetrievedChunk) []string {
@@ -21,6 +37,18 @@ func idsOf(chunks []RetrievedChunk) []string {
 	return out
 }
 
+// fuseIDs is a test-only convenience wrapper: rrfFuse now returns
+// (chunks, coreDuplicateCount) since Phase 5, so a bare
+// idsOf(rrfFuse(...)) no longer compiles (idsOf takes one argument, not
+// two) — tests that only care about the resulting ID order and don't need
+// to assert on the duplicate count use this instead of re-declaring the
+// two-step "call rrfFuse, then idsOf the first return value" dance
+// individually.
+func fuseIDs(vectorChunks, keywordChunks []RetrievedChunk, topK int) []string {
+	got, _ := rrfFuse(vectorChunks, keywordChunks, topK)
+	return idsOf(got)
+}
+
 // 1. 同时命中 vector 和 keyword 的 chunk 排名提升.
 func TestRRFFusePromotesChunkHitByBothPaths(t *testing.T) {
 	// "both" is a weak vector hit (rank 3) but the #1 keyword hit — RRF's
@@ -29,7 +57,7 @@ func TestRRFFusePromotesChunkHitByBothPaths(t *testing.T) {
 	vector := []RetrievedChunk{rc("v1", 0.9), rc("v2", 0.8), rc("both", 0.5)}
 	keyword := []RetrievedChunk{rc("both", 0.7), rc("k2", 0.4)}
 
-	got := rrfFuse(vector, keyword, 10)
+	got, _ := rrfFuse(vector, keyword, 10)
 
 	if len(got) != 4 {
 		t.Fatalf("got %d results %v, want 4 distinct chunks", len(got), idsOf(got))
@@ -44,7 +72,7 @@ func TestRRFFuseDedupesChunkPresentInBothPaths(t *testing.T) {
 	vector := []RetrievedChunk{rc("dup", 0.9), rc("v-only", 0.5)}
 	keyword := []RetrievedChunk{rc("dup", 0.6), rc("k-only", 0.4)}
 
-	got := rrfFuse(vector, keyword, 10)
+	got, _ := rrfFuse(vector, keyword, 10)
 
 	seen := map[string]int{}
 	for _, c := range got {
@@ -62,7 +90,7 @@ func TestRRFFuseDedupesChunkPresentInBothPaths(t *testing.T) {
 func TestRRFFuseVectorOnly(t *testing.T) {
 	vector := []RetrievedChunk{rc("v1", 0.9), rc("v2", 0.5), rc("v3", 0.1)}
 
-	got := rrfFuse(vector, nil, 10)
+	got, _ := rrfFuse(vector, nil, 10)
 
 	want := []string{"v1", "v2", "v3"}
 	if !reflect.DeepEqual(idsOf(got), want) {
@@ -79,7 +107,7 @@ func TestRRFFuseVectorOnly(t *testing.T) {
 func TestRRFFuseKeywordOnly(t *testing.T) {
 	keyword := []RetrievedChunk{rc("k1", 0.8), rc("k2", 0.4)}
 
-	got := rrfFuse(nil, keyword, 10)
+	got, _ := rrfFuse(nil, keyword, 10)
 
 	want := []string{"k1", "k2"}
 	if !reflect.DeepEqual(idsOf(got), want) {
@@ -123,7 +151,7 @@ func TestRRFFuseTiedFusionScoreBreaksByIDWhenScoreAlsoTies(t *testing.T) {
 	}
 	keyword[keywordRank-1] = rc("aaa-keyword-hit", 0.5)
 
-	got := rrfFuse(vector, keyword, len(vector)+len(keyword))
+	got, _ := rrfFuse(vector, keyword, len(vector)+len(keyword))
 
 	var rankOfA, rankOfZ = -1, -1
 	for i, c := range got {
@@ -147,7 +175,7 @@ func TestRRFFuseTruncatesToTopK(t *testing.T) {
 	vector := []RetrievedChunk{rc("v1", 0.9), rc("v2", 0.8), rc("v3", 0.7), rc("v4", 0.6)}
 	keyword := []RetrievedChunk{rc("k1", 0.5), rc("k2", 0.4)}
 
-	got := rrfFuse(vector, keyword, 3)
+	got, _ := rrfFuse(vector, keyword, 3)
 
 	if len(got) != 3 {
 		t.Fatalf("got %d results, want exactly topK=3: %v", len(got), idsOf(got))
@@ -164,7 +192,7 @@ func TestRRFFuseScoreIsRelevanceNotRawFusionScore(t *testing.T) {
 	vector := []RetrievedChunk{rc("v1", 0.93)}
 	keyword := []RetrievedChunk{rc("k1", 0.81)}
 
-	got := rrfFuse(vector, keyword, 10)
+	got, _ := rrfFuse(vector, keyword, 10)
 
 	byID := map[string]RetrievedChunk{}
 	for _, c := range got {
@@ -194,7 +222,7 @@ func TestRRFFuseScoreForBothPathsHitIsMaxNotSum(t *testing.T) {
 	vector := []RetrievedChunk{rc("both", 0.4)}
 	keyword := []RetrievedChunk{rc("both", 0.9)}
 
-	got := rrfFuse(vector, keyword, 10)
+	got, _ := rrfFuse(vector, keyword, 10)
 	if len(got) != 1 {
 		t.Fatalf("got %d results, want 1: %v", len(got), idsOf(got))
 	}
@@ -222,9 +250,9 @@ func TestRRFFuseInternalMapIterationDoesNotLeakIntoOutputOrder(t *testing.T) {
 	vector := []RetrievedChunk{rc("v1", 0.9), rc("v2", 0.7), rc("both", 0.5), rc("v3", 0.3)}
 	keyword := []RetrievedChunk{rc("both", 0.6), rc("k1", 0.4), rc("k2", 0.2)}
 
-	first := idsOf(rrfFuse(vector, keyword, 10))
+	first := fuseIDs(vector, keyword, 10)
 	for i := 0; i < 20; i++ {
-		got := idsOf(rrfFuse(vector, keyword, 10))
+		got := fuseIDs(vector, keyword, 10)
 		if !reflect.DeepEqual(got, first) {
 			t.Fatalf("run %d: order changed across repeated calls with identical input: got %v, want %v", i, got, first)
 		}
@@ -288,7 +316,7 @@ func TestVectorCandidateBuildOrderDoesNotAffectFinalHybridResult(t *testing.T) {
 	for i, order := range buildOrders {
 		cp := append([]RetrievedChunk(nil), order...)
 		sortVectorCandidatesByScoreThenID(cp)
-		got := idsOf(rrfFuse(cp, keyword, 10))
+		got := fuseIDs(cp, keyword, 10)
 		if i == 0 {
 			want = got
 			continue
@@ -319,7 +347,7 @@ func TestRRFFusePreservesChunkMetadata(t *testing.T) {
 		Score: 0.77,
 	}
 
-	got := rrfFuse([]RetrievedChunk{c}, nil, 10)
+	got, _ := rrfFuse([]RetrievedChunk{c}, nil, 10)
 	if len(got) != 1 {
 		t.Fatalf("got %d results, want 1", len(got))
 	}
@@ -331,6 +359,89 @@ func TestRRFFusePreservesChunkMetadata(t *testing.T) {
 	}
 	if got[0].SectionTitle == nil || *got[0].SectionTitle != section {
 		t.Fatalf("SectionTitle = %v, want %q", got[0].SectionTitle, section)
+	}
+}
+
+// --- Phase 5: rrfFuse content-dedup ---
+
+// 四. A、A、B、C（A 的两条记录内容完全相同、ID 不同）+ topK=3，去重后应
+// 该得到 A、B、C，而不是把去重前排名靠前的两条 A 都截进结果、把 C 挤出去。
+func TestRRFFuseContentDedupLetsUniqueLowerRankedCandidateFillTopKSlot(t *testing.T) {
+	vector := []RetrievedChunk{
+		rcContent("a-high", 0.95, "重复的正文内容"),
+		rcContent("a-dup", 0.90, "重复的正文内容"), // 和 a-high 内容相同，融合排名仅次于它
+		rcContent("b", 0.80, "内容B"),
+		rcContent("c", 0.70, "内容C"),
+	}
+
+	got, _ := rrfFuse(vector, nil, 3)
+
+	want := []string{"a-high", "b", "c"}
+	if got := idsOf(got); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v — content-dedup must run BEFORE topK truncation so c can fill the slot a-dup would otherwise have wasted", got, want)
+	}
+}
+
+// 去重必须保留原本融合排名更高的那一条重复内容，而不是任意一条或最后一条。
+func TestRRFFuseContentDedupKeepsHigherFusionRankedDuplicate(t *testing.T) {
+	vector := []RetrievedChunk{rcContent("low-rank-dup", 0.99, "重复内容")}
+	keyword := []RetrievedChunk{rcContent("high-rank-dup", 0.5, "重复内容")}
+	// high-rank-dup is keyword rank 1 (weight 0.35/(60+1)), low-rank-dup is
+	// vector rank 1 (weight 0.65/(60+1)) — vector's higher weight at the
+	// same rank makes low-rank-dup's fusionScore the larger one, so despite
+	// the variable names this exercises "whichever ends up ranked first by
+	// fusionScore survives", not literally input order.
+	got, _ := rrfFuse(vector, keyword, 10)
+	if len(got) != 1 {
+		t.Fatalf("got %d results %v, want exactly 1 (same normalized content must collapse to one)", len(got), idsOf(got))
+	}
+	if got[0].ID != "low-rank-dup" {
+		t.Fatalf("kept ID = %s, want low-rank-dup (the higher-fusionScore duplicate, per vectorWeight > keywordWeight at equal rank)", got[0].ID)
+	}
+}
+
+// 内容去重发生在 fusionScore/Score/ID 排序之后，必须保持结果整体确定性
+// （多次调用完全一致），不能因为 Go map 遍历顺序而抖动。
+func TestRRFFuseContentDedupIsDeterministicAcrossRuns(t *testing.T) {
+	vector := []RetrievedChunk{
+		rcContent("d1", 0.9, "重复A"),
+		rcContent("d2", 0.8, "重复A"),
+		rcContent("d3", 0.7, "重复A"),
+		rcContent("u1", 0.6, "唯一内容"),
+	}
+	first := fuseIDs(vector, nil, 10)
+	for i := 0; i < 10; i++ {
+		got := fuseIDs(vector, nil, 10)
+		if !reflect.DeepEqual(got, first) {
+			t.Fatalf("run %d: got %v, want %v (content-dedup result must be stable across repeated calls)", i, got, first)
+		}
+	}
+	if !reflect.DeepEqual(first, []string{"d1", "u1"}) {
+		t.Fatalf("got %v, want [d1 u1]", first)
+	}
+}
+
+// 待修复项 3（审核修复）: rrfFuse 的第二个返回值是核心候选阶段被内容去重
+// 抑制掉的条数，必须对得上真实丢弃的重复数量，不受 topK 截断影响（去重发
+// 生在截断之前，所以即便被去重后剩下的候选还会被 topK 截断，抑制计数只
+// 反映"内容去重丢了几条"，不包含"topK 截断又丢了几条"）。
+func TestRRFFuseReturnsCoreDuplicateCount(t *testing.T) {
+	vector := []RetrievedChunk{
+		rcContent("a-high", 0.95, "重复内容A"),
+		rcContent("a-dup1", 0.90, "重复内容A"),
+		rcContent("a-dup2", 0.85, "重复内容A"),
+		rcContent("b", 0.80, "内容B"),
+	}
+	_, coreDuplicateCount := rrfFuse(vector, nil, 10)
+	if coreDuplicateCount != 2 {
+		t.Fatalf("coreDuplicateCount = %d, want 2 (a-dup1 and a-dup2 both suppressed, a-high survives, b is unique)", coreDuplicateCount)
+	}
+
+	// 无重复内容时计数为 0。
+	noDup := []RetrievedChunk{rcContent("x", 0.9, "内容X"), rcContent("y", 0.8, "内容Y")}
+	_, zeroCount := rrfFuse(noDup, nil, 10)
+	if zeroCount != 0 {
+		t.Fatalf("coreDuplicateCount = %d, want 0 (no duplicate content)", zeroCount)
 	}
 }
 

@@ -266,6 +266,101 @@ func TestIntegrationRetrieveMergesAcrossModelsAndSkipsInactive(t *testing.T) {
 	}
 }
 
+// --- Phase 5: exact content dedup, driven through the real public
+// Service.Retrieve entry point (setupIntegration — needs both MySQL and
+// Postgres, same requirement TestIntegrationRetrieveMergesAcrossModelsAndSkipsInactive
+// above already has). In an environment with only Postgres up, like this
+// sandbox, these SKIP — exactly like every other setupIntegration test in
+// this file already does, and for the identical, already-documented
+// reason (see docs/eval-phase4-neighbor-window-report.md's "未能亲自验证
+// 的部分" section). The PG-only tests directly above already give real
+// execution proof of the same rrfFuse/expandWithNeighbors dedup behavior
+// against a genuine Postgres instance; these two additionally confirm the
+// full public entry point (Retrieve, including its MySQL knowledge_base
+// lookup and Hybrid Search embedding path) wires it all together
+// end-to-end, and need Codex's full docker environment to actually run.
+
+// 一 + 四（Service.Retrieve 全链路版本）: 两条内容完全相同、ID 不同的
+// chunk（一条余弦相似度更高）经过真实 Retrieve() 调用（embed -> 向量检索
+// -> RRF 融合 -> 内容去重 -> 邻接扩展）后，topK 太小放不下两条重复内容时
+// 只保留分数更高的一条，让内容不同的第三条候选补位。
+func TestIntegrationRetrieveDedupsExactDuplicateContentEndToEnd(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	svc := newTestService(repo, fp, t.TempDir())
+	ctx := context.Background()
+
+	seedKB(t, repo, "kb-dedup-e2e", "m3", "u1", true)
+	dupContent := "端到端重复内容验证：完全相同的正文"
+	seedChunkWithContent(t, repo, "kb-dedup-e2e", "doc-dedup-e2e", "dup-high", []float32{1, 0, 0}, dupContent)  // cos = 1.0
+	seedChunkWithContent(t, repo, "kb-dedup-e2e", "doc-dedup-e2e", "dup-low", []float32{1, 0.1, 0}, dupContent) // cos < 1.0, same content
+	seedChunkWithContent(t, repo, "kb-dedup-e2e", "doc-dedup-e2e", "unique", []float32{1, 0.2, 0}, "内容不同的第三条候选")
+
+	got, err := svc.Retrieve(ctx, []string{"kb-dedup-e2e"}, "查询", 2)
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	want := []string{"dup-high", "unique"}
+	if gotIDs := ids(got); !reflect.DeepEqual(gotIDs, want) {
+		t.Fatalf("got %v, want %v — Retrieve must content-dedup before truncating to topK, keeping dup-high and letting unique fill the freed slot", gotIDs, want)
+	}
+}
+
+// 五（Service.Retrieve 全链路版本）: 一个核心命中块的邻接窗口块正文和另一
+// 个核心命中块完全相同时，最终 Retrieve() 结果必须保留两个核心块，丢弃那
+// 条重复的邻接块——核心块优先于邻接块，全链路（含真实 embed/向量检索/RRF/
+// 邻接扩展）下同样成立。
+func TestIntegrationRetrieveNeighborDedupPrefersCoreOverDuplicateNeighborContentEndToEnd(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	svc := newTestService(repo, fp, t.TempDir())
+	ctx := context.Background()
+
+	seedKB(t, repo, "kb-dedup-nb-e2e", "m3", "u1", true)
+	sharedContent := "核心块 core2 与 anchor 的邻接块共享的正文"
+
+	seedNeighborChunkBatch(t, repo, "kb-dedup-nb-e2e", "doc-anchor-e2e", 1, []neighborSeedChunk{
+		{ID: "anchor", ChunkIndex: 5, Content: "anchor 自己独有的正文", Vec: []float32{1, 0, 0}}, // cos = 1.0
+		// anchor-prev's vector is deliberately orthogonal to the query
+		// (cos = 0), NOT [1,0,0] — review fix (待修复项 4): with an equally
+		// perfect cosine score, real vector search would rank anchor-prev
+		// as a CORE hit in its own right (tied with anchor/core2, broken by
+		// ID), so with topK=2 it could win a core slot ahead of core2
+		// instead of only ever being discovered through anchor's neighbor
+		// window lookup — which is not what this test is supposed to be
+		// exercising. A weak cosine score here still lets anchor-prev be
+		// fetched as anchor's chunk_index=4 neighbor (neighbor lookup goes
+		// by chunk_index adjacency, not vector score), while guaranteeing
+		// it can never out-rank a real core hit for a topK anchor slot.
+		{ID: "anchor-prev", ChunkIndex: 4, Content: sharedContent, Vec: []float32{0, 1, 0}}, // cos = 0.0
+	}, true)
+	seedNeighborChunkBatch(t, repo, "kb-dedup-nb-e2e", "doc-core2-e2e", 1, []neighborSeedChunk{
+		{ID: "core2", ChunkIndex: 0, Content: sharedContent, Vec: []float32{1, 0, 0}},
+	}, true)
+
+	got, err := svc.Retrieve(ctx, []string{"kb-dedup-nb-e2e"}, "查询", 2)
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	for _, c := range got {
+		if c.ID == "anchor-prev" {
+			t.Fatalf("got %v — anchor-prev duplicates core2's content and must be dropped, core2 (a real core hit) must win", ids(got))
+		}
+	}
+	foundAnchor, foundCore2 := false, false
+	for _, c := range got {
+		if c.ID == "anchor" {
+			foundAnchor = true
+		}
+		if c.ID == "core2" {
+			foundCore2 = true
+		}
+	}
+	if !foundAnchor || !foundCore2 {
+		t.Fatalf("got %v, want both core hits (anchor, core2) present — neighbor dedup must never drop a core hit", ids(got))
+	}
+}
+
 // --- 链路 2：文档入库流水线（parse → chunk → embed → PG 落库 → 状态机） ---
 
 func TestIntegrationProcessDocumentHappyPath(t *testing.T) {
@@ -2070,7 +2165,7 @@ func TestIntegrationHybridSearchPromotesStrongKeywordMatchIntoTopK(t *testing.T)
 		}
 	}
 
-	fused := rrfFuse(vectorChunks, keywordChunks, topK)
+	fused, _ := rrfFuse(vectorChunks, keywordChunks, topK)
 	if len(fused) != topK {
 		t.Fatalf("got %d fused results, want topK=%d", len(fused), topK)
 	}
@@ -2128,7 +2223,7 @@ func TestIntegrationHybridSearchDeduplicatesChunkHitByBothPaths(t *testing.T) {
 		t.Fatalf("test setup invalid: 'both' must appear in both raw candidate lists (vector=%v, keyword=%v)", ids(vectorChunks), ids(keywordChunks))
 	}
 
-	fused := rrfFuse(vectorChunks, keywordChunks, 5)
+	fused, _ := rrfFuse(vectorChunks, keywordChunks, 5)
 	count := 0
 	for _, c := range fused {
 		if c.ID == "both" {
@@ -2172,11 +2267,265 @@ func TestIntegrationHybridSearchPreservesCitationMetadata(t *testing.T) {
 		t.Fatalf("keyword path lost Citation metadata: %+v", keywordChunks)
 	}
 
-	fused := rrfFuse(vectorChunks, keywordChunks, 10)
+	fused, _ := rrfFuse(vectorChunks, keywordChunks, 10)
 	if len(fused) != 1 || fused[0].DocumentName != "policy-handbook.pdf" ||
 		fused[0].PageNumber == nil || *fused[0].PageNumber != page ||
 		fused[0].SectionTitle == nil || *fused[0].SectionTitle != section {
 		t.Fatalf("rrfFuse lost Citation metadata: %+v", fused)
+	}
+}
+
+// --- Phase 5: exact content dedup, exercised against real Postgres ---
+//
+// These run the exact same sequence Service.Retrieve does
+// (searchVectorChunks/searchKeywordChunks -> rrfFuse -> repo.
+// findPublishedNeighborChunks -> expandWithNeighbors), driven by
+// setupPGOnlyIntegration so they get real execution proof in this sandbox
+// (no MySQL available here — see setupPGOnlyIntegration's own doc comment
+// and TestIntegrationRetrieveDedupsExactDuplicateContentEndToEnd below for
+// the full Service.Retrieve equivalent, which does need MySQL and skips
+// here).
+
+// 一 + 四（真实 Postgres 版本）: 两条不同 ID、正文完全相同的 chunk（一条
+// 余弦相似度更高），topK 只够放 2 条时，去重后应该只保留分数更高的那条，
+// 让第三条内容不同的候选补位，而不是把两条重复内容都占满 topK。
+func TestIntegrationRRFFuseDedupsExactDuplicateCoreContentAgainstRealPostgres(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	kb := "kb-dedup-core"
+	queryVec := []float32{1, 0, 0}
+	dupContent := "完全相同的正文内容，用于验证核心块内容去重"
+
+	seedChunkWithContent(t, repo, kb, "doc-dedup-core", "dup-high", queryVec, dupContent) // cos = 1.0
+	seedChunkWithContent(t, repo, kb, "doc-dedup-core", "dup-low", []float32{1, 0.05, 0}, dupContent)
+	seedChunkWithContent(t, repo, kb, "doc-dedup-core", "unique", []float32{1, 0.2, 0}, "内容C，与前两条完全不同")
+
+	const topK = 2
+	cK := candidateK(topK)
+	vectorChunks, err := repo.searchVectorChunks(ctx, []string{kb}, queryVec, cK)
+	if err != nil {
+		t.Fatalf("searchVectorChunks: %v", err)
+	}
+	if len(vectorChunks) != 3 {
+		t.Fatalf("test setup invalid: got %d raw candidates %v, want all 3 seeded chunks back before dedup", len(vectorChunks), ids(vectorChunks))
+	}
+
+	fused, _ := rrfFuse(vectorChunks, nil, topK)
+
+	want := []string{"dup-high", "unique"}
+	if got := ids(fused); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v — dup-low must be dropped as a content duplicate of dup-high, and unique must fill the freed topK slot", got, want)
+	}
+}
+
+// 五 + 核心去重后才查邻接（真实 Postgres 版本）: 一条内容重复、排名较低
+// 的核心块必须在 rrfFuse 阶段就被淘汰，因此它绝不能进入
+// buildNeighborGroups/findPublishedNeighborChunks 的查询范围——用它自己
+// 独有的邻接块内容作为"污染探针"：如果这条邻接内容出现在最终结果里，说明
+// 被淘汰的重复核心块仍然被查了邻接窗口，这是不允许的。
+func TestIntegrationExpandWithNeighborWindowNeverQueriesNeighborsOfDedupedCoreChunk(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	kb := "kb-dedup-neighbor-skip"
+	queryVec := []float32{1, 0, 0}
+	dupContent := "重复正文：去重后不应再查询邻接窗口"
+
+	seedNeighborChunkBatch(t, repo, kb, "doc-dedup-high", 1, []neighborSeedChunk{
+		{ID: "skip-dup-high", ChunkIndex: 5, Content: dupContent, Vec: queryVec},
+	}, true)
+	seedNeighborChunkBatch(t, repo, kb, "doc-dedup-low", 1, []neighborSeedChunk{
+		// 排名更低（余弦相似度略小），内容和 dup-high 重复，会被 rrfFuse 淘汰。
+		{ID: "skip-dup-low", ChunkIndex: 5, Content: dupContent, Vec: []float32{1, 0.05, 0}},
+		// dup-low 独有的邻接块——如果被查询到，说明淘汰后的核心块仍然触发了
+		// 邻接窗口查询，这是"探针"内容，绝不应该出现在最终结果里。
+		{ID: "skip-dup-low-neighbor", ChunkIndex: 6, Content: "污染探针：不应该出现在结果里", Vec: []float32{1, 0.05, 0}},
+	}, true)
+
+	const topK = 1
+	cK := candidateK(topK)
+	vectorChunks, err := repo.searchVectorChunks(ctx, []string{kb}, queryVec, cK)
+	if err != nil {
+		t.Fatalf("searchVectorChunks: %v", err)
+	}
+
+	anchors, _ := rrfFuse(vectorChunks, nil, topK)
+	if got := ids(anchors); !reflect.DeepEqual(got, []string{"skip-dup-high"}) {
+		t.Fatalf("test setup invalid: anchors = %v, want exactly [dup-high] (dup-low must already be content-deduped out before neighbor lookup)", got)
+	}
+
+	groups := buildNeighborGroups(anchors)
+	var allNeighbors []RetrievedChunk
+	for key, idxSet := range groups {
+		indexes := make([]int, 0, len(idxSet))
+		for idx := range idxSet {
+			indexes = append(indexes, idx)
+		}
+		neighbors, err := repo.findPublishedNeighborChunks(ctx, key.documentID, key.documentVersion, indexes)
+		if err != nil {
+			t.Fatalf("findPublishedNeighborChunks: %v", err)
+		}
+		allNeighbors = append(allNeighbors, neighbors...)
+	}
+
+	final, _ := expandWithNeighbors(anchors, allNeighbors)
+	for _, c := range final {
+		if c.ID == "skip-dup-low-neighbor" || c.DocumentID == "doc-dedup-low" {
+			t.Fatalf("got %v — the eliminated dup-low chunk's neighbor window leaked into the result, but a content-deduped core chunk must never get a neighbor lookup", ids(final))
+		}
+	}
+	if got := ids(final); !reflect.DeepEqual(got, []string{"skip-dup-high"}) {
+		t.Fatalf("got %v, want exactly [dup-high] (no neighbors exist for doc-dedup-high at index 4 or 6)", got)
+	}
+}
+
+// 五（核心与邻接重复，真实 Postgres 版本）: 邻接块的正文和某个核心块的正文
+// 完全相同时，最终结果必须保留核心块、丢弃邻接块。
+func TestIntegrationExpandWithNeighborsDedupPrefersCoreOverNeighborAgainstRealPostgres(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	kb := "kb-dedup-core-vs-neighbor"
+	sharedContent := "核心块与邻接块共享的正文内容"
+
+	seedNeighborChunkBatch(t, repo, kb, "doc-cvn", 1, []neighborSeedChunk{
+		{ID: "anchor", ChunkIndex: 5, Content: "anchor 自己的正文", Vec: []float32{1, 0, 0}},
+		{ID: "anchor-prev", ChunkIndex: 4, Content: sharedContent, Vec: []float32{1, 0, 0}},
+	}, false)
+	seedNeighborChunkBatch(t, repo, kb, "doc-cvn-core2", 1, []neighborSeedChunk{
+		// 另一个核心块，正文恰好和 anchor 的邻接块（anchor-prev）完全相同。
+		{ID: "core2", ChunkIndex: 0, Content: sharedContent, Vec: []float32{1, 0, 0}},
+	}, false)
+	if err := repo.publishDocumentVersion(ctx, "doc-cvn", 1); err != nil {
+		t.Fatalf("publish doc-cvn: %v", err)
+	}
+	if err := repo.publishDocumentVersion(ctx, "doc-cvn-core2", 1); err != nil {
+		t.Fatalf("publish doc-cvn-core2: %v", err)
+	}
+
+	anchors := []RetrievedChunk{
+		anchorRC("anchor", "doc-cvn", 1, 5, 0.9),
+		anchorRC("core2", "doc-cvn-core2", 1, 0, 0.8),
+	}
+	// 手动补上 anchor.Content/core2.Content——anchorRC 只是测试构造器，真实
+	// Content 要从数据库里查出来才能参与去重判断，所以这里直接查一遍确认
+	// 种子数据本身是对的，再用真实 findPublishedNeighborChunks 结果驱动
+	// expandWithNeighbors。
+	anchors[0].Content = "anchor 自己的正文"
+	anchors[1].Content = sharedContent
+
+	groups := buildNeighborGroups(anchors)
+	var allNeighbors []RetrievedChunk
+	for key, idxSet := range groups {
+		indexes := make([]int, 0, len(idxSet))
+		for idx := range idxSet {
+			indexes = append(indexes, idx)
+		}
+		neighbors, err := repo.findPublishedNeighborChunks(ctx, key.documentID, key.documentVersion, indexes)
+		if err != nil {
+			t.Fatalf("findPublishedNeighborChunks: %v", err)
+		}
+		allNeighbors = append(allNeighbors, neighbors...)
+	}
+	foundPrev := false
+	for _, n := range allNeighbors {
+		if n.ID == "anchor-prev" {
+			foundPrev = true
+		}
+	}
+	if !foundPrev {
+		t.Fatalf("test setup invalid: anchor-prev must be fetched as anchor's neighbor, got %v", ids(allNeighbors))
+	}
+
+	final, _ := expandWithNeighbors(anchors, allNeighbors)
+	want := []string{"anchor", "core2"}
+	if got := ids(final); !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v — anchor-prev duplicates core2's content and must be dropped in favor of the core hit core2", got, want)
+	}
+}
+
+// 待修复项 4（审核修复）: 真实向量检索驱动的核心命中选择 + 邻接扩展去重，
+// 端到端等价于 TestIntegrationRetrieveNeighborDedupPrefersCoreOverDuplicateNeighborContentEndToEnd
+// （那个测试需要 MySQL，本沙箱按约定 SKIP）——这里用
+// setupPGOnlyIntegration 跑相同的种子数据和相同的真实 searchVectorChunks
+// -> rrfFuse -> buildNeighborGroups -> findPublishedNeighborChunks ->
+// expandWithNeighbors 调用链（只是不经过 Service.Retrieve 本身的 MySQL
+// knowledge_base 查询），在本沙箱内提供真实 Postgres 执行证明：
+// anchor-prev 用较弱的向量（cos=0，非 1.0）不会在真实向量检索里赢得核心
+// 命中名额，topK=2 时核心命中确实是 anchor 和 core2，随后邻接扩展正确地
+// 把重复正文的 anchor-prev 去重掉。
+func TestIntegrationRealVectorSearchDrivenAnchorSelectionPrefersCoreOverDuplicateNeighborContent(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	kb := "kb-dedup-nb-real-vector"
+	sharedContent := "核心块 core2 与 anchor 的邻接块共享的正文"
+	queryVec := []float32{1, 0, 0}
+
+	seedNeighborChunkBatch(t, repo, kb, "doc-anchor-real-vec", 1, []neighborSeedChunk{
+		{ID: "rv-anchor", ChunkIndex: 5, Content: "anchor 自己独有的正文", Vec: queryVec},             // cos = 1.0
+		{ID: "rv-anchor-prev", ChunkIndex: 4, Content: sharedContent, Vec: []float32{0, 1, 0}}, // cos = 0.0，绝不能赢得核心命中名额
+	}, true)
+	seedNeighborChunkBatch(t, repo, kb, "doc-core2-real-vec", 1, []neighborSeedChunk{
+		{ID: "rv-core2", ChunkIndex: 0, Content: sharedContent, Vec: queryVec}, // cos = 1.0
+	}, true)
+
+	const topK = 2
+	cK := candidateK(topK)
+	vectorChunks, err := repo.searchVectorChunks(ctx, []string{kb}, queryVec, cK)
+	if err != nil {
+		t.Fatalf("searchVectorChunks: %v", err)
+	}
+	if len(vectorChunks) != 3 {
+		t.Fatalf("test setup invalid: got %d candidates %v, want all 3 seeded chunks visible to vector search", len(vectorChunks), ids(vectorChunks))
+	}
+
+	// Note: with only 3 chunks total in this KB, candidateK(2)=8 means all
+	// 3 are visible to rrfFuse's full (not-yet-topK'd) candidate pool — so
+	// anchor-prev's content duplicate of core2 can legitimately be caught
+	// at EITHER the core-dedup stage (rrfFuse, since anchor-prev is
+	// present in that same pool and loses to core2's higher cosine score)
+	// or the neighbor-dedup stage (expandWithNeighbors, since
+	// findPublishedNeighborChunks re-fetches anchor-prev independently of
+	// whatever rrfFuse did with it). Which exact stage catches it is an
+	// incidental detail of this KB's small size/candidateK, not something
+	// this test asserts on — what matters, and what's asserted below, is
+	// that the FINAL result is correct either way: anchor and core2 (both
+	// real core hits) both survive, anchor-prev never does, and dedup
+	// happened somewhere in the pipeline.
+	anchors, coreDuplicateCount := rrfFuse(vectorChunks, nil, topK)
+	wantAnchors := []string{"rv-anchor", "rv-core2"}
+	if got := ids(anchors); !reflect.DeepEqual(got, wantAnchors) {
+		t.Fatalf("got anchors %v, want %v — anchor-prev's weak cosine score must keep it out of the topK core hits, letting core2 (a real perfect-cosine hit) in instead", got, wantAnchors)
+	}
+
+	groups := buildNeighborGroups(anchors)
+	var allNeighbors []RetrievedChunk
+	for key, idxSet := range groups {
+		indexes := make([]int, 0, len(idxSet))
+		for idx := range idxSet {
+			indexes = append(indexes, idx)
+		}
+		neighbors, err := repo.findPublishedNeighborChunks(ctx, key.documentID, key.documentVersion, indexes)
+		if err != nil {
+			t.Fatalf("findPublishedNeighborChunks: %v", err)
+		}
+		allNeighbors = append(allNeighbors, neighbors...)
+	}
+
+	final, neighborDuplicateCount := expandWithNeighbors(anchors, allNeighbors)
+	if coreDuplicateCount+neighborDuplicateCount < 1 {
+		t.Fatalf("coreDuplicateCount(%d) + neighborDuplicateCount(%d) = 0, want at least 1 — anchor-prev's duplicate content must be caught by dedup somewhere in the pipeline", coreDuplicateCount, neighborDuplicateCount)
+	}
+	wantFinal := []string{"rv-anchor", "rv-core2"}
+	if got := ids(final); !reflect.DeepEqual(got, wantFinal) {
+		t.Fatalf("got %v, want %v — anchor-prev must be dropped as a duplicate of core2, both real core hits must survive", got, wantFinal)
+	}
+	for _, c := range final {
+		if c.ID == "rv-anchor-prev" {
+			t.Fatalf("anchor-prev leaked into the final result %v — it duplicates core2's content and must never survive", ids(final))
+		}
 	}
 }
 
@@ -2556,7 +2905,7 @@ func TestIntegrationExpandWithNeighborWindowDegradesToAnchorsOnOrdinaryFailure(t
 		anchorRC("a2", "doc-broken", 1, 0, 0.7),
 	}
 
-	got, err := svc.expandWithNeighborWindow(context.Background(), anchors)
+	got, _, err := svc.expandWithNeighborWindow(context.Background(), anchors)
 	if err != nil {
 		t.Fatalf("expandWithNeighborWindow returned an error for an ordinary DB failure, want nil (best-effort degrade): %v", err)
 	}
@@ -2575,7 +2924,7 @@ func TestIntegrationExpandWithNeighborWindowPropagatesContextCancellation(t *tes
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	got, err := svc.expandWithNeighborWindow(ctx, anchors)
+	got, _, err := svc.expandWithNeighborWindow(ctx, anchors)
 	if err == nil {
 		t.Fatal("expandWithNeighborWindow with a canceled context returned nil error, want context.Canceled to propagate")
 	}

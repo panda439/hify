@@ -63,17 +63,41 @@ type Service interface {
 	// vector + keyword results (Hybrid Search, hybrid.go) into topK core
 	// hits. topK is silently clamped to maxTopK — see model.go.
 	//
+	// Phase 5 (dedup.go): topK counts DISTINCT-CONTENT core hits, not raw
+	// fused rows — rrfFuse content-dedups its full candidate pool BEFORE
+	// truncating to topK, so an exact-duplicate-content candidate never
+	// consumes a topK slot a uniquely-worded lower-ranked candidate could
+	// have filled instead. Neighbor-window expansion (below) only ever
+	// runs against these already content-deduped anchors, never against a
+	// duplicate that content-dedup already eliminated — a core chunk that
+	// lost to content dedup gets no neighbor lookup at all, so its
+	// neighbors can never appear in the result either.
+	//
 	// Phase 4 (neighbor.go): the returned slice is NOT guaranteed to have
 	// at most topK elements anymore. topK still governs exactly one thing
-	// — how many core Hybrid Search hits ("anchors") are chosen — but each
-	// anchor may now be followed by up to two neighbor chunks (its
-	// document's chunk_index-1 and chunk_index+1, same document AND same
+	// — how many DISTINCT-CONTENT core Hybrid Search hits ("anchors") are
+	// chosen — but every anchor may now be followed, AFTER every other
+	// anchor, by up to two neighbor chunks each (its document's
+	// chunk_index-1 and chunk_index+1, same document AND same
 	// document_version, is_published only) pulled in purely to give the
 	// model surrounding context an isolated chunk might be missing. The
-	// hard ceiling is len(result) <= topK*3, never topK itself — see
+	// layout is two full tiers, not per-anchor interleaving: ALL topK
+	// anchors first in full rank order, THEN every anchor's own neighbor
+	// chunks — see expandWithNeighbors' doc comment in neighbor.go for
+	// exactly why (a review fix: an interleaved
+	// anchor-then-its-neighbors-then-next-anchor layout let a low-relevance
+	// neighbor chunk consume budget a lower-ranked but still-core anchor
+	// needed, in conversation/budget.go's strictly-input-order greedy
+	// selectEvidence). expandWithNeighbors then runs a second content-dedup
+	// pass over that whole two-tier layout (Phase 5): a neighbor chunk
+	// whose content exactly duplicates any anchor's, or an earlier
+	// neighbor's, is dropped, never the anchor or the earlier neighbor —
+	// see that function's doc comment rule 7. The hard ceiling is
+	// len(result) <= topK*3, never topK itself, and content dedup only
+	// ever shrinks the result further — see
 	// expandWithNeighborWindow/expandWithNeighbors' doc comments for the
-	// exact interleaving/dedup rules, and RetrievedChunk.NeighborOf for how
-	// a caller tells an anchor from a neighbor. Callers that assumed
+	// exact dedup rules, and RetrievedChunk.NeighborOf for how a caller
+	// tells an anchor from a neighbor. Callers that assumed
 	// len(Retrieve(...)) <= topK before Phase 4 must not keep assuming it.
 	Retrieve(ctx context.Context, knowledgeBaseIDs []string, query string, topK int) ([]RetrievedChunk, error)
 }
@@ -785,13 +809,16 @@ func classifyRetrieveErr(ctx context.Context, err error) error {
 // cosine similarity, unchanged in spirit from before Phase 3) and a single
 // embedding-independent keyword path (pg_trgm word-similarity — see
 // repository.go's searchKeywordChunks), each fetching up to candidateK(topK)
-// rows, fused by Reciprocal Rank Fusion (hybrid.go's rrfFuse) into topK
-// deduped, globally-ranked core hits ("anchors") — then, since Phase 4,
-// best-effort expanded with each anchor's immediate document-order
-// neighbors (expandWithNeighborWindow/neighbor.go) before returning. topK
-// still bounds anchor count exactly as it always did; it does not bound
-// the final returned slice length anymore — see the Service interface
-// doc comment above and RetrievedChunk.NeighborOf.
+// rows, fused by Reciprocal Rank Fusion (hybrid.go's rrfFuse) into
+// ID-deduped, content-deduped (Phase 5, dedup.go), globally-ranked topK core
+// hits ("anchors") — then, since Phase 4, best-effort expanded with each
+// anchor's immediate document-order neighbors
+// (expandWithNeighborWindow/neighbor.go), followed by a second Phase 5
+// content-dedup pass over that whole two-tier result, before returning.
+// topK still bounds DISTINCT-CONTENT anchor count exactly as it always
+// bounded anchor count; it does not bound the final returned slice length
+// anymore — see the Service interface doc comment above and
+// RetrievedChunk.NeighborOf.
 //
 // Failure isolation is best-effort at every sub-call, same convention the
 // pre-Hybrid-Search version already had for a bad knowledge base ID or a
@@ -894,10 +921,29 @@ func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query
 		}
 	}
 
-	anchors := rrfFuse(vectorCandidates, keywordCandidates, topK)
-	expanded, err := s.expandWithNeighborWindow(ctx, anchors)
+	anchors, coreDuplicateCount := rrfFuse(vectorCandidates, keywordCandidates, topK)
+	expanded, neighborDuplicateCount, err := s.expandWithNeighborWindow(ctx, anchors)
 	if err != nil {
 		return nil, err
+	}
+	// Phase 5 review fix (待修复项 3): a safe, content-free structured debug
+	// line — only counts, never Content/query text/a fingerprint of either.
+	// core_duplicate_count is how many core Hybrid Search candidates
+	// rrfFuse's content-dedup dropped before ever becoming anchors;
+	// neighbor_duplicate_count is how many neighbor-window chunks
+	// expandWithNeighbors' second dedup pass dropped (always a neighbor
+	// losing to an anchor or an earlier neighbor, never an anchor — see
+	// expandWithNeighbors' doc comment). Both are 0 in the overwhelmingly
+	// common case of no duplicate content; only logged when at least one
+	// duplicate was actually suppressed — Retrieve runs on every
+	// conversation turn with RAG enabled, so an unconditional debug line
+	// here would be constant zero-value noise instead of a signal worth
+	// looking at.
+	if coreDuplicateCount > 0 || neighborDuplicateCount > 0 {
+		slog.Debug("knowledge: content dedup suppressed duplicate chunks",
+			"core_duplicate_count", coreDuplicateCount,
+			"neighbor_duplicate_count", neighborDuplicateCount,
+			"topK", topK)
 	}
 	return expanded, nil
 }
@@ -928,9 +974,9 @@ func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query
 // context must propagate immediately as an error from this method (and
 // therefore from Retrieve), never get silently treated as "this group's
 // neighbors just didn't work out" — see classifyRetrieveErr.
-func (s *service) expandWithNeighborWindow(ctx context.Context, anchors []RetrievedChunk) ([]RetrievedChunk, error) {
+func (s *service) expandWithNeighborWindow(ctx context.Context, anchors []RetrievedChunk) ([]RetrievedChunk, int, error) {
 	if len(anchors) == 0 {
-		return anchors, nil
+		return anchors, 0, nil
 	}
 
 	groups := buildNeighborGroups(anchors)
@@ -943,7 +989,7 @@ func (s *service) expandWithNeighborWindow(ctx context.Context, anchors []Retrie
 		neighbors, err := s.repo.findPublishedNeighborChunks(ctx, key.documentID, key.documentVersion, indexes)
 		if err != nil {
 			if cerr := classifyRetrieveErr(ctx, err); cerr != nil {
-				return nil, cerr
+				return nil, 0, cerr
 			}
 			slog.Warn("knowledge: neighbor window lookup failed for one document version, skipping its neighbors",
 				"err", err, "document_id", key.documentID, "document_version", key.documentVersion)
@@ -952,7 +998,8 @@ func (s *service) expandWithNeighborWindow(ctx context.Context, anchors []Retrie
 		allNeighbors = append(allNeighbors, neighbors...)
 	}
 
-	return expandWithNeighbors(anchors, allNeighbors), nil
+	expanded, neighborDuplicateCount := expandWithNeighbors(anchors, allNeighbors)
+	return expanded, neighborDuplicateCount, nil
 }
 
 func (s *service) embedQuery(ctx context.Context, modelID, query string) ([]float32, error) {

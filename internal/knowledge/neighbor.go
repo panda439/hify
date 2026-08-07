@@ -177,9 +177,37 @@ func neighborLookupKey(documentID string, documentVersion int64, chunkIndex int)
 //     many rows are in neighbors (a mismatched/oversized neighbors slice
 //     from a caller bug would just mean most of it is never looked up, not
 //     that it leaks into the output).
-func expandWithNeighbors(anchors []RetrievedChunk, neighbors []RetrievedChunk) []RetrievedChunk {
+//  7. Phase 5 (dedup.go): after both tiers are assembled, a second
+//     exact-content dedup pass runs over the WHOLE two-tier slice via
+//     dedupExactContentChunks — this is separate from, and in addition to,
+//     the core-only dedup rrfFuse already did on anchors before they ever
+//     reached this function (anchors arriving here are already
+//     content-unique among themselves). Because this function always
+//     places every anchor before every neighbor, and always places an
+//     anchor's own "previous" neighbor before its "next" neighbor, the
+//     exact same first-occurrence-wins ordering rule that makes rrfFuse's
+//     dedup keep the highest-ranked duplicate also gives, here, for free:
+//     a neighbor whose content exactly duplicates ANY anchor's content
+//     (not just its own owning anchor's) is dropped and the anchor kept
+//     ("核心与邻接正文重复时保留核心"), and two neighbors that duplicate
+//     each other keep whichever one sits earlier in this function's
+//     existing output order ("邻接之间重复时保留输出顺序靠前者"). Dedup
+//     here only ever drops whole entries — it never merges or rewrites
+//     one, so a kept neighbor's Score/NeighborOf/Citation fields are
+//     exactly what the loop below already assigned it, untouched.
+//
+// The second return value is the neighbor-tier content-dedup suppression
+// count from rule 7's second dedupExactContentChunks pass — since every
+// anchor already arrives content-unique (rrfFuse dedups them before this
+// function ever sees them), every suppression this pass makes is, by
+// construction, a neighbor chunk losing to either an anchor or an earlier
+// neighbor — never an anchor losing to anything. service.go's
+// expandWithNeighborWindow passes this straight through to Retrieve, which
+// logs it as neighbor_duplicate_count via the same safe, content-free
+// structured debug line rrfFuse's core_duplicate_count uses.
+func expandWithNeighbors(anchors []RetrievedChunk, neighbors []RetrievedChunk) ([]RetrievedChunk, int) {
 	if len(anchors) == 0 {
-		return anchors
+		return anchors, 0
 	}
 
 	neighborByKey := make(map[string]RetrievedChunk, len(neighbors))
@@ -217,5 +245,7 @@ func expandWithNeighbors(anchors []RetrievedChunk, neighbors []RetrievedChunk) [
 			out = append(out, n)
 		}
 	}
-	return out
+	// Phase 5: second content-dedup pass over the whole two-tier output —
+	// see rule 7 above for exactly what this does and does not change.
+	return dedupExactContentChunks(out)
 }
