@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -275,6 +276,205 @@ func TestFormatSourceAndSelectEvidenceUseTheSameLengthAccounting(t *testing.T) {
 	full := formatRetrievedSources([]Evidence{e})
 	if got, want := len([]rune(full)), wrapperOverheadChars()+renderedSourceLen(e); got != want {
 		t.Fatalf("formatRetrievedSources total = %d, want wrapper(%d)+source(%d)=%d", got, wrapperOverheadChars(), renderedSourceLen(e), want)
+	}
+}
+
+// --- Phase 4 review fix: 邻接块绝不能在预算不足时挤掉排名更低的核心块 ---
+//
+// knowledge.Service.Retrieve (via knowledge/neighbor.go's expandWithNeighbors,
+// fixed in this round) now guarantees its output is two full priority tiers:
+// every core Hybrid Search hit (anchor) first, in full RRF rank order, and
+// only THEN every anchor's own neighbor chunks. selectEvidence itself is
+// unchanged — it was always a strict-input-order greedy budget fill — but
+// that's exactly why the FIX had to live in the input ordering, not here:
+// as long as knowledge.Retrieve keeps handing selectEvidence "anchors then
+// neighbors", a tight budget can never let a neighbor chunk consume the
+// budget slot a lower-ranked-but-still-core anchor needed. These tests pin
+// that guarantee at the selectEvidence boundary, independent of whether
+// knowledge.Retrieve's own ordering ever regresses.
+
+// neighborCandidate is candidate()'s Phase-4 counterpart — sets NeighborOf
+// the way knowledge.expandWithNeighbors actually does (Score inherited from
+// the owning anchor, NeighborOf set to the owning anchor's chunk ID).
+// selectEvidence itself never reads NeighborOf (it's an opaque pass-through
+// field, same as any other Chunk field) — these tests set it purely so a
+// human reading the test can tell anchors and neighbors apart at a glance,
+// exactly like knowledge.RetrievedChunk's real fields would look.
+func neighborCandidate(id, content string, score float64, neighborOf string) knowledge.RetrievedChunk {
+	c := candidate(id, content, score)
+	c.NeighborOf = neighborOf
+	return c
+}
+
+// 需求里明确要求的场景：anchor1（高分核心块）、neighbor1（NeighborOf=anchor1）、
+// anchor2（第二个核心块），预算只够两个完整 source。anchor1 和 anchor2 都
+// 必须被保留，neighbor1 必须因为预算不足被过滤——邻接块绝不能抢在任何核心
+// 块之前消耗预算。
+func TestSelectEvidenceNeighborNeverDisplacesALowerRankedAnchor(t *testing.T) {
+	anchor1Content := strings.Repeat("a", 10)
+	anchor2Content := strings.Repeat("b", 10)
+	neighbor1Content := strings.Repeat("c", 10)
+
+	// 预算严格只够 S1（anchor1）+ S2（anchor2）两个完整渲染的 source，
+	// 放不下第三个（neighbor1）。
+	budget := sourceRenderedLen("S1", "doc.txt", anchor1Content) + sourceRenderedLen("S2", "doc.txt", anchor2Content)
+
+	// 顺序照抄 expandWithNeighbors 修复后的真实输出布局：全部核心块在前，
+	// 邻接块在后——不是 anchor1、neighbor1、anchor2 交替。
+	candidates := []knowledge.RetrievedChunk{
+		candidate("anchor1", anchor1Content, 0.95),
+		candidate("anchor2", anchor2Content, 0.80),
+		neighborCandidate("neighbor1", neighbor1Content, 0.95, "anchor1"),
+	}
+
+	evidence, _, filteredByBudget := selectEvidence(candidates, budget)
+
+	if len(evidence) != 2 {
+		t.Fatalf("evidence = %+v, want exactly 2 (anchor1, anchor2)", evidence)
+	}
+	if evidence[0].ChunkID != "anchor1" {
+		t.Fatalf("evidence[0].ChunkID = %q, want anchor1", evidence[0].ChunkID)
+	}
+	if evidence[1].ChunkID != "anchor2" {
+		t.Fatalf("evidence[1].ChunkID = %q, want anchor2 — a core hit must never be displaced by a neighbor chunk", evidence[1].ChunkID)
+	}
+	for _, e := range evidence {
+		if e.ChunkID == "neighbor1" {
+			t.Fatal("neighbor1 must not appear in evidence — it must lose the budget contest to anchor2, a lower-ranked but still core hit")
+		}
+	}
+	if filteredByBudget != 1 {
+		t.Fatalf("filteredByBudget = %d, want 1 (neighbor1)", filteredByBudget)
+	}
+}
+
+// 建议场景 1：两个核心块 + 多个邻接块，预算充足时全部按新顺序（anchor,
+// anchor, ..., neighbor, neighbor, ...）原样返回，ref 编号也跟随这个顺序。
+func TestSelectEvidenceSufficientBudgetKeepsAllAnchorsThenAllNeighborsInOrder(t *testing.T) {
+	content := strings.Repeat("x", 10)
+	candidates := []knowledge.RetrievedChunk{
+		candidate("anchor1", content, 0.95),
+		candidate("anchor2", content, 0.90),
+		neighborCandidate("anchor1-prev", content, 0.95, "anchor1"),
+		neighborCandidate("anchor1-next", content, 0.95, "anchor1"),
+		neighborCandidate("anchor2-prev", content, 0.90, "anchor2"),
+		neighborCandidate("anchor2-next", content, 0.90, "anchor2"),
+	}
+
+	evidence, filteredByScore, filteredByBudget := selectEvidence(candidates, 100000)
+
+	if filteredByScore != 0 || filteredByBudget != 0 {
+		t.Fatalf("filteredByScore=%d filteredByBudget=%d, want 0/0 (budget generous enough for everything)", filteredByScore, filteredByBudget)
+	}
+	wantOrder := []string{"anchor1", "anchor2", "anchor1-prev", "anchor1-next", "anchor2-prev", "anchor2-next"}
+	if len(evidence) != len(wantOrder) {
+		t.Fatalf("evidence = %+v, want %d entries", evidence, len(wantOrder))
+	}
+	for i, want := range wantOrder {
+		if evidence[i].ChunkID != want {
+			t.Fatalf("evidence[%d].ChunkID = %q, want %q (order must match the anchors-then-neighbors input order)", i, evidence[i].ChunkID, want)
+		}
+		if wantRef := fmt.Sprintf("S%d", i+1); evidence[i].Ref != wantRef {
+			t.Fatalf("evidence[%d].Ref = %q, want %q", i, evidence[i].Ref, wantRef)
+		}
+	}
+}
+
+// 建议场景 2：预算只够容纳全部核心块，一个邻接块都放不下——全部核心块必须
+// 保留，全部邻接块必须被过滤，不能出现"保留了某个邻接块但漏掉了某个核心
+// 块"这种情况。
+func TestSelectEvidenceBudgetForAllAnchorsFiltersEveryNeighbor(t *testing.T) {
+	anchor1Content := strings.Repeat("a", 10)
+	anchor2Content := strings.Repeat("b", 10)
+	neighborContent := strings.Repeat("c", 10)
+
+	budget := sourceRenderedLen("S1", "doc.txt", anchor1Content) + sourceRenderedLen("S2", "doc.txt", anchor2Content)
+
+	candidates := []knowledge.RetrievedChunk{
+		candidate("anchor1", anchor1Content, 0.95),
+		candidate("anchor2", anchor2Content, 0.80),
+		neighborCandidate("anchor1-prev", neighborContent, 0.95, "anchor1"),
+		neighborCandidate("anchor1-next", neighborContent, 0.95, "anchor1"),
+		neighborCandidate("anchor2-prev", neighborContent, 0.80, "anchor2"),
+		neighborCandidate("anchor2-next", neighborContent, 0.80, "anchor2"),
+	}
+
+	evidence, _, filteredByBudget := selectEvidence(candidates, budget)
+
+	if got := refs(evidence); len(got) != 2 || got[0] != "S1" || got[1] != "S2" {
+		t.Fatalf("refs = %v, want exactly [S1 S2] (both anchors, no neighbor)", got)
+	}
+	for _, e := range evidence {
+		if e.ChunkID != "anchor1" && e.ChunkID != "anchor2" {
+			t.Fatalf("evidence contains a non-anchor chunk %q — every neighbor must be filtered when the budget only covers the anchors", e.ChunkID)
+		}
+	}
+	if filteredByBudget != 4 {
+		t.Fatalf("filteredByBudget = %d, want 4 (all four neighbor chunks)", filteredByBudget)
+	}
+}
+
+// 建议场景 3：预算连所有核心块都放不下——selectEvidence 现有的"整块跳过、
+// 不做字节截断、继续尝试下一个候选"规则依然按核心块的 RRF 排名顺序依次
+// 取舍：排名更靠前但放不下的核心块被跳过，排名更靠后但能放下的核心块仍然
+// 保留,不会因为前一个核心块放不下就连带把后一个也漏掉。
+func TestSelectEvidenceBudgetTooSmallForAllAnchorsStillTriesEachAnchorInRankOrder(t *testing.T) {
+	bigAnchorContent := strings.Repeat("a", 200) // anchor1: 排名更高，但太大放不下
+	smallAnchorContent := strings.Repeat("b", 5) // anchor2: 排名更低，但能放下
+	neighborContent := strings.Repeat("c", 5)
+
+	budget := sourceRenderedLen("S1", "doc.txt", smallAnchorContent) // 只够 anchor2 那么大的一个 source
+
+	candidates := []knowledge.RetrievedChunk{
+		candidate("anchor1", bigAnchorContent, 0.95),
+		candidate("anchor2", smallAnchorContent, 0.80),
+		neighborCandidate("anchor1-next", neighborContent, 0.95, "anchor1"),
+	}
+
+	evidence, _, filteredByBudget := selectEvidence(candidates, budget)
+
+	if len(evidence) != 1 || evidence[0].ChunkID != "anchor2" {
+		t.Fatalf("evidence = %+v, want exactly [anchor2] (anchor1 skipped for being too big, anchor2 still tried and kept in its own rank order)", evidence)
+	}
+	if filteredByBudget != 2 {
+		t.Fatalf("filteredByBudget = %d, want 2 (anchor1 and anchor1-next)", filteredByBudget)
+	}
+}
+
+// 建议场景 4：邻接查询返回顺序变化（模拟不同 findPublishedNeighborChunks
+// 分组的返回顺序在多次运行间不同）不影响最终输出——只要核心块本身的相对
+// 顺序不变，两种不同的邻接块排列在预算充足时必须产出完全一样的核心块
+// 保留结果（邻接块集合本身允许因为顺序不同而在 tie-break 场景下产生不同
+// 归属，这里用互不重叠的邻接块规避这个歧义，只验证核心块这条不变量）。
+func TestSelectEvidenceAnchorOutcomeUnaffectedByNeighborOrder(t *testing.T) {
+	anchor1Content := strings.Repeat("a", 10)
+	anchor2Content := strings.Repeat("b", 10)
+	neighborContent := strings.Repeat("c", 10)
+
+	budget := sourceRenderedLen("S1", "doc.txt", anchor1Content) + sourceRenderedLen("S2", "doc.txt", anchor2Content)
+
+	orderA := []knowledge.RetrievedChunk{
+		candidate("anchor1", anchor1Content, 0.95),
+		candidate("anchor2", anchor2Content, 0.80),
+		neighborCandidate("anchor1-prev", neighborContent, 0.95, "anchor1"),
+		neighborCandidate("anchor2-next", neighborContent, 0.80, "anchor2"),
+	}
+	orderB := []knowledge.RetrievedChunk{
+		candidate("anchor1", anchor1Content, 0.95),
+		candidate("anchor2", anchor2Content, 0.80),
+		neighborCandidate("anchor2-next", neighborContent, 0.80, "anchor2"), // 邻接块内部顺序反过来
+		neighborCandidate("anchor1-prev", neighborContent, 0.95, "anchor1"),
+	}
+
+	evidenceA, _, _ := selectEvidence(orderA, budget)
+	evidenceB, _, _ := selectEvidence(orderB, budget)
+
+	wantAnchors := []string{"anchor1", "anchor2"}
+	if got := refs(evidenceA); len(evidenceA) != 2 || evidenceA[0].ChunkID != wantAnchors[0] || evidenceA[1].ChunkID != wantAnchors[1] {
+		t.Fatalf("orderA evidence = %+v (refs %v), want anchors %v kept", evidenceA, got, wantAnchors)
+	}
+	if got := refs(evidenceB); len(evidenceB) != 2 || evidenceB[0].ChunkID != wantAnchors[0] || evidenceB[1].ChunkID != wantAnchors[1] {
+		t.Fatalf("orderB evidence = %+v (refs %v), want anchors %v kept", evidenceB, got, wantAnchors)
 	}
 }
 

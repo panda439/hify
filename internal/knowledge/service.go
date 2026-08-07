@@ -59,9 +59,22 @@ type Service interface {
 
 	// Retrieve embeds query against each knowledgeBaseID's configured
 	// model (grouped so a query is only embedded once per distinct
-	// model), lets pgvector score and rank chunks in-database, and
-	// returns the topK highest across all of them. topK is silently
-	// clamped to maxTopK — see model.go.
+	// model), lets pgvector score and rank chunks in-database, and fuses
+	// vector + keyword results (Hybrid Search, hybrid.go) into topK core
+	// hits. topK is silently clamped to maxTopK — see model.go.
+	//
+	// Phase 4 (neighbor.go): the returned slice is NOT guaranteed to have
+	// at most topK elements anymore. topK still governs exactly one thing
+	// — how many core Hybrid Search hits ("anchors") are chosen — but each
+	// anchor may now be followed by up to two neighbor chunks (its
+	// document's chunk_index-1 and chunk_index+1, same document AND same
+	// document_version, is_published only) pulled in purely to give the
+	// model surrounding context an isolated chunk might be missing. The
+	// hard ceiling is len(result) <= topK*3, never topK itself — see
+	// expandWithNeighborWindow/expandWithNeighbors' doc comments for the
+	// exact interleaving/dedup rules, and RetrievedChunk.NeighborOf for how
+	// a caller tells an anchor from a neighbor. Callers that assumed
+	// len(Retrieve(...)) <= topK before Phase 4 must not keep assuming it.
 	Retrieve(ctx context.Context, knowledgeBaseIDs []string, query string, topK int) ([]RetrievedChunk, error)
 }
 
@@ -772,19 +785,27 @@ func classifyRetrieveErr(ctx context.Context, err error) error {
 // cosine similarity, unchanged in spirit from before Phase 3) and a single
 // embedding-independent keyword path (pg_trgm word-similarity — see
 // repository.go's searchKeywordChunks), each fetching up to candidateK(topK)
-// rows, fused by Reciprocal Rank Fusion (hybrid.go's rrfFuse) into the
-// final deduped, globally-ranked, topK-truncated result.
+// rows, fused by Reciprocal Rank Fusion (hybrid.go's rrfFuse) into topK
+// deduped, globally-ranked core hits ("anchors") — then, since Phase 4,
+// best-effort expanded with each anchor's immediate document-order
+// neighbors (expandWithNeighborWindow/neighbor.go) before returning. topK
+// still bounds anchor count exactly as it always did; it does not bound
+// the final returned slice length anymore — see the Service interface
+// doc comment above and RetrievedChunk.NeighborOf.
 //
 // Failure isolation is best-effort at every sub-call, same convention the
 // pre-Hybrid-Search version already had for a bad knowledge base ID or a
-// failed embedding call — extended here to the two search paths
-// themselves: a failed vector search for one embedding model only drops
-// that model's candidates (other models and the keyword path still run); a
-// failed keyword search only drops the keyword candidates (vector results
-// still return). Both paths failing, or both returning nothing, is not an
-// error — it's an empty result, same as the pre-Hybrid-Search contract.
-// The one thing that is never treated as best-effort is the context itself
-// being cancelled or timed out — see classifyRetrieveErr.
+// failed embedding call — extended in Phase 3 to the two search paths
+// themselves (a failed vector search for one embedding model only drops
+// that model's candidates; a failed keyword search only drops the keyword
+// candidates) and in Phase 4 to neighbor expansion (a failed neighbor
+// lookup for one document version only drops that group's neighbors,
+// never an anchor — see expandWithNeighborWindow). Every one of these
+// failing, or all of them returning nothing, is not an error — it's an
+// empty (or anchors-only) result, same as the pre-Hybrid-Search contract.
+// The one thing that is never treated as best-effort anywhere in this
+// call chain is the context itself being cancelled or timed out — see
+// classifyRetrieveErr.
 func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query string, topK int) ([]RetrievedChunk, error) {
 	if len(knowledgeBaseIDs) == 0 || query == "" {
 		return nil, nil
@@ -873,7 +894,65 @@ func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query
 		}
 	}
 
-	return rrfFuse(vectorCandidates, keywordCandidates, topK), nil
+	anchors := rrfFuse(vectorCandidates, keywordCandidates, topK)
+	expanded, err := s.expandWithNeighborWindow(ctx, anchors)
+	if err != nil {
+		return nil, err
+	}
+	return expanded, nil
+}
+
+// expandWithNeighborWindow is Phase 4's DB-facing half of Neighbor Window
+// Retrieval — the pure assembly rules live in neighbor.go's
+// expandWithNeighbors; this method's only job is turning anchors into the
+// grouped findPublishedNeighborChunks calls that function needs, and
+// enforcing the same failure-isolation contract every other best-effort
+// sub-call in Retrieve already follows.
+//
+// Failure isolation, per document-version group: a failed neighbor lookup
+// for ONE (document_id, document_version) group only drops that group's
+// neighbors — every other group, and every anchor regardless of group,
+// still makes it into the result untouched (see rule 1 in
+// expandWithNeighbors' doc comment: anchor rank/presence is never at the
+// mercy of neighbor lookups). This is deliberately the same shape as
+// Retrieve's own vector-path-per-model and keyword-path isolation above —
+// "a hit somewhere for the core feature, a miss for the enrichment,
+// results still exist". A logged failure never includes the query text or
+// any chunk content (see CLAUDE.md's don't-log-content convention already
+// followed by every other Warn line in this file) — only the error, the
+// document ID, and the document version, none of which is user-authored
+// free text.
+//
+// The one thing that is NOT best-effort here, same as everywhere else in
+// Retrieve: the context itself being cancelled or timed out. A cancelled
+// context must propagate immediately as an error from this method (and
+// therefore from Retrieve), never get silently treated as "this group's
+// neighbors just didn't work out" — see classifyRetrieveErr.
+func (s *service) expandWithNeighborWindow(ctx context.Context, anchors []RetrievedChunk) ([]RetrievedChunk, error) {
+	if len(anchors) == 0 {
+		return anchors, nil
+	}
+
+	groups := buildNeighborGroups(anchors)
+	var allNeighbors []RetrievedChunk
+	for key, idxSet := range groups {
+		indexes := make([]int, 0, len(idxSet))
+		for idx := range idxSet {
+			indexes = append(indexes, idx)
+		}
+		neighbors, err := s.repo.findPublishedNeighborChunks(ctx, key.documentID, key.documentVersion, indexes)
+		if err != nil {
+			if cerr := classifyRetrieveErr(ctx, err); cerr != nil {
+				return nil, cerr
+			}
+			slog.Warn("knowledge: neighbor window lookup failed for one document version, skipping its neighbors",
+				"err", err, "document_id", key.documentID, "document_version", key.documentVersion)
+			continue // best-effort: other document-version groups (and every anchor) still proceed
+		}
+		allNeighbors = append(allNeighbors, neighbors...)
+	}
+
+	return expandWithNeighbors(anchors, allNeighbors), nil
 }
 
 func (s *service) embedQuery(ctx context.Context, modelID, query string) ([]float32, error) {

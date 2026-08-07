@@ -198,30 +198,82 @@ type Chunk struct {
 	PageNumber         *int
 	SectionTitle       *string
 	CreatedAt          time.Time
+
+	// DocumentVersion identifies which processing attempt (see Document's
+	// doc comment) this chunk belongs to — Phase 4's neighbor-window
+	// expansion (neighbor.go) is the reason this needs to exist on Chunk at
+	// all: finding chunk_index-1/+1 for a hit requires knowing not just
+	// "which document" but "which processing attempt", or a document that's
+	// been reprocessed since this chunk was written could get its neighbor
+	// query silently answered by the NEW version's chunk at the same index
+	// — a cross-version content splice with no error, no log line, nothing
+	// to notice. See repository.go's findPublishedNeighborChunks and
+	// pgqueries/chunks.sql's FindPublishedNeighborChunks for where this
+	// actually gets used as a filter. Internal only — never serialized to
+	// Citation/SSE (conversation's Evidence type has no equivalent field,
+	// same as it never exposes any other pure-plumbing field).
+	DocumentVersion int64
 }
 
 // RetrievedChunk is a Chunk annotated with its relevance score against a
 // query — what conversation's context assembly (budget.go's
 // ragMinSimilarityScore floor) and the SSE debug panel consume.
 //
-// Score is always a 0..1 relevance number, never a raw fusion/ranking
-// score — this is the load-bearing invariant Phase 3's Hybrid Search must
-// not break (see hybrid.go's rrfFuse doc comment). Concretely:
-//   - vector-only hit: cosine similarity (unchanged since before Phase 3).
-//   - keyword-only hit: pg_trgm word-similarity.
-//   - hit by both paths: the larger of the two above.
+// Score means two different things depending on NeighborOf, and callers
+// must not conflate them:
+//   - NeighborOf == "" (a core Hybrid Search hit, an "anchor"): Score is a
+//     real, directly-measured 0..1 relevance number against the query —
+//     this is the load-bearing invariant Phase 3's Hybrid Search must not
+//     break (see hybrid.go's rrfFuse doc comment). Concretely: vector-only
+//     hit = cosine similarity; keyword-only hit = pg_trgm word-similarity;
+//     hit by both paths = the larger of the two.
+//   - NeighborOf != "" (a Phase 4 neighbor-window chunk, see neighbor.go):
+//     Score is NOT independently measured — a neighbor chunk never went
+//     through vector or keyword search at all, so it has no cosine
+//     similarity or word-similarity of its own to report. It *inherits*
+//     its owning anchor's Score verbatim, purely so
+//     conversation/budget.go's ragMinSimilarityScore floor and greedy
+//     budget fill treat the whole anchor+neighbors window as one
+//     relevance-priority group instead of the neighbor chunks silently
+//     scoring 0 and always being the first thing budget pressure drops.
+//     Never describe this as "the neighbor's own cosine similarity" or
+//     "the neighbor's own keyword similarity" — it is neither; it is a
+//     borrowed priority number for budget purposes only.
 //
-// The Reciprocal Rank Fusion score that actually decided this chunk's
-// position in the returned slice (fusionScore) is intentionally NOT a
-// field here — it's an internal-only ranking number (see hybrid.go),
-// typically two orders of magnitude smaller than Score, and would silently
-// zero out every retrieval if it ever leaked into this field (budget.go
-// would filter everything below ragMinSimilarityScore=0.2). Order is
-// final by the time Retrieve returns; nothing downstream re-sorts by
-// Score.
+// The Reciprocal Rank Fusion score that actually decided an anchor's
+// position in rrfFuse's output (fusionScore) is intentionally NOT a field
+// here — it's an internal-only ranking number (see hybrid.go), typically
+// two orders of magnitude smaller than Score, and would silently zero out
+// every retrieval if it ever leaked into this field (budget.go would
+// filter everything below ragMinSimilarityScore=0.2). Anchor order is
+// final by the time rrfFuse returns; neighbor placement (see
+// expandWithNeighbors) never re-sorts anchors by Score either, and never
+// interleaves a neighbor between two anchors — every anchor comes first,
+// in full rrfFuse rank order, and only then every anchor's own neighbor
+// chunks as a strictly lower-priority second tier. See
+// expandWithNeighbors' doc comment for why this two-tier layout (not
+// anchor-then-its-own-neighbors-then-next-anchor) is what keeps a core hit
+// from ever losing its place in a tight conversation/budget.go budget to
+// someone else's neighbor chunk.
 type RetrievedChunk struct {
 	Chunk
 	Score float64
+
+	// NeighborOf is Phase 4's core/neighbor discriminator (see neighbor.go):
+	// "" means this is a core Hybrid Search hit (an anchor) — the value
+	// Retrieve returned before Phase 4 ever existed. A non-empty value is
+	// the chunk ID of the anchor this chunk was pulled in to provide
+	// surrounding context for — see expandWithNeighbors' dedup rule for
+	// what happens when a chunk would otherwise be a neighbor of more than
+	// one anchor (it's attributed to exactly one, the higher-ranked
+	// anchor) and for what happens when a would-be neighbor is itself
+	// separately an anchor (it only ever appears once, as the anchor, never
+	// additionally as a neighbor). Internal only — never serialized to
+	// Citation/SSE; conversation's Evidence type has no equivalent field,
+	// and a neighbor chunk's own real DocumentName/PageNumber/SectionTitle
+	// (not the anchor's) is what a citation for it must show, exactly like
+	// any other RetrievedChunk.
+	NeighborOf string
 }
 
 type CreateKnowledgeBaseInput struct {

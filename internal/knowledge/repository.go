@@ -474,6 +474,11 @@ func (r *Repository) searchVectorChunks(ctx context.Context, kbIDs []string, que
 				PageNumber:         nullInt32ToIntPtr(row.PageNumber),
 				SectionTitle:       nullStringToStringPtr(row.SectionTitle),
 				CreatedAt:          row.CreatedAt,
+				// DocumentVersion: Phase 4's neighbor-window expansion
+				// needs this to scope its own SQL to the exact processing
+				// attempt this anchor came from — see Chunk.DocumentVersion
+				// and findPublishedNeighborChunks below.
+				DocumentVersion: row.DocumentVersion,
 			},
 			Score: row.Score,
 		})
@@ -516,8 +521,62 @@ func (r *Repository) searchKeywordChunks(ctx context.Context, kbIDs []string, qu
 				PageNumber:         nullInt32ToIntPtr(row.PageNumber),
 				SectionTitle:       nullStringToStringPtr(row.SectionTitle),
 				CreatedAt:          row.CreatedAt,
+				DocumentVersion:    row.DocumentVersion,
 			},
 			Score: row.Score,
+		})
+	}
+	return out, nil
+}
+
+// findPublishedNeighborChunks is Phase 4's single SQL entry point for
+// neighbor-window expansion (see neighbor.go) — one call fetches every
+// chunk_index a caller needs within ONE (documentID, documentVersion)
+// group, never one call per anchor or per direction (see
+// pgqueries/chunks.sql's FindPublishedNeighborChunks doc comment for why
+// that grouping is a hard requirement, not just an optimization). The
+// returned chunks carry Score=0 and NeighborOf="" — this method knows
+// nothing about which anchor(s) asked for which index, or what Score they
+// should inherit; that's expandWithNeighbors' job (hybrid_test.go covers
+// it independent of any DB), not this repository call's.
+//
+// chunkIndexes is the caller's responsibility to keep non-negative and
+// non-empty — this method does not special-case an empty slice (an empty
+// []int32 array in the ANY(...) predicate simply matches nothing, which is
+// the correct "not asking for anything" behavior on its own, no early
+// return needed).
+func (r *Repository) findPublishedNeighborChunks(ctx context.Context, documentID string, documentVersion int64, chunkIndexes []int) ([]RetrievedChunk, error) {
+	idxs := make([]int32, len(chunkIndexes))
+	for i, idx := range chunkIndexes {
+		idxs[i] = int32(idx)
+	}
+	rows, err := r.pgQueries.FindPublishedNeighborChunks(ctx, pggen.FindPublishedNeighborChunksParams{
+		DocumentID:      documentID,
+		DocumentVersion: documentVersion,
+		ChunkIndexes:    idxs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("knowledge: find published neighbor chunks: %w", err)
+	}
+	out := make([]RetrievedChunk, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, RetrievedChunk{
+			Chunk: Chunk{
+				ID:                 row.ID,
+				KnowledgeBaseID:    row.KnowledgeBaseID,
+				DocumentID:         row.DocumentID,
+				DocumentName:       row.DocumentName,
+				ChunkIndex:         int(row.ChunkIndex),
+				Content:            row.Content,
+				ContentLength:      int(row.ContentLength),
+				EmbeddingDimension: int(row.EmbeddingDimension),
+				PageNumber:         nullInt32ToIntPtr(row.PageNumber),
+				SectionTitle:       nullStringToStringPtr(row.SectionTitle),
+				CreatedAt:          row.CreatedAt,
+				DocumentVersion:    row.DocumentVersion,
+			},
+			// Score/NeighborOf are deliberately left zero-value here — see
+			// this method's doc comment.
 		})
 	}
 	return out, nil

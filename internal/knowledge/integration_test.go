@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"math"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/hibiken/asynq"
+	pgvector "github.com/pgvector/pgvector-go"
 
 	"hify/internal/platform"
 	"hify/internal/provider"
@@ -2211,4 +2213,376 @@ func scores(chunks []RetrievedChunk) []float64 {
 		out[i] = c.Score
 	}
 	return out
+}
+
+// --- Phase 4: 邻接分块扩展（Neighbor Window Retrieval）---
+
+// neighborSeedChunk is one row's worth of input to seedNeighborChunkBatch.
+type neighborSeedChunk struct {
+	ID           string
+	ChunkIndex   int
+	Content      string
+	Vec          []float32
+	DocumentName string
+	PageNumber   *int
+	SectionTitle *string
+}
+
+// seedNeighborChunkBatch writes every row in chunks under (kbID, docID,
+// version) in one PG transaction (repo.createChunks already batches), then
+// — only when publish is true — publishes that version. Publishing a
+// version deletes every OTHER version of the same docID in the same PG
+// transaction (see repository.go's publishDocumentVersion /
+// DeleteObsoleteChunkVersions) — the exact production reprocessing
+// behavior TestIntegrationFindPublishedNeighborChunksOldVersionDeletedReturnsEmpty
+// relies on to simulate "the old version got reprocessed away for real".
+func seedNeighborChunkBatch(t *testing.T, repo *Repository, kbID, docID string, version int64, chunks []neighborSeedChunk, publish bool) {
+	t.Helper()
+	ctx := context.Background()
+	rows := make([]Chunk, 0, len(chunks))
+	for _, c := range chunks {
+		rows = append(rows, Chunk{
+			ID: c.ID, KnowledgeBaseID: kbID, DocumentID: docID, ChunkIndex: c.ChunkIndex,
+			Content: c.Content, ContentLength: len([]rune(c.Content)),
+			Embedding: c.Vec, EmbeddingDimension: len(c.Vec),
+			DocumentName: c.DocumentName, PageNumber: c.PageNumber, SectionTitle: c.SectionTitle,
+		})
+	}
+	if err := repo.createChunks(ctx, rows, version); err != nil {
+		t.Fatalf("seed neighbor chunk batch (doc=%s version=%d): %v", docID, version, err)
+	}
+	if publish {
+		if err := repo.publishDocumentVersion(ctx, docID, version); err != nil {
+			t.Fatalf("publish neighbor chunk batch (doc=%s version=%d): %v", docID, version, err)
+		}
+	}
+}
+
+// insertRawPublishedChunk bypasses createChunks/publishDocumentVersion to
+// construct chunk rows in states normal production code never produces on
+// its own — two is_published=true rows for the same document_id under
+// different document_version (publishDocumentVersion's own transaction
+// guarantees this can't happen through the real write path), or two rows
+// sharing one chunk_index (chunkDocument always assigns a unique,
+// contiguous index per document version). Used only to defense-in-depth
+// test FindPublishedNeighborChunks' WHERE/ORDER BY clauses directly,
+// independent of whether the normal write path happens to also exercise
+// them.
+func insertRawPublishedChunk(t *testing.T, repo *Repository, kbID, docID, chunkID string, version int64, chunkIndex int, content string) {
+	t.Helper()
+	_, err := repo.pgdb.ExecContext(context.Background(),
+		`INSERT INTO chunks (id, knowledge_base_id, document_id, chunk_index, content, content_length, embedding, embedding_dimension, document_version, is_published, document_name)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10)`,
+		chunkID, kbID, docID, chunkIndex, content, len([]rune(content)), pgvector.NewVector([]float32{1, 0, 0}), 3, version, "raw.pdf")
+	if err != nil {
+		t.Fatalf("insertRawPublishedChunk: %v", err)
+	}
+}
+
+// 1. 查到同文档、同版本的前后 chunk.
+func TestIntegrationFindPublishedNeighborChunksReturnsPreviousAndNext(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	docID := "doc-nb-basic"
+	seedNeighborChunkBatch(t, repo, "kb-nb-basic", docID, 1, []neighborSeedChunk{
+		{ID: "b-4", ChunkIndex: 4, Content: "c4", Vec: []float32{1, 0, 0}},
+		{ID: "b-5", ChunkIndex: 5, Content: "c5-anchor", Vec: []float32{1, 0, 0}},
+		{ID: "b-6", ChunkIndex: 6, Content: "c6", Vec: []float32{1, 0, 0}},
+	}, true)
+
+	got, err := repo.findPublishedNeighborChunks(ctx, docID, 1, neighborIndexesFor(5))
+	if err != nil {
+		t.Fatalf("findPublishedNeighborChunks: %v", err)
+	}
+	want := []string{"b-4", "b-6"}
+	if !reflect.DeepEqual(ids(got), want) {
+		t.Fatalf("got %v, want %v (previous and next chunk of index 5)", ids(got), want)
+	}
+}
+
+// 2. 不返回其他文档的相同 chunk index.
+func TestIntegrationFindPublishedNeighborChunksExcludesOtherDocuments(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	seedNeighborChunkBatch(t, repo, "kb-nb-x", "doc-nb-x", 1, []neighborSeedChunk{
+		{ID: "x-1", ChunkIndex: 1, Content: "x content", Vec: []float32{1, 0, 0}},
+	}, true)
+	seedNeighborChunkBatch(t, repo, "kb-nb-y", "doc-nb-y", 1, []neighborSeedChunk{
+		{ID: "y-1", ChunkIndex: 1, Content: "y content", Vec: []float32{1, 0, 0}},
+	}, true)
+
+	got, err := repo.findPublishedNeighborChunks(ctx, "doc-nb-x", 1, []int{1})
+	if err != nil {
+		t.Fatalf("findPublishedNeighborChunks: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "x-1" {
+		t.Fatalf("got %v, want exactly [x-1] (doc-nb-y's same-index chunk must not leak in)", ids(got))
+	}
+}
+
+// 3. 不返回其他 document version（正常代码路径不会让两个 version 同时
+// is_published=true，这里用原始 SQL 直接构造，专门压测 WHERE
+// document_version = $2 这一个过滤条件本身）.
+func TestIntegrationFindPublishedNeighborChunksExcludesOtherVersions(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	docID := "doc-nb-version-filter"
+	// kbID is a plain text column on chunks (see pgmigrations 000001) with
+	// no FK back to MySQL's knowledge_bases — it doesn't need a real row to
+	// exist there, and setupPGOnlyIntegration's repo has no MySQL
+	// connection to write one to anyway.
+	kbID := "kb-nb-version-filter"
+	insertRawPublishedChunk(t, repo, kbID, docID, "wrong-version", 1, 5, "wrong version content")
+	insertRawPublishedChunk(t, repo, kbID, docID, "right-version", 2, 5, "right version content")
+
+	got, err := repo.findPublishedNeighborChunks(ctx, docID, 2, []int{5})
+	if err != nil {
+		t.Fatalf("findPublishedNeighborChunks: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "right-version" {
+		t.Fatalf("got %v, want exactly [right-version] (document_version=1 row must be excluded)", ids(got))
+	}
+}
+
+// 4. 不返回 is_published=false.
+func TestIntegrationFindPublishedNeighborChunksExcludesUnpublished(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	docID := "doc-nb-unpub"
+	seedNeighborChunkBatch(t, repo, "kb-nb-unpub", docID, 1, []neighborSeedChunk{
+		{ID: "u-1", ChunkIndex: 1, Content: "unpublished neighbor", Vec: []float32{1, 0, 0}},
+	}, false) // never published
+
+	got, err := repo.findPublishedNeighborChunks(ctx, docID, 1, []int{1})
+	if err != nil {
+		t.Fatalf("findPublishedNeighborChunks: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("got %v, want empty (unpublished draft rows must never be returned)", ids(got))
+	}
+}
+
+// 5. chunk 0 不产生负数查询问题.
+func TestIntegrationFindPublishedNeighborChunksChunkZeroNoNegativeIndexQuery(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	docID := "doc-nb-zero"
+	seedNeighborChunkBatch(t, repo, "kb-nb-zero", docID, 1, []neighborSeedChunk{
+		{ID: "z-0", ChunkIndex: 0, Content: "anchor", Vec: []float32{1, 0, 0}},
+		{ID: "z-1", ChunkIndex: 1, Content: "next", Vec: []float32{1, 0, 0}},
+	}, true)
+
+	idxs := neighborIndexesFor(0)
+	if len(idxs) != 1 || idxs[0] != 1 {
+		t.Fatalf("test setup invalid: neighborIndexesFor(0) = %v, want [1]", idxs)
+	}
+	got, err := repo.findPublishedNeighborChunks(ctx, docID, 1, idxs)
+	if err != nil {
+		t.Fatalf("findPublishedNeighborChunks with no negative index in the array: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "z-1" {
+		t.Fatalf("got %v, want exactly [z-1]", ids(got))
+	}
+}
+
+// 6. 返回顺序按 chunk_index ASC, id ASC.
+func TestIntegrationFindPublishedNeighborChunksOrderedByChunkIndexThenID(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	docID := "doc-nb-order"
+	kbID := "kb-nb-order"
+	seedNeighborChunkBatch(t, repo, kbID, docID, 1, []neighborSeedChunk{
+		{ID: "f-idx3", ChunkIndex: 3, Content: "c3", Vec: []float32{1, 0, 0}},
+		{ID: "f-idx1", ChunkIndex: 1, Content: "c1", Vec: []float32{1, 0, 0}},
+		{ID: "f-idx2", ChunkIndex: 2, Content: "c2", Vec: []float32{1, 0, 0}},
+	}, true)
+
+	got, err := repo.findPublishedNeighborChunks(ctx, docID, 1, []int{1, 2, 3})
+	if err != nil {
+		t.Fatalf("findPublishedNeighborChunks: %v", err)
+	}
+	want := []string{"f-idx1", "f-idx2", "f-idx3"}
+	if !reflect.DeepEqual(ids(got), want) {
+		t.Fatalf("got %v, want %v (ordered by chunk_index ASC)", ids(got), want)
+	}
+
+	// id ASC 兜底：正常生产流程不会让同一个 (document_id, document_version)
+	// 出现两行相同 chunk_index，这里用原始 SQL 构造这个防御性场景。
+	insertRawPublishedChunk(t, repo, kbID, docID, "z-dup", 1, 9, "dup z")
+	insertRawPublishedChunk(t, repo, kbID, docID, "a-dup", 1, 9, "dup a")
+	dup, err := repo.findPublishedNeighborChunks(ctx, docID, 1, []int{9})
+	if err != nil {
+		t.Fatalf("findPublishedNeighborChunks (id tiebreak): %v", err)
+	}
+	wantDup := []string{"a-dup", "z-dup"}
+	if !reflect.DeepEqual(ids(dup), wantDup) {
+		t.Fatalf("id ASC tiebreak not applied: got %v, want %v", ids(dup), wantDup)
+	}
+}
+
+// 7. document_name/page_number/section_title 保持真实值（邻接块自己的，
+// 不是核心块的）.
+func TestIntegrationFindPublishedNeighborChunksPreservesCitationMetadata(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	docID := "doc-nb-cite"
+	page := 9
+	section := "5.1 附则"
+	seedNeighborChunkBatch(t, repo, "kb-nb-cite", docID, 1, []neighborSeedChunk{
+		{ID: "cite-anchor", ChunkIndex: 2, Content: "anchor content", Vec: []float32{1, 0, 0}, DocumentName: "policy.pdf"},
+		{ID: "cite-next", ChunkIndex: 3, Content: "neighbor content", Vec: []float32{1, 0, 0}, DocumentName: "policy.pdf", PageNumber: &page, SectionTitle: &section},
+	}, true)
+
+	got, err := repo.findPublishedNeighborChunks(ctx, docID, 1, []int{3})
+	if err != nil {
+		t.Fatalf("findPublishedNeighborChunks: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d results, want 1: %v", len(got), ids(got))
+	}
+	n := got[0]
+	if n.DocumentName != "policy.pdf" {
+		t.Fatalf("DocumentName = %q, want %q", n.DocumentName, "policy.pdf")
+	}
+	if n.PageNumber == nil || *n.PageNumber != page {
+		t.Fatalf("PageNumber = %v, want %d", n.PageNumber, page)
+	}
+	if n.SectionTitle == nil || *n.SectionTitle != section {
+		t.Fatalf("SectionTitle = %v, want %q", n.SectionTitle, section)
+	}
+	if n.DocumentVersion != 1 {
+		t.Fatalf("DocumentVersion = %d, want 1", n.DocumentVersion)
+	}
+}
+
+// 8. Vector Search 和 Keyword Search 都正确返回 document_version.
+func TestIntegrationSearchVectorAndKeywordChunksReturnDocumentVersion(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	docID := "doc-nb-version-tag"
+	kbID := "kb-nb-version-tag"
+	seedNeighborChunkBatch(t, repo, kbID, docID, 7, []neighborSeedChunk{
+		{ID: "vt-1", ChunkIndex: 0, Content: "版本标记验证关键词VERSIONTAG", Vec: []float32{1, 0, 0}},
+	}, true)
+
+	vecGot, err := repo.searchVectorChunks(ctx, []string{kbID}, []float32{1, 0, 0}, 10)
+	if err != nil {
+		t.Fatalf("searchVectorChunks: %v", err)
+	}
+	if len(vecGot) != 1 || vecGot[0].DocumentVersion != 7 {
+		t.Fatalf("searchVectorChunks DocumentVersion = %+v, want DocumentVersion=7", vecGot)
+	}
+
+	kwGot, err := repo.searchKeywordChunks(ctx, []string{kbID}, "版本标记验证关键词VERSIONTAG", 10)
+	if err != nil {
+		t.Fatalf("searchKeywordChunks: %v", err)
+	}
+	if len(kwGot) != 1 || kwGot[0].DocumentVersion != 7 {
+		t.Fatalf("searchKeywordChunks DocumentVersion = %+v, want DocumentVersion=7", kwGot)
+	}
+}
+
+// 9. 模拟核心块属于旧版本、旧版本已被删除后，邻接查询返回空而不是混入新版本.
+func TestIntegrationFindPublishedNeighborChunksOldVersionDeletedReturnsEmpty(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	docID := "doc-nb-reprocessed"
+	kbID := "kb-nb-reprocessed"
+	seedNeighborChunkBatch(t, repo, kbID, docID, 1, []neighborSeedChunk{
+		{ID: "v1-0", ChunkIndex: 0, Content: "v1 chunk0", Vec: []float32{1, 0, 0}},
+		{ID: "v1-1", ChunkIndex: 1, Content: "v1 chunk1", Vec: []float32{1, 0, 0}},
+		{ID: "v1-2", ChunkIndex: 2, Content: "v1 chunk2", Vec: []float32{1, 0, 0}},
+	}, true)
+
+	// sanity: 重新处理之前，version 1 的邻接块能查到.
+	before, err := repo.findPublishedNeighborChunks(ctx, docID, 1, []int{2})
+	if err != nil || len(before) != 1 || before[0].ID != "v1-2" {
+		t.Fatalf("pre-reprocess sanity check failed: got %v, err %v", ids(before), err)
+	}
+
+	// 模拟重新处理：写入新版本并发布——publishDocumentVersion 在同一个 PG
+	// 事务里把 docID 的其他所有版本删除（见 repository.go），和真实生产
+	// 流程完全一致，不是伪造的测试专用状态。
+	seedNeighborChunkBatch(t, repo, kbID, docID, 2, []neighborSeedChunk{
+		{ID: "v2-0", ChunkIndex: 0, Content: "v2 chunk0", Vec: []float32{1, 0, 0}},
+		{ID: "v2-1", ChunkIndex: 1, Content: "v2 chunk1", Vec: []float32{1, 0, 0}},
+		{ID: "v2-2", ChunkIndex: 2, Content: "v2 chunk2", Vec: []float32{1, 0, 0}},
+	}, true)
+
+	// 一个在重新处理之前拿到的、携带 DocumentVersion=1 的旧核心块，此时再
+	// 查邻接必须返回空——绝不能被 v2 的同 index chunk 顶替.
+	stale, err := repo.findPublishedNeighborChunks(ctx, docID, 1, []int{2})
+	if err != nil {
+		t.Fatalf("findPublishedNeighborChunks(old version): %v", err)
+	}
+	if len(stale) != 0 {
+		t.Fatalf("got %v, want empty — old version's rows must be gone after reprocessing, not silently answered by v2", ids(stale))
+	}
+
+	// 对照组：同一个 index 换成新版本能正常查到——证明上面的空结果是真实
+	// 的版本隔离，不是查询本身写错了。
+	fresh, err := repo.findPublishedNeighborChunks(ctx, docID, 2, []int{2})
+	if err != nil || len(fresh) != 1 || fresh[0].ID != "v2-2" {
+		t.Fatalf("findPublishedNeighborChunks(new version) = %v, err %v, want [v2-2]", ids(fresh), err)
+	}
+}
+
+// 10. 邻接查询普通失败时 Service 返回核心块（best-effort 降级）.
+func TestIntegrationExpandWithNeighborWindowDegradesToAnchorsOnOrdinaryFailure(t *testing.T) {
+	// 一个真实的、直接拒绝连接的 *sql.DB——不是 mock，是 database/sql +
+	// lib/pq 对一个没有监听者的端口发起的真实连接尝试，产生的是一个
+	// 普通的驱动层错误，不是 context.Canceled/DeadlineExceeded。刻意不
+	// 触碰 testutil 的共享缓存连接（那个连接被其他测试复用，关掉会连带
+	// 弄坏它们）。
+	brokenDB, err := sql.Open("postgres", "postgres://hify:hify_dev@127.0.0.1:1/hify_test_nonexistent?sslmode=disable&connect_timeout=1")
+	if err != nil {
+		t.Fatalf("open broken postgres handle: %v", err)
+	}
+	t.Cleanup(func() { brokenDB.Close() })
+	brokenRepo := NewRepository(nil, brokenDB)
+
+	svc := &service{repo: brokenRepo, providerSvc: newFakeProvider(), storageDir: t.TempDir()}
+	anchors := []RetrievedChunk{
+		anchorRC("a1", "doc-broken", 1, 5, 0.9),
+		anchorRC("a2", "doc-broken", 1, 0, 0.7),
+	}
+
+	got, err := svc.expandWithNeighborWindow(context.Background(), anchors)
+	if err != nil {
+		t.Fatalf("expandWithNeighborWindow returned an error for an ordinary DB failure, want nil (best-effort degrade): %v", err)
+	}
+	if !reflect.DeepEqual(ids(got), ids(anchors)) {
+		t.Fatalf("got %v, want anchors unchanged %v (neighbor lookup failure must degrade to anchors-only)", ids(got), ids(anchors))
+	}
+}
+
+// 11. context cancellation 正确传播，不能被邻接扩展的 best-effort 降级吞掉.
+func TestIntegrationExpandWithNeighborWindowPropagatesContextCancellation(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	svc := &service{repo: repo, providerSvc: newFakeProvider(), storageDir: t.TempDir()}
+
+	anchors := []RetrievedChunk{anchorRC("a1", "doc-nb-cancel", 1, 5, 0.9)}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	got, err := svc.expandWithNeighborWindow(ctx, anchors)
+	if err == nil {
+		t.Fatal("expandWithNeighborWindow with a canceled context returned nil error, want context.Canceled to propagate")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if got != nil {
+		t.Fatalf("got %v, want nil result alongside the propagated error", got)
+	}
 }

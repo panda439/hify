@@ -13,11 +13,29 @@ import (
 	"hify/internal/provider"
 )
 
-// retrievalTopK is how many chunks assembleContext asks knowledge.Service
-// for across all of an Agent's knowledge bases combined — not per KB. This
-// is the raw candidate count *before* selectEvidence's similarity/dedup/
-// budget filtering, which is why it can be larger than what actually ends
-// up as evidence.
+// retrievalTopK is how many CORE hits (Hybrid Search "anchors", not the
+// total chunk count) assembleContext asks knowledge.Service for across all
+// of an Agent's knowledge bases combined — not per KB. Since Phase 4
+// (Neighbor Window Retrieval — see knowledge/neighbor.go), the slice
+// knowledge.Service.Retrieve actually returns can be larger than
+// retrievalTopK: up to retrievalTopK anchors, each optionally followed
+// (see below) by up to two neighbor chunks (same document, same
+// document_version, is_published only), so len(candidates) below can be up
+// to retrievalTopK*3, not just <= retrievalTopK. Do not assume
+// Retrieve(topK) returns at most topK results anywhere downstream.
+//
+// Ordering, and why this constant alone doesn't determine what ends up as
+// evidence: knowledge.Retrieve returns ALL topK anchors first, in their
+// full RRF rank order, and only THEN every anchor's neighbor chunks as a
+// strictly lower-priority second tier (see expandWithNeighbors' doc
+// comment in knowledge/neighbor.go for the full rationale, including the
+// review fix this layout replaced). selectEvidence (budget.go) fills its
+// rendered-length budget greedily in input order with no reordering or
+// backtracking, so this two-tier layout is exactly what makes "a core hit
+// never loses its budget slot to someone else's neighbor chunk" true
+// without selectEvidence itself needing to know anything about anchors vs.
+// neighbors — it just consumes candidates in the order it's handed them,
+// and every anchor already sits ahead of every neighbor in that order.
 const retrievalTopK = 5
 
 const (

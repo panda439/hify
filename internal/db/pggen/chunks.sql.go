@@ -137,6 +137,106 @@ func (q *Queries) DeleteObsoleteChunkVersions(ctx context.Context, arg DeleteObs
 	return err
 }
 
+const findPublishedNeighborChunks = `-- name: FindPublishedNeighborChunks :many
+SELECT id, knowledge_base_id, document_id, document_version, chunk_index, content,
+       content_length, embedding_dimension, created_at,
+       document_name, page_number, section_title
+FROM chunks
+WHERE document_id = $1
+  AND document_version = $2
+  AND is_published = true
+  AND chunk_index = ANY($3::int[])
+ORDER BY chunk_index ASC, id ASC
+`
+
+type FindPublishedNeighborChunksParams struct {
+	DocumentID      string  `json:"document_id"`
+	DocumentVersion int64   `json:"document_version"`
+	ChunkIndexes    []int32 `json:"chunk_indexes"`
+}
+
+type FindPublishedNeighborChunksRow struct {
+	ID                 string         `json:"id"`
+	KnowledgeBaseID    string         `json:"knowledge_base_id"`
+	DocumentID         string         `json:"document_id"`
+	DocumentVersion    int64          `json:"document_version"`
+	ChunkIndex         int32          `json:"chunk_index"`
+	Content            string         `json:"content"`
+	ContentLength      int32          `json:"content_length"`
+	EmbeddingDimension int32          `json:"embedding_dimension"`
+	CreatedAt          time.Time      `json:"created_at"`
+	DocumentName       string         `json:"document_name"`
+	PageNumber         sql.NullInt32  `json:"page_number"`
+	SectionTitle       sql.NullString `json:"section_title"`
+}
+
+// Phase 4: 邻接分块扩展（Neighbor Window Retrieval）的唯一 SQL 入口——见
+// knowledge/neighbor.go 的 doc 注释。调用方（service.go 的
+// expandWithNeighborWindow）按 (document_id, document_version) 把所有核心
+// 命中块分组，每组只调用这一条查询一次，chunk_indexes 里合并了这一组全部
+// 核心块各自需要的前一个/后一个 index——不为每个核心块的每个方向单独发一
+// 条 SQL。
+//
+// 四个过滤条件里 document_id + document_version 缺一不可：只有这两个一起
+// 锁定"同一次处理尝试"的 chunk 集合，绝不会把另一个文档、或者同一文档另
+// 一次处理尝试（重新处理产生的新/旧版本）里恰好 chunk_index 相同的行当成
+// 邻接块带回来——这是防止"文档重新处理后邻接块串版本"的唯一防线，
+// Go 层不做二次校验（也没有足够信息做二次校验：Go 层只知道自己要哪些
+// index，不知道 PG 里实际还剩哪些行）。is_published = true 和
+// SearchVectorChunks/SearchKeywordChunks 同一个理由：未发布的草稿版本永
+// 远不可检索，邻接块也不能是例外。如果调用方传入的 document_id +
+// document_version 组合对应的版本已经被重新处理删除（见 pgmigrations
+// 000002 的发布流程：DeleteObsoleteChunkVersions 物理删除旧版本行），这
+// 条查询会因为 document_version 这个条件天然匹配不到任何行，返回空集合
+// 而不是退回去匹配新版本的相同 index——不需要额外代码保证这一点，是
+// WHERE 条件本身的结构性保证。
+//
+// chunk_indexes 由调用方保证只含非负整数（chunk_index=0 没有前块，调用方
+// 不会把 -1 放进这个数组）——SQL 侧不需要也不做负数过滤，ANY 对一个不含
+// 负数的数组天然不会匹配到任何 chunk_index（chunk_index 本身也不可能是
+// 负数，chunkDocument 生成时从 0 开始递增）。
+//
+// ORDER BY chunk_index ASC, id ASC：chunk_index 是主排序键（邻接窗口要按
+// 文档内的自然顺序展示），id ASC 是稳定兜底——chunk_index 在同一个
+// (document_id, document_version) 下语义上唯一，理论上不会真正撞车，但保
+// 留这个兜底和 SearchVectorChunks/SearchKeywordChunks 的约定一致，不留下
+// 一个"这条查询没有稳定排序保证"的例外。
+func (q *Queries) FindPublishedNeighborChunks(ctx context.Context, arg FindPublishedNeighborChunksParams) ([]FindPublishedNeighborChunksRow, error) {
+	rows, err := q.db.QueryContext(ctx, findPublishedNeighborChunks, arg.DocumentID, arg.DocumentVersion, pq.Array(arg.ChunkIndexes))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FindPublishedNeighborChunksRow{}
+	for rows.Next() {
+		var i FindPublishedNeighborChunksRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.KnowledgeBaseID,
+			&i.DocumentID,
+			&i.DocumentVersion,
+			&i.ChunkIndex,
+			&i.Content,
+			&i.ContentLength,
+			&i.EmbeddingDimension,
+			&i.CreatedAt,
+			&i.DocumentName,
+			&i.PageNumber,
+			&i.SectionTitle,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const publishChunkVersion = `-- name: PublishChunkVersion :exec
 UPDATE chunks SET is_published = true WHERE document_id = $1 AND document_version = $2
 `
@@ -153,7 +253,7 @@ func (q *Queries) PublishChunkVersion(ctx context.Context, arg PublishChunkVersi
 }
 
 const searchKeywordChunks = `-- name: SearchKeywordChunks :many
-SELECT id, knowledge_base_id, document_id, chunk_index, content,
+SELECT id, knowledge_base_id, document_id, document_version, chunk_index, content,
        content_length, embedding_dimension, created_at,
        document_name, page_number, section_title,
        word_similarity($1, content)::float8 AS score
@@ -176,6 +276,7 @@ type SearchKeywordChunksRow struct {
 	ID                 string         `json:"id"`
 	KnowledgeBaseID    string         `json:"knowledge_base_id"`
 	DocumentID         string         `json:"document_id"`
+	DocumentVersion    int64          `json:"document_version"`
 	ChunkIndex         int32          `json:"chunk_index"`
 	Content            string         `json:"content"`
 	ContentLength      int32          `json:"content_length"`
@@ -206,6 +307,9 @@ type SearchKeywordChunksRow struct {
 // pgmigrations 000004 里对 pg_trgm.word_similarity_threshold 的说明）；
 // ORDER BY 里的 word_similarity() 只对索引已经筛出的候选重新计算一次精确
 // 分数用于排序，而不是对全表算。candidate_k 是硬上限，防止候选集无界增长。
+//
+// Phase 4: document_version 同 SearchVectorChunks 的理由——关键词路径命中
+// 的 chunk 同样可能被邻接扩展，必须知道它属于哪一次处理尝试。
 func (q *Queries) SearchKeywordChunks(ctx context.Context, arg SearchKeywordChunksParams) ([]SearchKeywordChunksRow, error) {
 	rows, err := q.db.QueryContext(ctx, searchKeywordChunks, arg.QueryText, pq.Array(arg.KnowledgeBaseIds), arg.CandidateK)
 	if err != nil {
@@ -219,6 +323,7 @@ func (q *Queries) SearchKeywordChunks(ctx context.Context, arg SearchKeywordChun
 			&i.ID,
 			&i.KnowledgeBaseID,
 			&i.DocumentID,
+			&i.DocumentVersion,
 			&i.ChunkIndex,
 			&i.Content,
 			&i.ContentLength,
@@ -243,7 +348,7 @@ func (q *Queries) SearchKeywordChunks(ctx context.Context, arg SearchKeywordChun
 }
 
 const searchVectorChunks = `-- name: SearchVectorChunks :many
-SELECT id, knowledge_base_id, document_id, chunk_index, content,
+SELECT id, knowledge_base_id, document_id, document_version, chunk_index, content,
        content_length, embedding_dimension, created_at,
        document_name, page_number, section_title,
        (1 - (embedding <=> $1))::float8 AS score
@@ -266,6 +371,7 @@ type SearchVectorChunksRow struct {
 	ID                 string         `json:"id"`
 	KnowledgeBaseID    string         `json:"knowledge_base_id"`
 	DocumentID         string         `json:"document_id"`
+	DocumentVersion    int64          `json:"document_version"`
 	ChunkIndex         int32          `json:"chunk_index"`
 	Content            string         `json:"content"`
 	ContentLength      int32          `json:"content_length"`
@@ -295,6 +401,13 @@ type SearchVectorChunksRow struct {
 // rank——距离相同却顺序不定，会让同一批候选在两次调用之间拿到不同的
 // rank，进而拿到不同的 fusionScore，最终排序不稳定。id 是主键，任何两行
 // 都不会相等，兜底到底。
+//
+// Phase 4: document_version 加入 SELECT 列表——邻接分块扩展
+// (findPublishedNeighborChunks) 必须用它锁定"同一次处理尝试"，绝不能只凭
+// document_id 就去查前后 chunk_index，否则文档重新处理后旧核心块（本次
+// Retrieve 命中时还是当前发布版本，返回给调用方之间可能被新版本替换）会
+// 意外邻接到新版本的同 index chunk，两个版本的内容被拼接展示。这里只是
+// 把已经存在的列读出来交给 Go 层，不改变检索排序或候选集本身。
 func (q *Queries) SearchVectorChunks(ctx context.Context, arg SearchVectorChunksParams) ([]SearchVectorChunksRow, error) {
 	rows, err := q.db.QueryContext(ctx, searchVectorChunks,
 		arg.QueryEmbedding,
@@ -313,6 +426,7 @@ func (q *Queries) SearchVectorChunks(ctx context.Context, arg SearchVectorChunks
 			&i.ID,
 			&i.KnowledgeBaseID,
 			&i.DocumentID,
+			&i.DocumentVersion,
 			&i.ChunkIndex,
 			&i.Content,
 			&i.ContentLength,
