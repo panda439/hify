@@ -125,6 +125,68 @@ func TestBuildNeighborGroupsMergesSameDocumentVersionAnchors(t *testing.T) {
 	}
 }
 
+// --- buildNeighborRequests (Phase 7) ---
+
+// Same fixture as TestBuildNeighborGroupsMergesSameDocumentVersionAnchors,
+// flattened: the request set's total size must equal the sum of every
+// group's index-set size from that test (3 + 1 + 2 = 6), and every
+// individual (document_id, document_version, chunk_index) triple that test
+// asserts belongs to a group must appear here exactly once — this is what
+// "去重后的请求集合" means operationally: a coordinate two different
+// anchors both want (index 6 in doc-1/v3, wanted by both a1 and a2) must
+// still only appear once in the flattened list.
+func TestBuildNeighborRequestsFlattensAndDedupsAcrossAnchors(t *testing.T) {
+	anchors := []RetrievedChunk{
+		anchorRC("a1", "doc-1", 3, 5, 0.9), // wants 4, 6
+		anchorRC("a2", "doc-1", 3, 7, 0.8), // wants 6, 8 (6 overlaps with a1's want)
+		anchorRC("a3", "doc-2", 1, 0, 0.7), // wants 1 only (index 0 has no previous)
+		anchorRC("a4", "doc-1", 2, 5, 0.6), // same document, different version -> distinct triples
+	}
+	got := buildNeighborRequests(anchors)
+
+	want := []neighborRequest{
+		{documentID: "doc-1", documentVersion: 2, chunkIndex: 4},
+		{documentID: "doc-1", documentVersion: 2, chunkIndex: 6},
+		{documentID: "doc-1", documentVersion: 3, chunkIndex: 4},
+		{documentID: "doc-1", documentVersion: 3, chunkIndex: 6},
+		{documentID: "doc-1", documentVersion: 3, chunkIndex: 8},
+		{documentID: "doc-2", documentVersion: 1, chunkIndex: 1},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v (6 total: a1/a2's shared index 6 in doc-1/v3 must collapse into one entry, and doc-1/v2 must stay a separate triple from doc-1/v3 despite sharing document_id)", got, want)
+	}
+}
+
+// An anchor with no other anchors sharing its document version still
+// produces exactly its own (<=2) requests, and multiple totally unrelated
+// single-anchor documents each contribute their own triples — the flat
+// list isn't just "however many groups there are", it's every distinct
+// triple across the whole anchor set.
+func TestBuildNeighborRequestsSingleAnchorPerDocument(t *testing.T) {
+	anchors := []RetrievedChunk{
+		anchorRC("a1", "doc-1", 1, 0, 0.9), // index 0 -> only next=1
+		anchorRC("a2", "doc-2", 1, 5, 0.8), // -> 4, 6
+	}
+	got := buildNeighborRequests(anchors)
+	want := []neighborRequest{
+		{documentID: "doc-1", documentVersion: 1, chunkIndex: 1},
+		{documentID: "doc-2", documentVersion: 1, chunkIndex: 4},
+		{documentID: "doc-2", documentVersion: 1, chunkIndex: 6},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %+v, want %+v", got, want)
+	}
+}
+
+// Empty anchors must produce an empty (not nil-panicking, and callers must
+// treat it as "skip the batch call") request slice.
+func TestBuildNeighborRequestsEmptyAnchors(t *testing.T) {
+	got := buildNeighborRequests(nil)
+	if len(got) != 0 {
+		t.Fatalf("got %+v, want empty — no anchors means nothing to request", got)
+	}
+}
+
 // --- expandWithNeighbors ---
 
 // 1. 一个核心块补齐前后邻接块.

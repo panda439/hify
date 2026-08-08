@@ -109,6 +109,23 @@ type service struct {
 	providerSvc provider.Service
 	asynqClient *asynq.Client
 	storageDir  string
+
+	// findNeighborBatch is expandWithNeighborWindow's only way to reach
+	// the database — deliberately a method-value field, not a direct
+	// s.repo.findPublishedNeighborChunksBatch(...) call in the method
+	// body, and deliberately not a change to *Repository's field type
+	// into some broader repository interface. This is the "minimal
+	// internal interface/pure orchestration helper" Phase 7's task spec
+	// asked for so its "normal path calls the batch query exactly once"
+	// requirement has automated proof: neighbor_batch_test.go constructs a
+	// bare &service{findNeighborBatch: spy} (same package, unexported
+	// field, no exported API surface added to Service) and counts spy
+	// calls directly — no mocking framework, no interface satisfied by a
+	// hand-rolled fake repository. NewService sets this to
+	// repo.findPublishedNeighborChunksBatch so production code is
+	// unaffected; every other service method still reaches the database
+	// through s.repo exactly as before.
+	findNeighborBatch func(ctx context.Context, requests []neighborRequest) ([]RetrievedChunk, error)
 }
 
 func (s *service) CreateKnowledgeBase(ctx context.Context, input CreateKnowledgeBaseInput) (KnowledgeBase, error) {
@@ -948,57 +965,72 @@ func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query
 	return expanded, nil
 }
 
-// expandWithNeighborWindow is Phase 4's DB-facing half of Neighbor Window
-// Retrieval — the pure assembly rules live in neighbor.go's
-// expandWithNeighbors; this method's only job is turning anchors into the
-// grouped findPublishedNeighborChunks calls that function needs, and
-// enforcing the same failure-isolation contract every other best-effort
-// sub-call in Retrieve already follows.
+// expandWithNeighborWindow is Neighbor Window Retrieval's DB-facing half —
+// the pure assembly rules live in neighbor.go's expandWithNeighbors; this
+// method's only job is turning anchors into the single batch lookup that
+// function needs, and enforcing the same failure-isolation contract every
+// other best-effort sub-call in Retrieve already follows.
 //
-// Failure isolation, per document-version group: a failed neighbor lookup
-// for ONE (document_id, document_version) group only drops that group's
-// neighbors — every other group, and every anchor regardless of group,
-// still makes it into the result untouched (see rule 1 in
+// Phase 7: this method used to loop — one findPublishedNeighborChunks call
+// per (document_id, document_version) group (buildNeighborGroups),
+// producing an N+1 pattern where a Retrieve spanning K distinct document
+// versions cost K neighbor-window round trips. It now flattens every
+// anchor's wanted neighbor coordinates into one deduplicated request set
+// via buildNeighborRequests and issues exactly one s.findNeighborBatch
+// call for the whole set — a normal success path is always ONE database
+// round trip here, regardless of how many anchors or document versions are
+// involved. See neighbor_batch_test.go for the spy-based proof of "exactly
+// once on the normal path, zero times on an empty request set".
+//
+// Failure isolation: because this is now a single call instead of one per
+// group, a failure here is necessarily whole-batch — there is no longer a
+// "this one group's neighbors failed, the rest still succeeded" middle
+// ground, because there is no longer more than one call to partially fail.
+// The contract from Phase 4 is preserved at the only granularity that
+// still makes sense: every anchor, regardless of which document version it
+// came from, still makes it into the result untouched (see rule 1 in
 // expandWithNeighbors' doc comment: anchor rank/presence is never at the
-// mercy of neighbor lookups). This is deliberately the same shape as
-// Retrieve's own vector-path-per-model and keyword-path isolation above —
-// "a hit somewhere for the core feature, a miss for the enrichment,
-// results still exist". A logged failure never includes the query text or
-// any chunk content (see CLAUDE.md's don't-log-content convention already
-// followed by every other Warn line in this file) — only the error, the
-// document ID, and the document version, none of which is user-authored
-// free text.
+// mercy of neighbor lookups) — a failed batch call just means the result
+// has zero neighbors this time, exactly as "a hit somewhere for the core
+// feature, a miss for the enrichment, results still exist" already meant
+// for Retrieve's vector-path-per-model and keyword-path isolation above. A
+// logged failure never includes the query text or any chunk content (see
+// CLAUDE.md's don't-log-content convention already followed by every other
+// Warn line in this file) — only the error and how many anchors/document
+// versions were affected, none of which is user-authored free text.
 //
 // The one thing that is NOT best-effort here, same as everywhere else in
 // Retrieve: the context itself being cancelled or timed out. A cancelled
 // context must propagate immediately as an error from this method (and
-// therefore from Retrieve), never get silently treated as "this group's
-// neighbors just didn't work out" — see classifyRetrieveErr.
+// therefore from Retrieve), never get silently treated as "the neighbor
+// batch just didn't work out" — see classifyRetrieveErr.
 func (s *service) expandWithNeighborWindow(ctx context.Context, anchors []RetrievedChunk) ([]RetrievedChunk, int, error) {
 	if len(anchors) == 0 {
 		return anchors, 0, nil
 	}
 
-	groups := buildNeighborGroups(anchors)
-	var allNeighbors []RetrievedChunk
-	for key, idxSet := range groups {
-		indexes := make([]int, 0, len(idxSet))
-		for idx := range idxSet {
-			indexes = append(indexes, idx)
-		}
-		neighbors, err := s.repo.findPublishedNeighborChunks(ctx, key.documentID, key.documentVersion, indexes)
-		if err != nil {
-			if cerr := classifyRetrieveErr(ctx, err); cerr != nil {
-				return nil, 0, cerr
-			}
-			slog.Warn("knowledge: neighbor window lookup failed for one document version, skipping its neighbors",
-				"err", err, "document_id", key.documentID, "document_version", key.documentVersion)
-			continue // best-effort: other document-version groups (and every anchor) still proceed
-		}
-		allNeighbors = append(allNeighbors, neighbors...)
+	requests := buildNeighborRequests(anchors)
+	if len(requests) == 0 {
+		// No anchor has any valid neighbor coordinate to ask for — nothing
+		// to batch, so don't issue a call for an empty request set (see
+		// buildNeighborRequests' and findPublishedNeighborChunksBatch's
+		// doc comments for why this guard exists at both layers).
+		expanded, neighborDuplicateCount := expandWithNeighbors(anchors, nil)
+		return expanded, neighborDuplicateCount, nil
 	}
 
-	expanded, neighborDuplicateCount := expandWithNeighbors(anchors, allNeighbors)
+	neighbors, err := s.findNeighborBatch(ctx, requests)
+	if err != nil {
+		if cerr := classifyRetrieveErr(ctx, err); cerr != nil {
+			return nil, 0, cerr
+		}
+		slog.Warn("knowledge: neighbor window batch lookup failed, returning core hits without neighbors",
+			"err", err, "anchor_count", len(anchors), "requested_coordinate_count", len(requests))
+		expanded, neighborDuplicateCount := expandWithNeighbors(anchors, nil)
+		return expanded, neighborDuplicateCount, nil // best-effort: every anchor still proceeds
+	}
+
+	expanded, neighborDuplicateCount := expandWithNeighbors(anchors, neighbors)
 	return expanded, neighborDuplicateCount, nil
 }
 

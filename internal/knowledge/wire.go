@@ -29,6 +29,10 @@ func NewService(repo *Repository, providerSvc provider.Service, asynqClient *asy
 		providerSvc: providerSvc,
 		asynqClient: asynqClient,
 		storageDir:  storageDir,
+		// See the service struct's findNeighborBatch doc comment for why
+		// this is a method value instead of expandWithNeighborWindow
+		// calling repo.findPublishedNeighborChunksBatch directly.
+		findNeighborBatch: repo.findPublishedNeighborChunksBatch,
 	}
 }
 

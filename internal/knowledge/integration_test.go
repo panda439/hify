@@ -2899,7 +2899,14 @@ func TestIntegrationExpandWithNeighborWindowDegradesToAnchorsOnOrdinaryFailure(t
 	t.Cleanup(func() { brokenDB.Close() })
 	brokenRepo := NewRepository(nil, brokenDB)
 
-	svc := &service{repo: brokenRepo, providerSvc: newFakeProvider(), storageDir: t.TempDir()}
+	// Phase 7: expandWithNeighborWindow now reaches the database through
+	// svc.findNeighborBatch, not svc.repo directly — see the service
+	// struct's findNeighborBatch doc comment in service.go. A hand-built
+	// &service{} literal (as every test in this file already does, since
+	// service has no exported constructor tests can use) must set this
+	// field explicitly, exactly the way wire.go's NewService does for
+	// production, or expandWithNeighborWindow would call a nil func value.
+	svc := &service{repo: brokenRepo, providerSvc: newFakeProvider(), storageDir: t.TempDir(), findNeighborBatch: brokenRepo.findPublishedNeighborChunksBatch}
 	anchors := []RetrievedChunk{
 		anchorRC("a1", "doc-broken", 1, 5, 0.9),
 		anchorRC("a2", "doc-broken", 1, 0, 0.7),
@@ -2917,7 +2924,10 @@ func TestIntegrationExpandWithNeighborWindowDegradesToAnchorsOnOrdinaryFailure(t
 // 11. context cancellation 正确传播，不能被邻接扩展的 best-effort 降级吞掉.
 func TestIntegrationExpandWithNeighborWindowPropagatesContextCancellation(t *testing.T) {
 	repo := setupPGOnlyIntegration(t)
-	svc := &service{repo: repo, providerSvc: newFakeProvider(), storageDir: t.TempDir()}
+	// See the sibling ...DegradesToAnchorsOnOrdinaryFailure test above for
+	// why findNeighborBatch must be set explicitly on a hand-built
+	// &service{} literal since Phase 7.
+	svc := &service{repo: repo, providerSvc: newFakeProvider(), storageDir: t.TempDir(), findNeighborBatch: repo.findPublishedNeighborChunksBatch}
 
 	anchors := []RetrievedChunk{anchorRC("a1", "doc-nb-cancel", 1, 5, 0.9)}
 
@@ -2933,5 +2943,209 @@ func TestIntegrationExpandWithNeighborWindowPropagatesContextCancellation(t *tes
 	}
 	if got != nil {
 		t.Fatalf("got %v, want nil result alongside the propagated error", got)
+	}
+}
+
+// --- Phase 7: 邻接窗口批量查询（Batch Neighbor Lookup）---
+//
+// These tests exercise FindPublishedNeighborChunksBatch (via
+// Repository.findPublishedNeighborChunksBatch) directly against real
+// Postgres — the single-query counterpart to the FindPublishedNeighborChunks
+// tests above, which covered the same isolation/ordering guarantees for the
+// old per-group query. Every guarantee that query had to hold — cross-
+// document isolation, cross-version isolation, unpublished exclusion,
+// stable ordering — must hold identically here, now for a request set that
+// spans multiple documents and versions in one call.
+
+// 1. 多文档、多版本混在同一次批量请求里，一次查询正确取回全部匹配行，且
+// 不会把 A 文档的坐标错配到 B 文档（或同一文档的另一个版本）上。
+func TestIntegrationFindPublishedNeighborChunksBatchAcrossMultipleDocumentsAndVersions(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	seedNeighborChunkBatch(t, repo, "kb-batch-multi", "doc-batch-a", 1, []neighborSeedChunk{
+		{ID: "a-4", ChunkIndex: 4, Content: "a4", Vec: []float32{1, 0, 0}},
+		{ID: "a-5", ChunkIndex: 5, Content: "a5-anchor", Vec: []float32{1, 0, 0}},
+		{ID: "a-6", ChunkIndex: 6, Content: "a6", Vec: []float32{1, 0, 0}},
+	}, true)
+	seedNeighborChunkBatch(t, repo, "kb-batch-multi", "doc-batch-b", 2, []neighborSeedChunk{
+		{ID: "b-0", ChunkIndex: 0, Content: "b0-anchor", Vec: []float32{1, 0, 0}},
+		{ID: "b-1", ChunkIndex: 1, Content: "b1", Vec: []float32{1, 0, 0}},
+	}, true)
+	// doc-batch-a 也存在一个未发布的旧版本 2，chunk_index 恰好和 v1 的
+	// 4/6 相同——如果批量查询按 document_id 而不是 (document_id,
+	// document_version) 匹配，这两行会被错误地一起带回来。
+	seedNeighborChunkBatch(t, repo, "kb-batch-multi", "doc-batch-a", 2, []neighborSeedChunk{
+		{ID: "a-v2-4", ChunkIndex: 4, Content: "a-v2-4 must never appear", Vec: []float32{1, 0, 0}},
+	}, false)
+
+	requests := []neighborRequest{
+		{documentID: "doc-batch-a", documentVersion: 1, chunkIndex: 4},
+		{documentID: "doc-batch-a", documentVersion: 1, chunkIndex: 6},
+		{documentID: "doc-batch-b", documentVersion: 2, chunkIndex: 1},
+	}
+	got, err := repo.findPublishedNeighborChunksBatch(ctx, requests)
+	if err != nil {
+		t.Fatalf("findPublishedNeighborChunksBatch: %v", err)
+	}
+	want := []string{"a-4", "a-6", "b-1"}
+	if !reflect.DeepEqual(ids(got), want) {
+		t.Fatalf("got %v, want %v — one batch call across 2 documents/versions must return exactly the requested rows, correctly isolated", ids(got), want)
+	}
+}
+
+// 2. 跨版本隔离：同一份请求里显式问了旧版本坐标，绝不能被新版本的同 index
+// 顶替（和 TestIntegrationFindPublishedNeighborChunksOldVersionDeletedReturnsEmpty
+// 验证的是同一条生产规则，这里换成批量查询路径）。
+func TestIntegrationFindPublishedNeighborChunksBatchIsolatesAcrossVersions(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	docID := "doc-batch-version-isolation"
+	kbID := "kb-batch-version-isolation"
+	seedNeighborChunkBatch(t, repo, kbID, docID, 1, []neighborSeedChunk{
+		{ID: "batch-vi-v1-2", ChunkIndex: 2, Content: "v1 chunk2", Vec: []float32{1, 0, 0}},
+	}, true)
+	// 重新处理：发布 version 2 会在同一个 PG 事务里物理删除 version 1 的行
+	// （publishDocumentVersion/DeleteObsoleteChunkVersions）。
+	seedNeighborChunkBatch(t, repo, kbID, docID, 2, []neighborSeedChunk{
+		{ID: "batch-vi-v2-2", ChunkIndex: 2, Content: "v2 chunk2", Vec: []float32{1, 0, 0}},
+	}, true)
+
+	// 请求里显式问的是已经被删除的 version 1 坐标——必须返回空，绝不能被
+	// v2 的同 index 行顶替。
+	stale, err := repo.findPublishedNeighborChunksBatch(ctx, []neighborRequest{
+		{documentID: docID, documentVersion: 1, chunkIndex: 2},
+	})
+	if err != nil {
+		t.Fatalf("findPublishedNeighborChunksBatch(stale version): %v", err)
+	}
+	if len(stale) != 0 {
+		t.Fatalf("got %v, want empty — a batch request for a reprocessed-away version must not be silently answered by the new version", ids(stale))
+	}
+
+	fresh, err := repo.findPublishedNeighborChunksBatch(ctx, []neighborRequest{
+		{documentID: docID, documentVersion: 2, chunkIndex: 2},
+	})
+	if err != nil || len(fresh) != 1 || fresh[0].ID != "batch-vi-v2-2" {
+		t.Fatalf("findPublishedNeighborChunksBatch(current version) = %v, err %v, want [batch-vi-v2-2]", ids(fresh), err)
+	}
+}
+
+// 3. 未发布的草稿版本绝不能出现在批量查询结果里，即使请求坐标精确匹配。
+func TestIntegrationFindPublishedNeighborChunksBatchExcludesUnpublished(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	seedNeighborChunkBatch(t, repo, "kb-batch-unpub", "doc-batch-unpub", 1, []neighborSeedChunk{
+		{ID: "up-0", ChunkIndex: 0, Content: "draft chunk", Vec: []float32{1, 0, 0}},
+	}, false) // 故意不发布
+
+	got, err := repo.findPublishedNeighborChunksBatch(ctx, []neighborRequest{
+		{documentID: "doc-batch-unpub", documentVersion: 1, chunkIndex: 0},
+	})
+	if err != nil {
+		t.Fatalf("findPublishedNeighborChunksBatch: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("got %v, want empty — an unpublished draft chunk must never be returned even when its exact coordinate is requested", ids(got))
+	}
+}
+
+// 4. 重复/乱序请求：Codex 第一轮 Phase 7 审核发现，去重前的 SQL 对重复请求
+// 坐标返回重复结果行（`[dup-0, dup-1, dup-1]`）——这不满足任务"批量请求包含
+// 重复/乱序坐标时结果必须正确且确定"的验收要求：确定地返回重复行不是正确
+// 结果，还会无谓放大 DB 返回行数，并把正确性完全押在调用方（buildNeighborRequests）
+// 永远提前去重这一个假设上。修复后 requested CTE 加了 DISTINCT（见
+// chunks.sql 的 doc 注释），这条测试验证的就是修复后的行为：即使传入的请
+// 求乱序、且同一个坐标出现两次，最终结果里每个匹配的 chunk 也只出现一次，
+// 顺带验证乱序请求不影响正确性（ORDER BY 是按结果排序，不是按请求顺序）。
+// buildNeighborRequests 的 Go 层提前去重仍然保留（避免正常路径发送冗余坐
+// 标），这条 SQL 层去重是独立的边界防御，不是替代它。
+func TestIntegrationFindPublishedNeighborChunksBatchDuplicateAndOutOfOrderRequestsAreDeterministic(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	ctx := context.Background()
+
+	seedNeighborChunkBatch(t, repo, "kb-batch-dup", "doc-batch-dup", 1, []neighborSeedChunk{
+		{ID: "dup-0", ChunkIndex: 0, Content: "c0", Vec: []float32{1, 0, 0}},
+		{ID: "dup-1", ChunkIndex: 1, Content: "c1", Vec: []float32{1, 0, 0}},
+	}, true)
+
+	// 乱序 + chunk_index=1 的坐标重复了两次.
+	requests := []neighborRequest{
+		{documentID: "doc-batch-dup", documentVersion: 1, chunkIndex: 1},
+		{documentID: "doc-batch-dup", documentVersion: 1, chunkIndex: 0},
+		{documentID: "doc-batch-dup", documentVersion: 1, chunkIndex: 1},
+	}
+	got, err := repo.findPublishedNeighborChunksBatch(ctx, requests)
+	if err != nil {
+		t.Fatalf("findPublishedNeighborChunksBatch: %v", err)
+	}
+	want := []string{"dup-0", "dup-1"} // ORDER BY chunk_index ASC — a duplicated request coordinate must NOT produce a duplicated result row; the requested CTE's DISTINCT collapses it to one
+	if !reflect.DeepEqual(ids(got), want) {
+		t.Fatalf("got %v, want %v — a duplicated request coordinate must resolve to exactly one result row per matching chunk, and result order must be deterministic regardless of request order", ids(got), want)
+	}
+}
+
+// 5. 空请求集合必须在 Go 层短路，绝不发起数据库查询——用一个真实拒绝连接
+// 的 *sql.DB 证明这一点：如果 findPublishedNeighborChunksBatch 对空请求
+// 仍然尝试执行 SQL，这个测试会因为连接失败而报错；它没有报错，就是空请求
+// 从未触达数据库的证据。
+func TestIntegrationFindPublishedNeighborChunksBatchEmptyRequestsNeverQueriesDatabase(t *testing.T) {
+	brokenDB, err := sql.Open("postgres", "postgres://hify:hify_dev@127.0.0.1:1/hify_test_nonexistent?sslmode=disable&connect_timeout=1")
+	if err != nil {
+		t.Fatalf("open broken postgres handle: %v", err)
+	}
+	t.Cleanup(func() { brokenDB.Close() })
+	brokenRepo := NewRepository(nil, brokenDB)
+
+	got, err := brokenRepo.findPublishedNeighborChunksBatch(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("findPublishedNeighborChunksBatch(empty) against a broken DB returned an error, want nil — an empty request set must short-circuit before ever reaching the database: %v", err)
+	}
+	if got != nil {
+		t.Fatalf("got %v, want nil", got)
+	}
+}
+
+// 6. 端到端：expandWithNeighborWindow 通过真实 Repository 驱动，多文档多
+// 版本核心命中，一次批量查询后组装出的最终结果，必须和 Phase 4/5 逐组循环
+// 查询时期望的结果完全一致——批量化是一次查询方式的重写，不能改变
+// expandWithNeighbors 组装出的最终排序/去重结果。
+func TestIntegrationExpandWithNeighborWindowProducesCorrectResultAgainstRealPostgres(t *testing.T) {
+	repo := setupPGOnlyIntegration(t)
+	svc := &service{repo: repo, providerSvc: newFakeProvider(), storageDir: t.TempDir(), findNeighborBatch: repo.findPublishedNeighborChunksBatch}
+
+	seedNeighborChunkBatch(t, repo, "kb-batch-e2e", "doc-batch-e2e-1", 1, []neighborSeedChunk{
+		{ID: "e2e-1-4", ChunkIndex: 4, Content: "e2e-1-4", Vec: []float32{1, 0, 0}},
+		{ID: "e2e-1-5", ChunkIndex: 5, Content: "e2e-1-5-anchor", Vec: []float32{1, 0, 0}},
+		{ID: "e2e-1-6", ChunkIndex: 6, Content: "e2e-1-6", Vec: []float32{1, 0, 0}},
+	}, true)
+	seedNeighborChunkBatch(t, repo, "kb-batch-e2e", "doc-batch-e2e-2", 1, []neighborSeedChunk{
+		{ID: "e2e-2-0", ChunkIndex: 0, Content: "e2e-2-0-anchor", Vec: []float32{1, 0, 0}},
+		{ID: "e2e-2-1", ChunkIndex: 1, Content: "e2e-2-1", Vec: []float32{1, 0, 0}},
+	}, true)
+
+	anchors := []RetrievedChunk{
+		anchorRC("e2e-1-5-anchor-id", "doc-batch-e2e-1", 1, 5, 0.9),
+		anchorRC("e2e-2-0-anchor-id", "doc-batch-e2e-2", 1, 0, 0.8),
+	}
+	// anchorRC 构造的 ID 和种子数据里真实 anchor 行的 ID 不需要一致——
+	// expandWithNeighborWindow/expandWithNeighbors 只关心 anchor 的
+	// DocumentID/DocumentVersion/ChunkIndex 用来算邻接坐标，Content 用来
+	// 去重；这里的两个 anchor 各自的邻接块（previous/next）来自真实种子
+	// 数据，用于验证批量查询确实按坐标取回了正确的行。
+	got, dupCount, err := svc.expandWithNeighborWindow(context.Background(), anchors)
+	if err != nil {
+		t.Fatalf("expandWithNeighborWindow: %v", err)
+	}
+	if dupCount != 0 {
+		t.Fatalf("neighborDuplicateCount = %d, want 0 (no shared content in this fixture)", dupCount)
+	}
+	// Tier 1: 两个 anchor，rank 不变；Tier 2: anchor1 的 previous/next，
+	// 再是 anchor2 的 next（anchor2 在 index 0，没有 previous）。
+	want := []string{"e2e-1-5-anchor-id", "e2e-2-0-anchor-id", "e2e-1-4", "e2e-1-6", "e2e-2-1"}
+	if !reflect.DeepEqual(ids(got), want) {
+		t.Fatalf("got %v, want %v", ids(got), want)
 	}
 }

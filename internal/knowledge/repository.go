@@ -582,6 +582,88 @@ func (r *Repository) findPublishedNeighborChunks(ctx context.Context, documentID
 	return out, nil
 }
 
+// findPublishedNeighborChunksBatch is Phase 7's single SQL entry point for
+// neighbor-window expansion — the batch counterpart to
+// findPublishedNeighborChunks above (see pgqueries/chunks.sql's
+// FindPublishedNeighborChunksBatch doc comment for the SQL-level design).
+// One call fetches every (document_id, document_version, chunk_index)
+// triple in requests, across any number of distinct document versions —
+// callers no longer loop this method per document-version group the way
+// the old findPublishedNeighborChunks required; see service.go's
+// expandWithNeighborWindow, which now calls this exactly once per
+// Retrieve (never once per anchor, never once per document-version
+// group).
+//
+// requests should already be deduplicated by the caller (buildNeighborRequests
+// in neighbor.go guarantees this on the normal production path) — this
+// method does not dedup again in Go, and doesn't need to: the SQL itself
+// (FindPublishedNeighborChunksBatch's requested CTE) also deduplicates via
+// SELECT DISTINCT, so a duplicate triple in requests resolves to exactly
+// one result row per matching chunk regardless (see the SQL doc comment;
+// this used to not be true — Codex's first-round Phase 7 review caught a
+// real bug where a duplicated request coordinate produced a duplicated
+// result row, since fixed). Go-level dedup in buildNeighborRequests stays
+// as the primary mechanism (it's what keeps the parameter arrays sent to
+// the database from growing with redundant coordinates on the normal
+// path); the SQL-level DISTINCT is a second, independent correctness
+// guarantee that doesn't rely on every caller always going through
+// buildNeighborRequests first.
+//
+// An empty requests slice returns (nil, nil) without a round trip — this
+// mirrors searchKeywordChunks' empty-query short-circuit above and is the
+// other half of the "不发起无意义数据库查询" requirement: buildNeighborRequests
+// already returns an empty slice when there's nothing to ask for (e.g. no
+// anchors), and this method makes sure that empty request set never turns
+// into an actual query even if a future caller forgets to check len(...)
+// itself.
+//
+// Like findPublishedNeighborChunks, the returned chunks carry Score=0 and
+// NeighborOf="" — assembling those from the request is expandWithNeighbors'
+// job, not this repository call's.
+func (r *Repository) findPublishedNeighborChunksBatch(ctx context.Context, requests []neighborRequest) ([]RetrievedChunk, error) {
+	if len(requests) == 0 {
+		return nil, nil
+	}
+	docIDs := make([]string, len(requests))
+	docVersions := make([]int64, len(requests))
+	chunkIdxs := make([]int32, len(requests))
+	for i, req := range requests {
+		docIDs[i] = req.documentID
+		docVersions[i] = req.documentVersion
+		chunkIdxs[i] = int32(req.chunkIndex)
+	}
+	rows, err := r.pgQueries.FindPublishedNeighborChunksBatch(ctx, pggen.FindPublishedNeighborChunksBatchParams{
+		DocumentIds:      docIDs,
+		DocumentVersions: docVersions,
+		ChunkIndexes:     chunkIdxs,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("knowledge: find published neighbor chunks batch: %w", err)
+	}
+	out := make([]RetrievedChunk, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, RetrievedChunk{
+			Chunk: Chunk{
+				ID:                 row.ID,
+				KnowledgeBaseID:    row.KnowledgeBaseID,
+				DocumentID:         row.DocumentID,
+				DocumentName:       row.DocumentName,
+				ChunkIndex:         int(row.ChunkIndex),
+				Content:            row.Content,
+				ContentLength:      int(row.ContentLength),
+				EmbeddingDimension: int(row.EmbeddingDimension),
+				PageNumber:         nullInt32ToIntPtr(row.PageNumber),
+				SectionTitle:       nullStringToStringPtr(row.SectionTitle),
+				CreatedAt:          row.CreatedAt,
+				DocumentVersion:    row.DocumentVersion,
+			},
+			// Score/NeighborOf are deliberately left zero-value here — see
+			// this method's doc comment.
+		})
+	}
+	return out, nil
+}
+
 func (r *Repository) countChunksByKnowledgeBase(ctx context.Context, kbID string) (int, error) {
 	n, err := r.pgQueries.CountChunksByKnowledgeBase(ctx, kbID)
 	if err != nil {

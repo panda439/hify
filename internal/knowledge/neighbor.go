@@ -1,6 +1,9 @@
 package knowledge
 
-import "strconv"
+import (
+	"sort"
+	"strconv"
+)
 
 // Phase 4: Neighbor Window Retrieval. Hybrid Search (Phase 3, hybrid.go)
 // only ever returns chunks that were themselves directly hit by the vector
@@ -62,15 +65,20 @@ type neighborGroupKey struct {
 }
 
 // buildNeighborGroups groups anchors by (document_id, document_version) and
-// unions the chunk_index values every anchor in that group needs — this is
-// what makes "one query per document version, not one query per anchor per
-// direction" possible: service.go's expandWithNeighborWindow issues exactly
-// one FindPublishedNeighborChunks call per key in the returned map, with
-// that key's full index set as the ANY(...) argument. The number of groups
-// can never exceed len(anchors) (worst case: every anchor is its own
-// distinct document version), which is itself bounded by topK — the "查询
-// 次数有明确上限" requirement this satisfies structurally, not by a
-// separate runtime check.
+// unions the chunk_index values every anchor in that group needs. Phase 4
+// introduced this to make "one query per document version, not one query
+// per anchor per direction" possible; Phase 7 replaced that per-group loop
+// in service.go's expandWithNeighborWindow with a single batch query (see
+// buildNeighborRequests below and FindPublishedNeighborChunksBatch's doc
+// comment) — the N+1-across-groups pattern this function enabled is no
+// longer the production path. This function is kept, unchanged, because
+// integration_test.go's Phase 4/5 real-Postgres tests still call it
+// directly together with the single-group findPublishedNeighborChunks to
+// drive expandWithNeighbors independently of Service.Retrieve's MySQL
+// dependency; removing it would force rewriting tests that already pass
+// and aren't part of Phase 7's scope. The number of groups can never
+// exceed len(anchors) (worst case: every anchor is its own distinct
+// document version), which is itself bounded by topK.
 func buildNeighborGroups(anchors []RetrievedChunk) map[neighborGroupKey]map[int]bool {
 	groups := make(map[neighborGroupKey]map[int]bool)
 	for _, a := range anchors {
@@ -85,6 +93,85 @@ func buildNeighborGroups(anchors []RetrievedChunk) map[neighborGroupKey]map[int]
 		}
 	}
 	return groups
+}
+
+// neighborRequest is one (document_id, document_version, chunk_index)
+// coordinate a caller wants back from FindPublishedNeighborChunksBatch —
+// the flattened, deduplicated unit buildNeighborRequests produces. Unlike
+// neighborGroupKey (which only identifies a document-version GROUP, with
+// the actual index set living in a separate map), neighborRequest carries
+// a single fully-resolved coordinate because the Phase 7 batch query wants
+// one flat list of tuples, not a grouped structure — see
+// Repository.findPublishedNeighborChunksBatch, which turns a
+// []neighborRequest directly into the three parallel arrays
+// FindPublishedNeighborChunksBatch's SQL unnests.
+type neighborRequest struct {
+	documentID      string
+	documentVersion int64
+	chunkIndex      int
+}
+
+// buildNeighborRequests is Phase 7's flattening step: it walks every
+// anchor's wanted neighbor indexes (same neighborIndexesFor rule
+// buildNeighborGroups uses) and produces a single deduplicated
+// []neighborRequest — one entry per distinct (document_id,
+// document_version, chunk_index) triple, however many anchors asked for
+// it. This is what lets expandWithNeighborWindow issue exactly one
+// FindPublishedNeighborChunksBatch call for a normal success path
+// regardless of how many core hits or document versions are involved: the
+// request set below is the query's entire parameter, not one group's worth
+// of it.
+//
+// Dedup uses the same neighborLookupKey the assembly step
+// (expandWithNeighbors) already uses to look neighbors back up by
+// coordinate, so a triple appearing here exactly once is guaranteed to
+// resolve to exactly one requested row regardless of how many anchors
+// (adjacent ones sharing a would-be neighbor, or the same anchor's own
+// previous/next both landing on an index another anchor also wants)
+// independently asked for it.
+//
+// The returned slice is sorted by (documentID, documentVersion,
+// chunkIndex) purely for determinism — expandWithNeighbors doesn't care
+// what order the neighbors it's handed arrive in (see its own doc
+// comment), but a stable order here makes this function's own output
+// deterministic to assert on in tests and makes repeated calls with the
+// same anchor set produce byte-identical SQL parameter arrays, which is
+// easier to reason about and log than an Range-order-dependent one would
+// be.
+//
+// An empty/nil anchors input (the same case expandWithNeighborWindow
+// already short-circuits on before ever reaching this function) produces
+// an empty, not nil, result — callers should still treat len(result)==0
+// as "there is nothing to query" and skip the batch call entirely (see
+// findPublishedNeighborChunksBatch's own empty-input short-circuit for the
+// second half of that contract).
+func buildNeighborRequests(anchors []RetrievedChunk) []neighborRequest {
+	seen := make(map[string]bool, len(anchors)*2)
+	requests := make([]neighborRequest, 0, len(anchors)*2)
+	for _, a := range anchors {
+		for _, idx := range neighborIndexesFor(a.ChunkIndex) {
+			key := neighborLookupKey(a.DocumentID, a.DocumentVersion, idx)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			requests = append(requests, neighborRequest{
+				documentID:      a.DocumentID,
+				documentVersion: a.DocumentVersion,
+				chunkIndex:      idx,
+			})
+		}
+	}
+	sort.Slice(requests, func(i, j int) bool {
+		if requests[i].documentID != requests[j].documentID {
+			return requests[i].documentID < requests[j].documentID
+		}
+		if requests[i].documentVersion != requests[j].documentVersion {
+			return requests[i].documentVersion < requests[j].documentVersion
+		}
+		return requests[i].chunkIndex < requests[j].chunkIndex
+	})
+	return requests
 }
 
 // neighborLookupKey is expandWithNeighbors' internal index into the flat

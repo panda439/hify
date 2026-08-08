@@ -170,12 +170,16 @@ type FindPublishedNeighborChunksRow struct {
 	SectionTitle       sql.NullString `json:"section_title"`
 }
 
-// Phase 4: 邻接分块扩展（Neighbor Window Retrieval）的唯一 SQL 入口——见
-// knowledge/neighbor.go 的 doc 注释。调用方（service.go 的
-// expandWithNeighborWindow）按 (document_id, document_version) 把所有核心
-// 命中块分组，每组只调用这一条查询一次，chunk_indexes 里合并了这一组全部
-// 核心块各自需要的前一个/后一个 index——不为每个核心块的每个方向单独发一
-// 条 SQL。
+// Phase 4 引入、Phase 7 起不再是 service.go 邻接窗口扩展的调用路径——见下面
+// FindPublishedNeighborChunksBatch 的 doc 注释：expandWithNeighborWindow 现
+// 在把所有核心命中块的邻接坐标一次性展平成一个批量查询，不再按
+// (document_id, document_version) 分组循环调用这条按单一分组查询的版本。
+// 这条查询本身没有删除——它的语义（单个 document_id+document_version 分组
+// 内按 chunk_indexes 取邻接块）仍然正确，且 integration_test.go 里若干 Phase
+// 4/5 的真实 Postgres 测试继续直接调用它来驱动 expandWithNeighbors，不经过
+// Service.Retrieve 整条链路，独立验证核心/邻接去重和跨版本隔离逻辑；保留
+// 这条查询让那些测试不必跟着批量化重写。真正的生产路径请看
+// FindPublishedNeighborChunksBatch。
 //
 // 四个过滤条件里 document_id + document_version 缺一不可：只有这两个一起
 // 锁定"同一次处理尝试"的 chunk 集合，绝不会把另一个文档、或者同一文档另
@@ -210,6 +214,136 @@ func (q *Queries) FindPublishedNeighborChunks(ctx context.Context, arg FindPubli
 	items := []FindPublishedNeighborChunksRow{}
 	for rows.Next() {
 		var i FindPublishedNeighborChunksRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.KnowledgeBaseID,
+			&i.DocumentID,
+			&i.DocumentVersion,
+			&i.ChunkIndex,
+			&i.Content,
+			&i.ContentLength,
+			&i.EmbeddingDimension,
+			&i.CreatedAt,
+			&i.DocumentName,
+			&i.PageNumber,
+			&i.SectionTitle,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const findPublishedNeighborChunksBatch = `-- name: FindPublishedNeighborChunksBatch :many
+WITH requested AS (
+    SELECT DISTINCT d.document_id, v.document_version, c.chunk_index
+    FROM unnest($1::text[]) WITH ORDINALITY AS d(document_id, ord)
+    JOIN unnest($2::bigint[]) WITH ORDINALITY AS v(document_version, ord)
+      ON v.ord = d.ord
+    JOIN unnest($3::int[]) WITH ORDINALITY AS c(chunk_index, ord)
+      ON c.ord = d.ord
+)
+SELECT ch.id, ch.knowledge_base_id, ch.document_id, ch.document_version, ch.chunk_index, ch.content,
+       ch.content_length, ch.embedding_dimension, ch.created_at,
+       ch.document_name, ch.page_number, ch.section_title
+FROM chunks ch
+JOIN requested r
+  ON ch.document_id = r.document_id
+ AND ch.document_version = r.document_version
+ AND ch.chunk_index = r.chunk_index
+WHERE ch.is_published = true
+ORDER BY ch.document_id ASC, ch.document_version ASC, ch.chunk_index ASC, ch.id ASC
+`
+
+type FindPublishedNeighborChunksBatchParams struct {
+	DocumentIds      []string `json:"document_ids"`
+	DocumentVersions []int64  `json:"document_versions"`
+	ChunkIndexes     []int32  `json:"chunk_indexes"`
+}
+
+type FindPublishedNeighborChunksBatchRow struct {
+	ID                 string         `json:"id"`
+	KnowledgeBaseID    string         `json:"knowledge_base_id"`
+	DocumentID         string         `json:"document_id"`
+	DocumentVersion    int64          `json:"document_version"`
+	ChunkIndex         int32          `json:"chunk_index"`
+	Content            string         `json:"content"`
+	ContentLength      int32          `json:"content_length"`
+	EmbeddingDimension int32          `json:"embedding_dimension"`
+	CreatedAt          time.Time      `json:"created_at"`
+	DocumentName       string         `json:"document_name"`
+	PageNumber         sql.NullInt32  `json:"page_number"`
+	SectionTitle       sql.NullString `json:"section_title"`
+}
+
+// Phase 7: 邻接窗口批量查询（Batch Neighbor Lookup）——这条查询取代了
+// FindPublishedNeighborChunks 在 service.go 里被循环调用的用法：
+// expandWithNeighborWindow 不再按 (document_id, document_version) 分组、每
+// 组发一条 SQL，而是把所有核心命中块需要的邻接坐标（document_id +
+// document_version + chunk_index 三元组，见 knowledge/neighbor.go 的
+// buildNeighborRequests）去重展平成三个等长的并行数组，一次性传给这一条
+// 查询——正常成功路径无论有多少个核心块、多少个不同的文档/版本，只发生
+// 一次数据库往返。
+//
+// 三个并行数组各自单独 unnest() WITH ORDINALITY，再按序数 ord 三路 JOIN 拼回
+// 同一行——这等价于"多参数 unnest(a,b,c) AS t(x,y,z)"想表达的并行数组展开，
+// 但用的是 sqlc 的 PostgreSQL 类型检查器能正确识别的单参数 unnest 形态（多
+// 参数 unnest 在 sqlc 的静态 catalog 里无法解析参数类型，会在 sqlc generate
+// 阶段直接报 "function unnest(unknown, unknown, unknown) does not exist"）。
+// 拼出来的 requested(document_id, document_version, chunk_index) 再和
+// chunks 表按这三列做等值 JOIN——这是 PostgreSQL 里"传入一组元组、按元组
+// 匹配"的标准参数化写法，不是字符串拼接：三个数组各自作为独立的
+// sqlc.arg(...)::type[] 参数绑定，SQL 文本本身不包含任何调用方数据。
+//
+// 隔离性和 FindPublishedNeighborChunks 完全一致，不因为改成批量就放松：
+// JOIN 条件同时要求 document_id、document_version、chunk_index 三者都匹配，
+// 绝不会把另一个文档、或者同一文档另一次处理尝试（重新处理产生的新/旧版
+// 本）里恰好 chunk_index 相同的行当成邻接块带回来。is_published = true 过
+// 滤未发布草稿版本的理由同上——邻接块不能是例外。请求数组里某个三元组对
+// 应的版本已经被重新处理删除（DeleteObsoleteChunkVersions 物理删除旧版本
+// 行）时，JOIN 天然匹配不到那一行，不会退回去匹配新版本的相同 index——
+// 结构性保证，不靠 Go 层二次校验。
+//
+// 调用方（Repository.findPublishedNeighborChunksBatch）在正常生产路径上已
+// 经保证三个数组等长、且已经去重（buildNeighborRequests 用一个 map 收集
+// 三元组，同一个三元组只出现一次）——这仍然是首选：提前去重让发给数据库
+// 的坐标数量不随重复请求膨胀。但这条查询本身不能把"调用方永远会提前去
+// 重"当成正确性前提：requested CTE 显式加了 DISTINCT，即使调用方（或未来
+// 某个不经过 buildNeighborRequests 的调用路径）传入重复甚至乱序的三元组，
+// 同一个坐标在 requested 里也只会出现一次，JOIN 到 chunks 后每个匹配的
+// chunk 只返回一行——这是 SQL/repository 边界上的防御性去重，不是替代 Go
+// 层去重（Go 层提前去重仍然保留，理由见上一段），而是"调用方去重逻辑万一
+// 有 bug 或被绕过时，这条查询的返回结果依然正确、不会把请求里的重复放大
+// 成结果里的重复"这一条独立的正确性保证（Codex 第一轮 Phase 7 审核发现：
+// 去重前的版本对重复请求坐标返回重复结果行，不满足"批量请求包含重复/乱
+// 序坐标时结果必须正确且确定"的验收要求，已在此修复）。空数组（调用方没
+// 有任何邻接坐标要问）交给 Go 层直接短路返回，不发起这条查询——SQL 侧不
+// 需要、也不做空数组特判：unnest 对三个空数组产生零行 requested，JOIN 自
+// 然返回空结果集，行为本身是对的，只是没有必要为了"什么都不查"专门走一次
+// 数据库往返。
+//
+// ORDER BY 用 document_id、document_version、chunk_index 依次排序、id ASC
+// 稳定兜底——和 FindPublishedNeighborChunks 一样，调用方（neighbor.go 的
+// expandWithNeighbors）按 (document_id, document_version, chunk_index) 三元
+// 组 key 在结果里查找匹配项，不依赖这条查询返回的顺序本身有业务含义，这里
+// 排序只是为了让同一份请求集合两次调用返回确定性一致的行序，方便测试断言
+// 和排查问题。
+func (q *Queries) FindPublishedNeighborChunksBatch(ctx context.Context, arg FindPublishedNeighborChunksBatchParams) ([]FindPublishedNeighborChunksBatchRow, error) {
+	rows, err := q.db.QueryContext(ctx, findPublishedNeighborChunksBatch, pq.Array(arg.DocumentIds), pq.Array(arg.DocumentVersions), pq.Array(arg.ChunkIndexes))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FindPublishedNeighborChunksBatchRow{}
+	for rows.Next() {
+		var i FindPublishedNeighborChunksBatchRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.KnowledgeBaseID,
