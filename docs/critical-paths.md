@@ -2,7 +2,7 @@
 
 > 筛选标准：不是所有链路，只收"改造时容易出问题"的——跨模块协作多、有异步/流式/跨库等隐性契约、或失败后果严重（数据不一致、密钥泄露、静默丢数据）。共 9 条。
 >
-> 生成时间：2026-07-21（链路 3 于 2026-08-07 随 Hybrid Search Phase 3 更新，见 [docs/eval-phase3-hybrid-search-report.md](docs/eval-phase3-hybrid-search-report.md)；同一天随 Neighbor Window Retrieval Phase 4 再次更新，并在同一天的审核修复轮次里修正了邻接块预算优先级描述，见 [docs/eval-phase4-neighbor-window-report.md](docs/eval-phase4-neighbor-window-report.md) 第 0 节；同一天随 Exact Content Dedup Phase 5 再次更新，见 [docs/eval-phase5-content-dedup-report.md](docs/eval-phase5-content-dedup-report.md)）
+> 生成时间：2026-07-21（链路 3 于 2026-08-07 随 Hybrid Search Phase 3 更新，见 [docs/eval-phase3-hybrid-search-report.md](docs/eval-phase3-hybrid-search-report.md)；同一天随 Neighbor Window Retrieval Phase 4 再次更新，并在同一天的审核修复轮次里修正了邻接块预算优先级描述，见 [docs/eval-phase4-neighbor-window-report.md](docs/eval-phase4-neighbor-window-report.md) 第 0 节；同一天随 Exact Content Dedup Phase 5 再次更新，见 [docs/eval-phase5-content-dedup-report.md](docs/eval-phase5-content-dedup-report.md)；同一天新增 Phase 6 确定性检索回归门禁，链路 3 覆盖状态一栏补充说明，见 [docs/eval-phase6-retrieval-gate-report.md](docs/eval-phase6-retrieval-gate-report.md)——门禁本身是开发回归工具而非新的生产数据流，不新增为第 10 条链路，和 `cmd/evalrunner`/`internal/eval` 在本清单里的既有处理方式一致）
 
 | # | 链路名 | 起点（接口） | 关键节点（service / DB 操作） | 终点（什么状态算成功） |
 |---|--------|--------------|-------------------------------|------------------------|

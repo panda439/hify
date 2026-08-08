@@ -1,0 +1,403 @@
+package knowledge
+
+// Phase 6: Deterministic Retrieval Eval Gate.
+//
+// This file drives a real knowledge.Service.Retrieve() call (real MySQL +
+// real PostgreSQL/pgvector/pg_trgm, fake embedding provider — no LLM, no
+// Judge, no external API) against a fixed, isolated, six-case dataset and
+// gates on the deterministic metrics defined in internal/eval/retrieval
+// (gate.go): Hit@1, Hit@3, MRR, and a content-uniqueness rate.
+// It is NOT a new algorithm — Phase 3 (Hybrid Search), Phase 4 (neighbor
+// window) and Phase 5 (exact content dedup) are exercised exactly as
+// written; this only adds a repeatable pass/fail baseline over them.
+//
+// Why this lives here instead of a new cmd/evalrunner subcommand or inside
+// internal/eval/retrieval: the dataset needs precise control over chunk embeddings,
+// content, chunk_index adjacency and publish state — the same unexported
+// seeding helpers (createChunks, publishDocumentVersion,
+// seedNeighborChunkBatch, seedChunkWithContent, ...) every other Phase
+// 3/4/5 integration test in this file already uses. Building this in a
+// separate package would mean either exporting those helpers (widening
+// knowledge's public surface for no production reason) or duplicating them
+// (a second copy to keep in sync). The pure metric/threshold logic that
+// CAN live outside this package already does — see
+// internal/eval/retrieval's gate.go doc comment for why that's a sibling
+// leaf package rather than a reuse of internal/eval directly (internal/eval
+// imports internal/conversation, which imports internal/knowledge — this
+// test file importing internal/eval would form an import cycle) and for
+// why that split also keeps this gate from depending on cmd/evalrunner's
+// LLM-judge machinery, which the task explicitly forbids pulling in here.
+//
+// Isolation/idempotency (task requirement 6): setupEvalGate uses its own
+// testutil DB name ("evalgate"), never "knowledge" — testutil.MySQL/
+// Postgres DROP-and-recreate that database fresh on every test run (see
+// internal/testutil's package doc), so this dataset can never collide with
+// another package's fixture IDs, never accumulates stale rows across runs,
+// and never touches the dev database or any other test's data. Nothing
+// here needs its own manual cleanup step.
+//
+// Privacy (task requirement 5): retrievalGateOutcome is the only place
+// that ever looks at a returned chunk's Content — it reduces every case
+// down to counts (ResultCount/DuplicateContentCount) and a HitRank before
+// returning, and separately collects only chunk/document ID, rank, and
+// NeighborOf into retrieval.GateHit for the saved report. Neither return
+// value nor the report has a field a chunk's Content, this test's query
+// text, an embedding vector, or a relevance Score could end up in — Score
+// was in an earlier version of GateHit and got removed per Codex's
+// first-round Phase 6 review (待修复项 1): the task's allow-list is case
+// name/chunk-document ID/rank/NeighborOf/counts/aggregate metrics, and
+// Score isn't on it. internal/eval/retrieval/report_test.go has a
+// reflection-based test asserting no field in the report's type graph is
+// named content/score/query/embedding/fingerprint, so this can't silently
+// regress again.
+//
+// Report path (task requirement 4's "报告是side artifact, 不是唯一强制手
+// 段" plus Codex's 待修复项 2): retrievalGateReportPath defaults to
+// t.TempDir() — `go test`'s working directory is the package directory
+// (internal/knowledge), so a bare relative path like "eval/runs/..." would
+// have written into internal/knowledge/eval/runs/, polluting the source
+// tree on every plain `go test ./...` run (exactly the bug Codex's review
+// caught: git status showed an untracked internal/knowledge/eval/ after a
+// real run). The HIFY_RETRIEVAL_GATE_REPORT_PATH env var lets
+// `make eval-retrieval-gate` opt into a human-readable report at a
+// repo-root-relative path without every other `go test` invocation
+// (including plain `go test ./...` in CI) writing anywhere near the
+// source tree.
+//
+// Entry point (task requirement 7): `make eval-retrieval-gate` runs
+// `go test -v -race -count=1 -run TestRetrievalGatePhase6 ./internal/knowledge/`
+// with HIFY_RETRIEVAL_GATE_REPORT_PATH set to an absolute,
+// repo-root-relative eval/runs/ path — a real go test invocation, not a
+// new binary, so it inherits testutil's documented
+// skip-when-containers-are-down behavior (printed, never silent) instead
+// of re-implementing DB bootstrap/skip logic outside the *testing.T-based
+// machinery every other integration test already relies on.
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"hify/internal/eval/retrieval"
+	"hify/internal/testutil"
+)
+
+// retrievalGateReportPathEnv, when set to a non-empty value, overrides
+// where TestRetrievalGatePhase6 saves its human-readable report — see
+// this file's top doc comment's "Report path" paragraph for why a plain
+// `go test` run must never write into the source tree by default.
+const retrievalGateReportPathEnv = "HIFY_RETRIEVAL_GATE_REPORT_PATH"
+
+// retrievalGateReportPath resolves where this run's report gets saved:
+// the env var if set, otherwise a path inside t.TempDir() (cleaned up
+// automatically after the test, and never anywhere near the source tree
+// regardless of the test binary's working directory) — see
+// TestRetrievalGateReportPathDefaultsAwayFromSourceTree /
+// TestRetrievalGateReportPathHonorsEnvOverride for the regression tests
+// covering both branches.
+func retrievalGateReportPath(t *testing.T) string {
+	t.Helper()
+	if p := os.Getenv(retrievalGateReportPathEnv); p != "" {
+		return p
+	}
+	return filepath.Join(t.TempDir(), "phase6-retrieval-gate-latest.json")
+}
+
+func setupEvalGate(t *testing.T) *Repository {
+	t.Helper()
+	return NewRepository(testutil.MySQL(t, "evalgate"), testutil.Postgres(t, "evalgate"))
+}
+
+func docSet(ids ...string) map[string]struct{} {
+	s := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		s[id] = struct{}{}
+	}
+	return s
+}
+
+// retrievalGateOutcome runs one case's Retrieve() call and reduces the raw
+// result into a privacy-safe retrieval.CaseOutcome plus a
+// []retrieval.GateHit for the saved report — see this file's top doc
+// comment's "Privacy" paragraph. DuplicateContentCount is computed here
+// independently of dedupExactContentChunks (a second, separate pass over
+// what Retrieve actually returned, using the same normalizeContentForDedup
+// key) specifically so a bug in the production dedup call sites shows up
+// as a nonzero count here rather than being invisible because this test
+// trusted the same code path it's supposed to be checking.
+func retrievalGateOutcome(t *testing.T, svc Service, kbIDs []string, query string, topK int, name string, expectedDocIDs map[string]struct{}) (retrieval.CaseOutcome, []retrieval.GateHit) {
+	t.Helper()
+	ctx := context.Background()
+	got, err := svc.Retrieve(ctx, kbIDs, query, topK)
+	if err != nil {
+		t.Fatalf("case %q: Retrieve: %v", name, err)
+	}
+
+	outcome := retrieval.CaseOutcome{
+		Name:               name,
+		ExpectedConfigured: len(expectedDocIDs) > 0,
+		ResultCount:        len(got),
+	}
+	hits := make([]retrieval.GateHit, 0, len(got))
+	seenContent := make(map[string]bool, len(got))
+	for i, c := range got {
+		rank := i + 1
+		if outcome.HitRank == 0 {
+			if _, ok := expectedDocIDs[c.DocumentID]; ok {
+				outcome.HitRank = rank
+			}
+		}
+		if key := normalizeContentForDedup(c.Content); key != "" {
+			if seenContent[key] {
+				outcome.DuplicateContentCount++
+			} else {
+				seenContent[key] = true
+			}
+		}
+		hits = append(hits, retrieval.GateHit{
+			Rank: rank, ChunkID: c.ID, DocumentID: c.DocumentID,
+			KnowledgeBaseID: c.KnowledgeBaseID, NeighborOf: c.NeighborOf,
+		})
+	}
+	return outcome, hits
+}
+
+// retrievalGateThresholds is this dataset's fixed pass criteria. Every
+// case in this dataset is deliberately constructed so a correctly
+// functioning Phase 3/4/5 pipeline hits at rank 1 (see each t.Run's
+// comment for the score arithmetic that makes this deterministic, not
+// coincidental) and returns zero duplicate content — so a healthy run
+// scores a clean 1.0 on all four metrics, and ANY drop below 1.0 on any of
+// them is a real regression, not dataset noise. That is what makes
+// MinHitAt1=MinHitAt3=MinMRR=MinContentUniqueRate=1.0 the right thresholds
+// here (a looser dataset with legitimately-hard cases would need looser
+// thresholds; this one doesn't have any).
+func retrievalGateThresholds() retrieval.GateThresholds {
+	return retrieval.GateThresholds{
+		MinHitAt1:            1.0,
+		MinHitAt3:            1.0,
+		MinMRR:               1.0,
+		MinContentUniqueRate: 1.0,
+	}
+}
+
+func TestRetrievalGatePhase6(t *testing.T) {
+	repo := setupEvalGate(t)
+	fp := newFakeProvider()
+	svc := newTestService(repo, fp, t.TempDir())
+
+	seedKB(t, repo, "kb-gate-vector", "m3", "gate-user", true)
+	seedKB(t, repo, "kb-gate-keyword", "m3", "gate-user", true)
+	seedKB(t, repo, "kb-gate-dedup", "m3", "gate-user", true)
+	seedKB(t, repo, "kb-gate-neighbor", "m3", "gate-user", true)
+	seedKB(t, repo, "kb-gate-hybrid-dedup", "m3", "gate-user", true)
+	seedKB(t, repo, "kb-gate-empty", "m3", "gate-user", true) // deliberately zero chunks
+
+	var (
+		outcomes []retrieval.CaseOutcome
+		cases    []retrieval.GateCaseReport
+	)
+	record := func(o retrieval.CaseOutcome, hits []retrieval.GateHit) {
+		outcomes = append(outcomes, o)
+		cases = append(cases, retrieval.GateCaseReport{Name: o.Name, Hits: hits, Outcome: o})
+	}
+
+	// 1. 语义向量命中：三条候选里只有一条余弦相似度非零，其余两条正交——
+	// 命中必须排第一（fusionScore = 0.65/(60+1) 远高于两条 cos=0 候选）。
+	// 查询词刻意不出现在任何一条正文里，确保关键词路径不参与，纯粹验证向量
+	// 语义检索。
+	t.Run("vector_semantic_hit", func(t *testing.T) {
+		seedChunkWithContent(t, repo, "kb-gate-vector", "doc-gate-vector", "gv-hit", []float32{1, 0, 0}, "语义向量命中示例内容：讲解检索排序算法")
+		seedChunkWithContent(t, repo, "kb-gate-vector", "doc-gate-vector-other", "gv-decoy-a", []float32{0, 1, 0}, "无关内容：食堂本周菜单更新")
+		seedChunkWithContent(t, repo, "kb-gate-vector", "doc-gate-vector-other", "gv-decoy-b", []float32{0, 0, 1}, "无关内容：园区班车时刻表调整")
+
+		o, hits := retrievalGateOutcome(t, svc, []string{"kb-gate-vector"}, "向量语义检索场景查询ZZZNOTOKEN", 3, "vector_semantic_hit", docSet("doc-gate-vector"))
+		if o.HitRank != 1 {
+			t.Fatalf("HitRank = %d, want 1 (gv-hit is the only non-orthogonal vector candidate)", o.HitRank)
+		}
+		if o.DuplicateContentCount != 0 {
+			t.Fatalf("DuplicateContentCount = %d, want 0", o.DuplicateContentCount)
+		}
+		record(o, hits)
+	})
+
+	// 2. 强关键词命中进入 topK：kw-hit 向量分是三者中最弱的（cos=0，向量单路
+	// 排名会掉到第 4，topK=3 时被淘汰），但正文含查询里的精确关键词——RRF
+	// 融合后 fusionScore = 0.65/(60+4) + 0.35/(60+1) ≈ 0.015894，比向量单路
+	// 排名第一的 gk-v1（0.65/(60+1) ≈ 0.010656）还高，必须冲到融合结果第一
+	// 位，把向量单路本该进 topK 的 gk-v3 挤出去。
+	t.Run("keyword_strong_hit", func(t *testing.T) {
+		seedChunkWithContent(t, repo, "kb-gate-keyword", "doc-gate-kw-decoy", "gk-v1", []float32{1, 0, 0}, "无关内容一：项目周报草稿")
+		seedChunkWithContent(t, repo, "kb-gate-keyword", "doc-gate-kw-decoy", "gk-v2", []float32{1, 0.1, 0}, "无关内容二：会议室预定安排")
+		seedChunkWithContent(t, repo, "kb-gate-keyword", "doc-gate-kw-decoy", "gk-v3", []float32{1, 0.2, 0}, "无关内容三：办公用品采购清单")
+		seedChunkWithContent(t, repo, "kb-gate-keyword", "doc-gate-kw-hit", "gk-hit", []float32{0, 1, 0}, "本段正文包含精确关键词GATEKWTOKEN用于命中验证")
+
+		o, hits := retrievalGateOutcome(t, svc, []string{"kb-gate-keyword"}, "GATEKWTOKEN", 3, "keyword_strong_hit", docSet("doc-gate-kw-hit"))
+		if o.HitRank != 1 {
+			t.Fatalf("HitRank = %d, want 1 (strong keyword match must win RRF fusion outright, see this test's comment for the score arithmetic)", o.HitRank)
+		}
+		for _, h := range hits {
+			if h.ChunkID == "gk-v3" {
+				t.Fatalf("gk-v3 (weakest vector-only top3 member) should have been displaced out of topK by the keyword hit, but it's still present: %+v", hits)
+			}
+		}
+		if o.DuplicateContentCount != 0 {
+			t.Fatalf("DuplicateContentCount = %d, want 0", o.DuplicateContentCount)
+		}
+		record(o, hits)
+	})
+
+	// 3. 不同 ID、完全相同正文只保留排名最高者，唯一候选补位：dup-high 和
+	// dup-low 正文完全相同（dup-high 余弦分更高），topK=2 时必须只保留
+	// dup-high，让内容不同的 gd-unique 补上被去重腾出的名额——不能是
+	// [dup-high, dup-low]。
+	t.Run("content_dedup_topk_fill", func(t *testing.T) {
+		dupContent := "内容去重验收场景：完全相同的正文，用于验证只保留最高排名者"
+		seedChunkWithContent(t, repo, "kb-gate-dedup", "doc-gate-dedup", "gd-dup-high", []float32{1, 0, 0}, dupContent)
+		seedChunkWithContent(t, repo, "kb-gate-dedup", "doc-gate-dedup", "gd-dup-low", []float32{1, 0.1, 0}, dupContent)
+		seedChunkWithContent(t, repo, "kb-gate-dedup", "doc-gate-dedup", "gd-unique", []float32{1, 0.2, 0}, "内容去重验收场景：内容不同的第三条候选，应当补位")
+
+		o, hits := retrievalGateOutcome(t, svc, []string{"kb-gate-dedup"}, "内容去重场景查询ZZZNOTOKEN", 2, "content_dedup_topk_fill", docSet("doc-gate-dedup"))
+		if o.HitRank != 1 {
+			t.Fatalf("HitRank = %d, want 1", o.HitRank)
+		}
+		if len(hits) != 2 {
+			t.Fatalf("got %d hits, want exactly 2 (topK=2, dedup must free the slot dup-low would have wasted)", len(hits))
+		}
+		gotIDs := []string{hits[0].ChunkID, hits[1].ChunkID}
+		if gotIDs[0] != "gd-dup-high" || gotIDs[1] != "gd-unique" {
+			t.Fatalf("got %v, want [gd-dup-high gd-unique] — dedup must keep the higher-ranked duplicate and let the unique candidate fill the freed slot", gotIDs)
+		}
+		if o.DuplicateContentCount != 0 {
+			t.Fatalf("DuplicateContentCount = %d, want 0 (dup-low must never reach the returned result set)", o.DuplicateContentCount)
+		}
+		record(o, hits)
+	})
+
+	// 4. 核心块优先于正文重复的邻接块：anchor 的邻接块 anchor-prev 与另一
+	// 个核心命中 core2 正文完全相同——两个核心块（anchor、core2）都必须保
+	// 留，重复的邻接块 anchor-prev 必须被丢弃。anchor-prev 的向量与查询正
+	// 交（cos=0），只能通过 anchor 的 chunk_index 邻接窗口被捞回，不能凭
+	// 向量分单独赢得核心命中名额——同 Phase 5 待修复项 4 的 fixture 设计。
+	t.Run("core_over_duplicate_neighbor", func(t *testing.T) {
+		sharedContent := "核心块与邻接块共享的重复正文，核心块必须优先保留"
+		seedNeighborChunkBatch(t, repo, "kb-gate-neighbor", "doc-gate-nb-anchor", 1, []neighborSeedChunk{
+			{ID: "gn-anchor", ChunkIndex: 5, Content: "anchor 自己独有的正文", Vec: []float32{1, 0, 0}},
+			{ID: "gn-anchor-prev", ChunkIndex: 4, Content: sharedContent, Vec: []float32{0, 1, 0}},
+		}, true)
+		seedNeighborChunkBatch(t, repo, "kb-gate-neighbor", "doc-gate-nb-core2", 1, []neighborSeedChunk{
+			{ID: "gn-core2", ChunkIndex: 0, Content: sharedContent, Vec: []float32{1, 0, 0}},
+		}, true)
+
+		o, hits := retrievalGateOutcome(t, svc, []string{"kb-gate-neighbor"}, "核心邻接去重场景查询", 2, "core_over_duplicate_neighbor", docSet("doc-gate-nb-anchor", "doc-gate-nb-core2"))
+		if o.HitRank != 1 {
+			t.Fatalf("HitRank = %d, want 1", o.HitRank)
+		}
+		foundAnchor, foundCore2 := false, false
+		for _, h := range hits {
+			if h.ChunkID == "gn-anchor-prev" {
+				t.Fatalf("gn-anchor-prev duplicates gn-core2's content and must have been dropped, got %+v", hits)
+			}
+			if h.ChunkID == "gn-anchor" {
+				foundAnchor = true
+			}
+			if h.ChunkID == "gn-core2" {
+				foundCore2 = true
+			}
+		}
+		if !foundAnchor || !foundCore2 {
+			t.Fatalf("want both core hits (gn-anchor, gn-core2) present, got %+v", hits)
+		}
+		if o.DuplicateContentCount != 0 {
+			t.Fatalf("DuplicateContentCount = %d, want 0", o.DuplicateContentCount)
+		}
+		record(o, hits)
+	})
+
+	// 5. 同一 chunk 被向量/关键词同时召回时不重复：gh-both 的正文既含精确
+	// 关键词又是最强的向量命中，必须只在最终结果里出现一次。
+	t.Run("hybrid_dedup_same_chunk_both_paths", func(t *testing.T) {
+		seedChunkWithContent(t, repo, "kb-gate-hybrid-dedup", "doc-gate-hybrid-dedup", "gh-both", []float32{1, 0, 0}, "去重验证关键词GATEHYBRIDTOKEN同时命中向量与关键词两路")
+		seedChunkWithContent(t, repo, "kb-gate-hybrid-dedup", "doc-gate-hybrid-dedup-other", "gh-other", []float32{1, 0.5, 0}, "无关内容，仅用于填充候选集")
+
+		o, hits := retrievalGateOutcome(t, svc, []string{"kb-gate-hybrid-dedup"}, "GATEHYBRIDTOKEN", 2, "hybrid_dedup_same_chunk_both_paths", docSet("doc-gate-hybrid-dedup"))
+		if o.HitRank != 1 {
+			t.Fatalf("HitRank = %d, want 1", o.HitRank)
+		}
+		count := 0
+		for _, h := range hits {
+			if h.ChunkID == "gh-both" {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Fatalf("gh-both appeared %d times in the final result, want exactly 1 (hit by both vector and keyword paths must fuse into a single entry)", count)
+		}
+		if o.DuplicateContentCount != 0 {
+			t.Fatalf("DuplicateContentCount = %d, want 0", o.DuplicateContentCount)
+		}
+		record(o, hits)
+	})
+
+	// 6. 不相关查询/空结果场景不制造命中：kb-gate-empty 一个 chunk 都没有
+	// 种，Retrieve 必须老实返回空结果，不能凭空造出命中。
+	t.Run("no_results_negative", func(t *testing.T) {
+		o, hits := retrievalGateOutcome(t, svc, []string{"kb-gate-empty"}, "任意查询文本", 3, "no_results_negative", nil)
+		if o.ExpectedConfigured {
+			t.Fatalf("ExpectedConfigured = true, want false (this case configures no accepted document)")
+		}
+		if o.ResultCount != 0 || len(hits) != 0 {
+			t.Fatalf("ResultCount = %d, hits = %+v, want 0/empty — an empty knowledge base must never fabricate a hit", o.ResultCount, hits)
+		}
+		record(o, hits)
+	})
+
+	// --- 门禁：把 6 个 case 的结果聚合成 Hit@1/Hit@3/MRR/ContentUniqueRate，
+	// 用 EvaluateRetrievalGate 做出 pass/fail 判定，判定失败就是真的 go
+	// test 失败（非零退出码），不是只生成一份报告等人去看。
+	metrics := retrieval.AggregateMetrics(outcomes)
+	pass, reasons := retrieval.EvaluateGate(metrics, retrievalGateThresholds())
+
+	report := retrieval.GateReport{Cases: cases, Metrics: metrics, Pass: pass, Reasons: reasons}
+	reportPath := retrievalGateReportPath(t)
+	if err := retrieval.SaveReport(report, reportPath); err != nil {
+		t.Fatalf("save retrieval gate report: %v", err)
+	}
+
+	if !pass {
+		t.Fatalf("retrieval gate FAILED: %v (see %s for the full per-case breakdown)", reasons, reportPath)
+	}
+}
+
+// --- retrievalGateReportPath regression tests (Codex's first-round Phase
+// 6 review, 待修复项 2): a plain `go test` run must never write a report
+// into the source tree, and `make eval-retrieval-gate`'s env-var override
+// must be honored when set. These are pure, DB-free, and run unconditionally
+// (no testutil skip) — no reason for them to depend on the containers
+// being up.
+
+func TestRetrievalGateReportPathDefaultsAwayFromSourceTree(t *testing.T) {
+	t.Setenv(retrievalGateReportPathEnv, "") // explicit unset, in case a parent env leaked one in
+	got := retrievalGateReportPath(t)
+
+	if !filepath.IsAbs(got) {
+		t.Fatalf("default report path %q is not absolute", got)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.HasPrefix(got, cwd) {
+		t.Fatalf("default report path %q must not live under the test's working directory %q — this is exactly the bug Codex's Phase 6 review caught (go test's cwd is the package directory, so a bare relative path like \"eval/runs/...\" resolves inside internal/knowledge/ and pollutes the source tree)", got, cwd)
+	}
+}
+
+func TestRetrievalGateReportPathHonorsEnvOverride(t *testing.T) {
+	want := filepath.Join(t.TempDir(), "custom-report.json")
+	t.Setenv(retrievalGateReportPathEnv, want)
+	if got := retrievalGateReportPath(t); got != want {
+		t.Fatalf("report path = %q, want %q (env override must take priority over the default)", got, want)
+	}
+}
