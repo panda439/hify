@@ -167,6 +167,81 @@ func TestExpandWithNeighborWindowAssemblesSuccessfulBatchResult(t *testing.T) {
 	}
 }
 
+// --- Phase 8: admission's effect on neighbor batch calls ---
+//
+// These drive the real orchestration sequence (rrfFuse -> anchors ->
+// expandWithNeighborWindow) rather than hand-building an anchors slice —
+// admission itself only exists inside rrfFuse (hybrid.go), so a test that
+// skipped rrfFuse and hand-built anchors couldn't prove "a REJECTED
+// candidate's coordinates never reach findNeighborBatch", only that
+// whatever's already in the anchors slice gets batched correctly (which
+// the tests above already cover).
+
+// All candidates rejected by admission -> rrfFuse returns zero anchors ->
+// expandWithNeighborWindow must short-circuit before ever calling
+// findNeighborBatch, exactly like the hand-built-empty-anchors case above,
+// but reached through the real admission path this time.
+func TestExpandWithNeighborWindowSkipsBatchCallWhenAdmissionRejectsEveryCandidate(t *testing.T) {
+	vectorCandidates := []RetrievedChunk{
+		rc("weak-1", 0.1), // below vectorAdmissionThreshold, no keyword signal
+		rc("weak-2", 0.2), // below vectorAdmissionThreshold, no keyword signal
+	}
+	anchors, admission := rrfFuse(vectorCandidates, nil, 10)
+	if len(anchors) != 0 {
+		t.Fatalf("test setup invalid: anchors = %v, want empty (both candidates should be rejected by admission)", idsOf(anchors))
+	}
+	if admission.AdmissionRejectedCount != 2 {
+		t.Fatalf("test setup invalid: AdmissionRejectedCount = %d, want 2", admission.AdmissionRejectedCount)
+	}
+
+	spy := &spyNeighborBatch{}
+	svc := &service{findNeighborBatch: spy.fn}
+
+	got, dupCount, err := svc.expandWithNeighborWindow(context.Background(), anchors)
+	if err != nil {
+		t.Fatalf("expandWithNeighborWindow: %v", err)
+	}
+	if spy.calls != 0 {
+		t.Fatalf("findNeighborBatch called %d times, want 0 — every candidate was rejected by admission, there must be no core blocks left to look up neighbors for", spy.calls)
+	}
+	if len(got) != 0 || dupCount != 0 {
+		t.Fatalf("got (%v, %d), want (empty, 0)", got, dupCount)
+	}
+}
+
+// A mix of rejected and admitted candidates: the batch request set handed
+// to findNeighborBatch must only ever contain the admitted anchor's
+// coordinates — a rejected candidate's document/chunk-index coordinates
+// must never leak into the neighbor lookup, even when it was ranked ahead
+// of the admitted one.
+func TestExpandWithNeighborWindowBatchRequestOnlyContainsAdmittedAnchorCoordinates(t *testing.T) {
+	rejected := RetrievedChunk{Chunk: Chunk{ID: "rejected", DocumentID: "doc-rejected", DocumentVersion: 1, ChunkIndex: 9, Content: "content-rejected"}, Score: 0.1}
+	admitted := RetrievedChunk{Chunk: Chunk{ID: "admitted", DocumentID: "doc-admitted", DocumentVersion: 1, ChunkIndex: 5, Content: "content-admitted"}, Score: 0.9}
+
+	anchors, admission := rrfFuse([]RetrievedChunk{rejected, admitted}, nil, 10)
+	if got := idsOf(anchors); !equalIDs(got, []string{"admitted"}) {
+		t.Fatalf("test setup invalid: anchors = %v, want exactly [admitted]", got)
+	}
+	if admission.AdmissionRejectedCount != 1 {
+		t.Fatalf("test setup invalid: AdmissionRejectedCount = %d, want 1", admission.AdmissionRejectedCount)
+	}
+
+	spy := &spyNeighborBatch{}
+	svc := &service{findNeighborBatch: spy.fn}
+
+	if _, _, err := svc.expandWithNeighborWindow(context.Background(), anchors); err != nil {
+		t.Fatalf("expandWithNeighborWindow: %v", err)
+	}
+	if spy.calls != 1 {
+		t.Fatalf("findNeighborBatch called %d times, want exactly 1", spy.calls)
+	}
+	for _, req := range spy.lastReq {
+		if req.documentID == "doc-rejected" {
+			t.Fatalf("batch request %v contains a coordinate from the REJECTED candidate's document (doc-rejected) — a rejected candidate's document/index must never reach the neighbor batch query", spy.lastReq)
+		}
+	}
+}
+
 // equalIDs is a tiny order-sensitive helper local to this file — idsOf
 // already exists (hybrid_test.go) and returns []string, this just avoids
 // importing reflect for a single equality check per test above.

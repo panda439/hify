@@ -4,12 +4,17 @@ package knowledge
 //
 // This file drives a real knowledge.Service.Retrieve() call (real MySQL +
 // real PostgreSQL/pgvector/pg_trgm, fake embedding provider — no LLM, no
-// Judge, no external API) against a fixed, isolated, six-case dataset and
-// gates on the deterministic metrics defined in internal/eval/retrieval
-// (gate.go): Hit@1, Hit@3, MRR, and a content-uniqueness rate.
+// Judge, no external API) against a fixed, isolated dataset and gates on
+// the deterministic metrics defined in internal/eval/retrieval (gate.go):
+// Hit@1, Hit@3, MRR, and a content-uniqueness rate.
 // It is NOT a new algorithm — Phase 3 (Hybrid Search), Phase 4 (neighbor
-// window) and Phase 5 (exact content dedup) are exercised exactly as
-// written; this only adds a repeatable pass/fail baseline over them.
+// window), Phase 5 (exact content dedup) and Phase 8 (evidence admission)
+// are exercised exactly as written; this only adds a repeatable pass/fail
+// baseline over them. The dataset was 6 cases as of Phase 6; Phase 8 added
+// 3 more (nonempty_kb_irrelevant_query, vector_below_admission,
+// admitted_candidate_backfills_topk) covering the admission gate's
+// negative and boundary behavior, for 9 total — see each t.Run below for
+// what it verifies.
 //
 // Why this lives here instead of a new cmd/evalrunner subcommand or inside
 // internal/eval/retrieval: the dataset needs precise control over chunk embeddings,
@@ -194,6 +199,10 @@ func TestRetrievalGatePhase6(t *testing.T) {
 	seedKB(t, repo, "kb-gate-neighbor", "m3", "gate-user", true)
 	seedKB(t, repo, "kb-gate-hybrid-dedup", "m3", "gate-user", true)
 	seedKB(t, repo, "kb-gate-empty", "m3", "gate-user", true) // deliberately zero chunks
+	// Phase 8: evidence admission negative/boundary cases.
+	seedKB(t, repo, "kb-gate-admission-irrelevant", "m3", "gate-user", true)
+	seedKB(t, repo, "kb-gate-admission-vec-reject", "m3", "gate-user", true)
+	seedKB(t, repo, "kb-gate-admission-backfill", "m3", "gate-user", true)
 
 	var (
 		outcomes []retrieval.CaseOutcome
@@ -354,7 +363,80 @@ func TestRetrievalGatePhase6(t *testing.T) {
 		record(o, hits)
 	})
 
-	// --- 门禁：把 6 个 case 的结果聚合成 Hit@1/Hit@3/MRR/ContentUniqueRate，
+	// 7. Phase 8: 非空知识库 + 无关查询，必须返回空——不能因为 KB 非空就
+	// 硬凑一个命中出来。用真实 pgvector/pg_trgm 的零信号（正交向量 + 与
+	// 查询完全无字符重叠的正文）验证准入层的保守边界。这是一个负样本
+	// case：ExpectedConfigured=false，不参与 Hit@1/Hit@3/MRR 平均，但必须
+	// 有独立断言（下面的 ResultCount 检查），不能只靠聚合指标筛掉就当作
+	// 门禁通过。
+	t.Run("nonempty_kb_irrelevant_query", func(t *testing.T) {
+		seedChunkWithContent(t, repo, "kb-gate-admission-irrelevant", "doc-gate-admission-irrelevant", "ga-irrelevant",
+			[]float32{0, 1, 0}, "内容与关键词完全无关的填充文本：门禁场景七")
+
+		o, hits := retrievalGateOutcome(t, svc, []string{"kb-gate-admission-irrelevant"}, "GATEADMISSIONIRRELEVANTTOKEN", 3, "nonempty_kb_irrelevant_query", nil)
+		if o.ExpectedConfigured {
+			t.Fatalf("ExpectedConfigured = true, want false (this case configures no accepted document)")
+		}
+		if o.ResultCount != 0 || len(hits) != 0 {
+			t.Fatalf("ResultCount = %d, hits = %+v, want 0/empty — a non-empty KB with zero qualifying admission evidence must never fabricate a hit", o.ResultCount, hits)
+		}
+		record(o, hits)
+	})
+
+	// 8. Phase 8: 仅有低于 0.35 门槛的向量候选，必须返回空——候选存在
+	// （不是空知识库），但唯一的候选余弦相似度（0.2）不达标，也没有任何
+	// 关键词信号，准入层必须整体拒绝，不能让"唯一候选"这个事实本身放宽
+	// 准入。同样是负样本 case，独立断言 ResultCount。
+	t.Run("vector_below_admission", func(t *testing.T) {
+		seedChunkWithContent(t, repo, "kb-gate-admission-vec-reject", "doc-gate-admission-vec-reject", "ga-vec-below",
+			cosineVec(0.2), "内容与关键词完全无关的填充文本：门禁场景八")
+
+		o, hits := retrievalGateOutcome(t, svc, []string{"kb-gate-admission-vec-reject"}, "GATEADMISSIONVECREJECTTOKEN", 3, "vector_below_admission", nil)
+		if o.ExpectedConfigured {
+			t.Fatalf("ExpectedConfigured = true, want false (this case configures no accepted document)")
+		}
+		if o.ResultCount != 0 || len(hits) != 0 {
+			t.Fatalf("ResultCount = %d, hits = %+v, want 0/empty — the only candidate's cosine similarity (0.2) is below vectorAdmissionThreshold (0.35) with no keyword signal, so admission must reject it even though it's the sole candidate", o.ResultCount, hits)
+		}
+		record(o, hits)
+	})
+
+	// 9. Phase 8: 前部拒绝项不占 topK，后续合格候选补位——ga-rej-top 是
+	// fusionScore 最高的候选（向量路径 rank1）但余弦相似度 0.30 低于
+	// vectorAdmissionThreshold，必须被拒绝；ga-kw-1st/ga-kw-2nd 是真实强
+	// 关键词命中（word_similarity 分别为 1.0/0.8，均高于
+	// keywordAdmissionThreshold），用 8 个向量填充块把它们自己微弱的余弦
+	// 分挤出 candidateK(topK=2)=8 的向量检索窗口，隔离出"只能靠关键词路径
+	// 获得准入资格"的场景。topK=2 时最终必须是 [ga-kw-1st, ga-kw-2nd]，
+	// 而不是 [ga-rej-top, ga-kw-1st]（如果准入没有先于 topK 截断生效，会
+	// 是后者）。
+	t.Run("admitted_candidate_backfills_topk", func(t *testing.T) {
+		const kb = "kb-gate-admission-backfill"
+		seedChunkWithContent(t, repo, kb, "doc-ga-rej-top", "ga-rej-top",
+			cosineVec(0.30), "内容与关键词完全无关的填充文本：门禁场景九拒绝项")
+		seedVectorOnlyFillers(t, repo, kb, "doc-ga-filler", 8, 0.29)
+		seedChunkWithContent(t, repo, kb, "doc-ga-kw-1st", "ga-kw-1st",
+			cosineVec(0.01), "zz GATEADMISSIONBACKFILLTOKEN yy strongest keyword match, gate case nine")
+		seedChunkWithContent(t, repo, kb, "doc-ga-kw-2nd", "ga-kw-2nd",
+			cosineVec(0.01), "zz GATEADMISSIONBACKFILLTOKE yy second ranked keyword match, gate case nine")
+
+		o, hits := retrievalGateOutcome(t, svc, []string{kb}, "GATEADMISSIONBACKFILLTOKEN", 2, "admitted_candidate_backfills_topk", docSet("doc-ga-kw-1st"))
+		if o.HitRank != 1 {
+			t.Fatalf("HitRank = %d, want 1 (ga-kw-1st is the strongest real keyword match, and ga-rej-top must be rejected before topK truncation)", o.HitRank)
+		}
+		if len(hits) != 2 {
+			t.Fatalf("got %d hits, want exactly 2 — ga-rej-top must be rejected by admission (freeing the slot it would have consumed), letting ga-kw-2nd backfill", len(hits))
+		}
+		if hits[0].ChunkID != "ga-kw-1st" || hits[1].ChunkID != "ga-kw-2nd" {
+			t.Fatalf("got %v, want [ga-kw-1st ga-kw-2nd] — ga-rej-top must never appear in the final result", []string{hits[0].ChunkID, hits[1].ChunkID})
+		}
+		if o.DuplicateContentCount != 0 {
+			t.Fatalf("DuplicateContentCount = %d, want 0", o.DuplicateContentCount)
+		}
+		record(o, hits)
+	})
+
+	// --- 门禁：把全部 case 的结果聚合成 Hit@1/Hit@3/MRR/ContentUniqueRate，
 	// 用 EvaluateRetrievalGate 做出 pass/fail 判定，判定失败就是真的 go
 	// test 失败（非零退出码），不是只生成一份报告等人去看。
 	metrics := retrieval.AggregateMetrics(outcomes)

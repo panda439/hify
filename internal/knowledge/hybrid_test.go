@@ -38,12 +38,19 @@ func idsOf(chunks []RetrievedChunk) []string {
 }
 
 // fuseIDs is a test-only convenience wrapper: rrfFuse now returns
-// (chunks, coreDuplicateCount) since Phase 5, so a bare
-// idsOf(rrfFuse(...)) no longer compiles (idsOf takes one argument, not
-// two) — tests that only care about the resulting ID order and don't need
-// to assert on the duplicate count use this instead of re-declaring the
-// two-step "call rrfFuse, then idsOf the first return value" dance
-// individually.
+// (chunks, admissionStats) since Phase 5/8, so a bare idsOf(rrfFuse(...))
+// no longer compiles (idsOf takes one argument, not two) — tests that only
+// care about the resulting ID order and don't need to assert on admission
+// stats use this instead of re-declaring the two-step "call rrfFuse, then
+// idsOf the first return value" dance individually.
+//
+// Every rc()/rcContent()-built chunk in this file's PRE-Phase-8 tests below
+// is given a Score >= vectorAdmissionThreshold when passed as a vector
+// candidate — see rc's own doc comment update — specifically so those
+// tests keep exercising RRF fusion/dedup/ordering in isolation without
+// tripping the Phase 8 admission gate that now also runs inside rrfFuse.
+// Phase 8's own admission behavior is covered separately, in
+// TestRRFFuse*Admission* below and in admission_test.go.
 func fuseIDs(vectorChunks, keywordChunks []RetrievedChunk, topK int) []string {
 	got, _ := rrfFuse(vectorChunks, keywordChunks, topK)
 	return idsOf(got)
@@ -55,7 +62,10 @@ func TestRRFFusePromotesChunkHitByBothPaths(t *testing.T) {
 	// additive score should still push it above pure vector-only hits
 	// ranked ahead of it in the vector list alone.
 	vector := []RetrievedChunk{rc("v1", 0.9), rc("v2", 0.8), rc("both", 0.5)}
-	keyword := []RetrievedChunk{rc("both", 0.7), rc("k2", 0.4)}
+	// k2's keyword score must clear keywordAdmissionThreshold (0.45) or
+	// Phase 8's admission gate would drop it before this test ever gets to
+	// assert on fusion order.
+	keyword := []RetrievedChunk{rc("both", 0.7), rc("k2", 0.5)}
 
 	got, _ := rrfFuse(vector, keyword, 10)
 
@@ -70,7 +80,9 @@ func TestRRFFusePromotesChunkHitByBothPaths(t *testing.T) {
 // 2. 两路重复 chunk 正确去重.
 func TestRRFFuseDedupesChunkPresentInBothPaths(t *testing.T) {
 	vector := []RetrievedChunk{rc("dup", 0.9), rc("v-only", 0.5)}
-	keyword := []RetrievedChunk{rc("dup", 0.6), rc("k-only", 0.4)}
+	// k-only's score must clear keywordAdmissionThreshold (0.45) — see the
+	// same Phase 8 admission-gate note above.
+	keyword := []RetrievedChunk{rc("dup", 0.6), rc("k-only", 0.5)}
 
 	got, _ := rrfFuse(vector, keyword, 10)
 
@@ -88,7 +100,11 @@ func TestRRFFuseDedupesChunkPresentInBothPaths(t *testing.T) {
 
 // 3. vector-only 正常返回.
 func TestRRFFuseVectorOnly(t *testing.T) {
-	vector := []RetrievedChunk{rc("v1", 0.9), rc("v2", 0.5), rc("v3", 0.1)}
+	// v3's score must clear vectorAdmissionThreshold (0.35) — see the
+	// Phase 8 admission-gate note in TestRRFFusePromotesChunkHitByBothPaths
+	// above; it's still the lowest of the three so descending order is
+	// unaffected.
+	vector := []RetrievedChunk{rc("v1", 0.9), rc("v2", 0.5), rc("v3", 0.4)}
 
 	got, _ := rrfFuse(vector, nil, 10)
 
@@ -105,7 +121,10 @@ func TestRRFFuseVectorOnly(t *testing.T) {
 
 // 4. keyword-only 正常返回.
 func TestRRFFuseKeywordOnly(t *testing.T) {
-	keyword := []RetrievedChunk{rc("k1", 0.8), rc("k2", 0.4)}
+	// k2's score must clear keywordAdmissionThreshold (0.45) — see the
+	// Phase 8 admission-gate note above; still the lower of the two so
+	// descending order is unaffected.
+	keyword := []RetrievedChunk{rc("k1", 0.8), rc("k2", 0.5)}
 
 	got, _ := rrfFuse(nil, keyword, 10)
 
@@ -432,16 +451,16 @@ func TestRRFFuseReturnsCoreDuplicateCount(t *testing.T) {
 		rcContent("a-dup2", 0.85, "重复内容A"),
 		rcContent("b", 0.80, "内容B"),
 	}
-	_, coreDuplicateCount := rrfFuse(vector, nil, 10)
-	if coreDuplicateCount != 2 {
-		t.Fatalf("coreDuplicateCount = %d, want 2 (a-dup1 and a-dup2 both suppressed, a-high survives, b is unique)", coreDuplicateCount)
+	_, stats := rrfFuse(vector, nil, 10)
+	if stats.ContentDuplicateCount != 2 {
+		t.Fatalf("ContentDuplicateCount = %d, want 2 (a-dup1 and a-dup2 both suppressed, a-high survives, b is unique)", stats.ContentDuplicateCount)
 	}
 
 	// 无重复内容时计数为 0。
 	noDup := []RetrievedChunk{rcContent("x", 0.9, "内容X"), rcContent("y", 0.8, "内容Y")}
-	_, zeroCount := rrfFuse(noDup, nil, 10)
-	if zeroCount != 0 {
-		t.Fatalf("coreDuplicateCount = %d, want 0 (no duplicate content)", zeroCount)
+	_, zeroStats := rrfFuse(noDup, nil, 10)
+	if zeroStats.ContentDuplicateCount != 0 {
+		t.Fatalf("ContentDuplicateCount = %d, want 0 (no duplicate content)", zeroStats.ContentDuplicateCount)
 	}
 }
 

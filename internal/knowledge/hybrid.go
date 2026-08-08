@@ -60,6 +60,19 @@ type fusionEntry struct {
 	fusionScore float64
 	relevance   float64
 	haveScore   bool
+
+	// Phase 8 (admission.go): per-path raw signal, tracked independently of
+	// relevance/fusionScore above. haveVector/haveKeyword distinguish "this
+	// path never hit this chunk" from "this path hit this chunk with a
+	// score of exactly 0" — admitBySourceSignal must never treat the
+	// former as the latter (see its doc comment). vectorScore/keywordScore
+	// are each that path's OWN max raw score across every occurrence in
+	// that path's candidate list — never the other path's score, never
+	// fusionScore, never the max()'d relevance field above.
+	haveVector   bool
+	vectorScore  float64
+	haveKeyword  bool
+	keywordScore float64
 }
 
 // rrfFuse merges vector-path and keyword-path candidates (each already
@@ -83,29 +96,39 @@ type fusionEntry struct {
 // comparison eventually bottoms out at ID, which doesn't depend on input
 // order at all.
 //
-// Phase 5 (dedup.go): exact-content dedup runs on the FULL fused,
-// deduped-by-ID, fully-sorted list — BEFORE truncating to topK, not after.
-// This ordering is load-bearing: the fused list here is already a bounded
-// "expanded candidate" set (at most len(vectorChunks)+len(keywordChunks),
-// itself bounded by 2*candidateK ≤ 200 — see candidateK's doc comment), so
-// deduping first and truncating second is what lets a unique, merely
-// lower-fusionScore chunk fill the topK slot a higher-ranked
-// same-content duplicate would otherwise have wasted (see the phase
-// report's "A、A、B、C + topK=3 → A、B、C" acceptance scenario). Deduping
-// AFTER truncation would get this wrong — it could truncate away the very
-// candidate that should have filled the freed slot. Because entries here
-// are already sorted highest-fusionScore-first, dedupExactContentChunks'
-// first-occurrence-wins rule also gives "a duplicate keeps only its
-// highest-ranked occurrence" for free — see that function's doc comment.
+// Phase 8 (admission.go): after sorting, a source-aware admission gate
+// rejects any candidate whose per-path raw signal(s) never cleared that
+// path's absolute threshold — see admission.go's doc comment. This runs
+// BEFORE Phase 5's content-dedup below, not after: see the design doc §3
+// for why running dedup first could let a same-content pair's
+// higher-ranked-but-unqualified half survive at the expense of a
+// lower-ranked-but-qualified duplicate.
 //
-// The second return value is the core-hit content-dedup suppression
-// count (dedupExactContentChunks' own second return value, passed
-// straight through) — service.go's Retrieve logs it as
-// core_duplicate_count via a safe, content-free structured debug line.
-func rrfFuse(vectorChunks, keywordChunks []RetrievedChunk, topK int) ([]RetrievedChunk, int) {
+// Phase 5 (dedup.go): exact-content dedup runs on the ADMITTED candidates
+// (Phase 8 gate above), themselves already the FULL fused, deduped-by-ID,
+// fully-sorted list minus rejects — BEFORE truncating to topK, not after.
+// This ordering is load-bearing: the admitted list here is already a
+// bounded "expanded candidate" set (at most
+// len(vectorChunks)+len(keywordChunks), itself bounded by 2*candidateK ≤
+// 200 — see candidateK's doc comment), so deduping first and truncating
+// second is what lets a unique, merely lower-fusionScore chunk fill the
+// topK slot a higher-ranked same-content duplicate would otherwise have
+// wasted (see the phase report's "A、A、B、C + topK=3 → A、B、C" acceptance
+// scenario). Deduping AFTER truncation would get this wrong — it could
+// truncate away the very candidate that should have filled the freed slot.
+// Because entries here are already sorted highest-fusionScore-first,
+// dedupExactContentChunks' first-occurrence-wins rule also gives "a
+// duplicate keeps only its highest-ranked occurrence" for free — see that
+// function's doc comment.
+//
+// The second return value is admissionStats (Phase 8) — a safe,
+// content-free aggregate of both the admission gate's and this dedup
+// pass's counts. service.go's Retrieve logs it via a safe, content-free
+// structured debug line.
+func rrfFuse(vectorChunks, keywordChunks []RetrievedChunk, topK int) ([]RetrievedChunk, admissionStats) {
 	entries := make(map[string]*fusionEntry)
 
-	addPath := func(chunks []RetrievedChunk, weight float64) {
+	addPath := func(chunks []RetrievedChunk, weight float64, isVector bool) {
 		for i, c := range chunks {
 			rank := i + 1 // 1-based: RRF's own convention, and avoids a rank=0 divide-by-rrfK edge case
 			e, ok := entries[c.ID]
@@ -122,10 +145,23 @@ func rrfFuse(vectorChunks, keywordChunks []RetrievedChunk, topK int) ([]Retrieve
 				e.relevance = c.Score
 				e.haveScore = true
 			}
+			// Phase 8: track this path's own raw signal separately from
+			// relevance above — see fusionEntry's doc comment.
+			if isVector {
+				if !e.haveVector || c.Score > e.vectorScore {
+					e.vectorScore = c.Score
+					e.haveVector = true
+				}
+			} else {
+				if !e.haveKeyword || c.Score > e.keywordScore {
+					e.keywordScore = c.Score
+					e.haveKeyword = true
+				}
+			}
 		}
 	}
-	addPath(vectorChunks, vectorWeight)
-	addPath(keywordChunks, keywordWeight)
+	addPath(vectorChunks, vectorWeight, true)
+	addPath(keywordChunks, keywordWeight, false)
 
 	out := make([]RetrievedChunk, 0, len(entries))
 	for _, e := range entries {
@@ -145,15 +181,43 @@ func rrfFuse(vectorChunks, keywordChunks []RetrievedChunk, topK int) ([]Retrieve
 		return out[i].ID < out[j].ID
 	})
 
-	// Phase 5: content-dedup the full bounded candidate list BEFORE
-	// truncating to topK — see this function's doc comment above for why
-	// the order of these two steps matters.
-	out, coreDuplicateCount := dedupExactContentChunks(out)
-
-	if len(out) > topK {
-		out = out[:topK]
+	// Phase 8: source-aware evidence admission runs on the full sorted
+	// candidate list, on each entry's own per-path raw signal (never
+	// fusionScore, never the post-max() relevance/Score field) — see
+	// admission.go's doc comment and the design doc §3 for why this must
+	// happen BEFORE content-dedup and topK truncation: a high-ranked but
+	// unqualified duplicate must be rejected first so a lower-ranked but
+	// qualified duplicate can survive content-dedup instead of being
+	// discarded in favor of the (later-rejected) higher-ranked one.
+	stats := admissionStats{CandidateCountBeforeAdmission: len(out)}
+	admitted := make([]RetrievedChunk, 0, len(out))
+	for _, c := range out {
+		e := entries[c.ID]
+		verdict := admitBySourceSignal(e.haveVector, e.vectorScore, e.haveKeyword, e.keywordScore)
+		if verdict.belowVectorSignal {
+			stats.VectorBelowAdmissionCount++
+		}
+		if verdict.belowKeywordSignal {
+			stats.KeywordBelowAdmissionCount++
+		}
+		if !verdict.admitted {
+			stats.AdmissionRejectedCount++
+			continue
+		}
+		admitted = append(admitted, c)
 	}
-	return out, coreDuplicateCount
+
+	// Phase 5: content-dedup the admitted candidate list BEFORE truncating
+	// to topK — see this function's doc comment above for why the order of
+	// these two steps matters. Phase 8 additionally requires admission to
+	// run before this, not after — see the admission block above.
+	admitted, contentDuplicateCount := dedupExactContentChunks(admitted)
+	stats.ContentDuplicateCount = contentDuplicateCount
+
+	if len(admitted) > topK {
+		admitted = admitted[:topK]
+	}
+	return admitted, stats
 }
 
 // sortVectorCandidatesByScoreThenID orders a slice of vector-path

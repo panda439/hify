@@ -938,27 +938,53 @@ func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query
 		}
 	}
 
-	anchors, coreDuplicateCount := rrfFuse(vectorCandidates, keywordCandidates, topK)
+	// Phase 8 (admission.go): rrfFuse now also runs the source-aware
+	// evidence admission gate internally, BEFORE its own content-dedup and
+	// topK truncation — anchors below may be empty (every candidate
+	// rejected) without that being an error. See admission.go's doc
+	// comment and the design doc for why admission has to live inside
+	// rrfFuse rather than as a separate post-processing step here: it
+	// needs each candidate's own per-path raw score, which only rrfFuse's
+	// internal fusionEntry bookkeeping has.
+	anchors, admission := rrfFuse(vectorCandidates, keywordCandidates, topK)
+	// expandWithNeighborWindow already short-circuits on an empty anchors
+	// slice without issuing any batch neighbor query (see its own doc
+	// comment) — so "every candidate rejected by admission" naturally
+	// produces zero neighbor lookups and an empty (non-nil) result, exactly
+	// what the design doc's §5 "无相关证据时" contract requires, with no
+	// extra branching needed here.
 	expanded, neighborDuplicateCount, err := s.expandWithNeighborWindow(ctx, anchors)
 	if err != nil {
 		return nil, err
 	}
-	// Phase 5 review fix (待修复项 3): a safe, content-free structured debug
-	// line — only counts, never Content/query text/a fingerprint of either.
-	// core_duplicate_count is how many core Hybrid Search candidates
-	// rrfFuse's content-dedup dropped before ever becoming anchors;
-	// neighbor_duplicate_count is how many neighbor-window chunks
+	// Phase 5 review fix (待修复项 3) + Phase 8: a safe, content-free
+	// structured debug line — only counts and the fixed threshold
+	// constants, never Content/query text/a fingerprint of either, and
+	// never a per-candidate score list (design doc §6's privacy
+	// whitelist). candidate_count_before_admission/
+	// vector_below_admission_count/keyword_below_admission_count/
+	// admission_rejected_count come straight from rrfFuse's admissionStats
+	// (see its doc comment for exactly what does and does not overlap
+	// between them); admitted_anchor_count is simply len(anchors) — the
+	// anchor count AFTER admission, content-dedup, and topK truncation.
+	// core_duplicate_count is how many ADMITTED core Hybrid Search
+	// candidates rrfFuse's content-dedup dropped before ever becoming
+	// anchors; neighbor_duplicate_count is how many neighbor-window chunks
 	// expandWithNeighbors' second dedup pass dropped (always a neighbor
 	// losing to an anchor or an earlier neighbor, never an anchor — see
-	// expandWithNeighbors' doc comment). Both are 0 in the overwhelmingly
-	// common case of no duplicate content; only logged when at least one
-	// duplicate was actually suppressed — Retrieve runs on every
-	// conversation turn with RAG enabled, so an unconditional debug line
-	// here would be constant zero-value noise instead of a signal worth
-	// looking at.
-	if coreDuplicateCount > 0 || neighborDuplicateCount > 0 {
-		slog.Debug("knowledge: content dedup suppressed duplicate chunks",
-			"core_duplicate_count", coreDuplicateCount,
+	// expandWithNeighbors' doc comment). All of these are 0/unremarkable in
+	// the overwhelmingly common case of a clearly-relevant query with no
+	// duplicate content; only logged when there's something worth looking
+	// at — Retrieve runs on every conversation turn with RAG enabled, so an
+	// unconditional debug line here would be constant noise otherwise.
+	if admission.AdmissionRejectedCount > 0 || admission.ContentDuplicateCount > 0 || neighborDuplicateCount > 0 {
+		slog.Debug("knowledge: retrieval candidate admission and dedup",
+			"candidate_count_before_admission", admission.CandidateCountBeforeAdmission,
+			"vector_below_admission_count", admission.VectorBelowAdmissionCount,
+			"keyword_below_admission_count", admission.KeywordBelowAdmissionCount,
+			"admission_rejected_count", admission.AdmissionRejectedCount,
+			"admitted_anchor_count", len(anchors),
+			"core_duplicate_count", admission.ContentDuplicateCount,
 			"neighbor_duplicate_count", neighborDuplicateCount,
 			"topK", topK)
 	}

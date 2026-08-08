@@ -232,7 +232,15 @@ func TestIntegrationRetrieveMergesAcrossModelsAndSkipsInactive(t *testing.T) {
 	seedKB(t, repo, "kb-r2", "m2", "u1", true)
 	seedKB(t, repo, "kb-off", "m3", "u1", false) // inactive，必须被跳过
 	seedChunk(t, repo, "kb-r3", "doc-r", "r3-hit", []float32{1, 0, 0})
-	seedChunk(t, repo, "kb-r3", "doc-r", "r3-weak", []float32{1, 4, 0})
+	// r3-weak's vector is [1,2,0] (cos ~= 0.447 against the [1,0,0] query),
+	// not the much weaker [1,4,0] (cos ~= 0.243) this test used
+	// pre-Phase-8 — Phase 8's vectorAdmissionThreshold=0.35 admission gate
+	// would otherwise reject it outright, breaking this test's actual
+	// point (cross-model-group merge with a genuinely-admitted-but-weaker
+	// hit ranked last), not exercising admission itself — see
+	// admission_test.go/eval_gate_test.go for the dedicated admission
+	// rejection cases.
+	seedChunk(t, repo, "kb-r3", "doc-r", "r3-weak", []float32{1, 2, 0})
 	seedChunk(t, repo, "kb-r2", "doc-r", "r2-hit", []float32{1, 0})
 	seedChunk(t, repo, "kb-off", "doc-r", "off-hit", []float32{1, 0, 0})
 
@@ -2481,20 +2489,24 @@ func TestIntegrationRealVectorSearchDrivenAnchorSelectionPrefersCoreOverDuplicat
 		t.Fatalf("test setup invalid: got %d candidates %v, want all 3 seeded chunks visible to vector search", len(vectorChunks), ids(vectorChunks))
 	}
 
-	// Note: with only 3 chunks total in this KB, candidateK(2)=8 means all
-	// 3 are visible to rrfFuse's full (not-yet-topK'd) candidate pool — so
-	// anchor-prev's content duplicate of core2 can legitimately be caught
-	// at EITHER the core-dedup stage (rrfFuse, since anchor-prev is
-	// present in that same pool and loses to core2's higher cosine score)
-	// or the neighbor-dedup stage (expandWithNeighbors, since
-	// findPublishedNeighborChunks re-fetches anchor-prev independently of
-	// whatever rrfFuse did with it). Which exact stage catches it is an
-	// incidental detail of this KB's small size/candidateK, not something
-	// this test asserts on — what matters, and what's asserted below, is
-	// that the FINAL result is correct either way: anchor and core2 (both
-	// real core hits) both survive, anchor-prev never does, and dedup
-	// happened somewhere in the pipeline.
-	anchors, coreDuplicateCount := rrfFuse(vectorChunks, nil, topK)
+	// Note: pre-Phase-8, anchor-prev's content duplicate of core2 could
+	// legitimately be caught at EITHER the core-dedup stage (rrfFuse) or
+	// the neighbor-dedup stage (expandWithNeighbors), since anchor-prev's
+	// weak-but-nonzero cosine score just meant it lost the topK race, not
+	// that it was excluded outright. Since Phase 8, anchor-prev's cos=0.0
+	// is also below vectorAdmissionThreshold (0.35) with no keyword signal
+	// at all, so rrfFuse's admission gate now rejects it OUTRIGHT, before
+	// it's even eligible for content-dedup consideration — its
+	// core-duplicate-suppression count contribution is now always 0.
+	// findPublishedNeighborChunks below still independently re-fetches it
+	// as anchor's chunk_index-1 neighbor (admission only ever filters core
+	// Hybrid Search candidates, never neighbor-window lookups — see the
+	// design doc §7), so it's now deterministically caught at the
+	// neighbor-dedup stage instead. What's asserted below is unchanged:
+	// the FINAL result is correct, anchor and core2 (both real core hits)
+	// both survive, anchor-prev never does, and dedup happened somewhere
+	// in the pipeline.
+	anchors, admission := rrfFuse(vectorChunks, nil, topK)
 	wantAnchors := []string{"rv-anchor", "rv-core2"}
 	if got := ids(anchors); !reflect.DeepEqual(got, wantAnchors) {
 		t.Fatalf("got anchors %v, want %v — anchor-prev's weak cosine score must keep it out of the topK core hits, letting core2 (a real perfect-cosine hit) in instead", got, wantAnchors)
@@ -2515,8 +2527,8 @@ func TestIntegrationRealVectorSearchDrivenAnchorSelectionPrefersCoreOverDuplicat
 	}
 
 	final, neighborDuplicateCount := expandWithNeighbors(anchors, allNeighbors)
-	if coreDuplicateCount+neighborDuplicateCount < 1 {
-		t.Fatalf("coreDuplicateCount(%d) + neighborDuplicateCount(%d) = 0, want at least 1 — anchor-prev's duplicate content must be caught by dedup somewhere in the pipeline", coreDuplicateCount, neighborDuplicateCount)
+	if admission.ContentDuplicateCount+neighborDuplicateCount < 1 {
+		t.Fatalf("ContentDuplicateCount(%d) + neighborDuplicateCount(%d) = 0, want at least 1 — anchor-prev's duplicate content must be caught (via admission-rejection-then-neighbor-dedup, or core-dedup) somewhere in the pipeline", admission.ContentDuplicateCount, neighborDuplicateCount)
 	}
 	wantFinal := []string{"rv-anchor", "rv-core2"}
 	if got := ids(final); !reflect.DeepEqual(got, wantFinal) {
@@ -3147,5 +3159,360 @@ func TestIntegrationExpandWithNeighborWindowProducesCorrectResultAgainstRealPost
 	want := []string{"e2e-1-5-anchor-id", "e2e-2-0-anchor-id", "e2e-1-4", "e2e-1-6", "e2e-2-1"}
 	if !reflect.DeepEqual(ids(got), want) {
 		t.Fatalf("got %v, want %v", ids(got), want)
+	}
+}
+
+// --- Phase 8: Evidence Admission, exercised end to end through the real
+// public Service.Retrieve entry point (setupIntegration — needs both MySQL
+// and Postgres, same requirement every other setupIntegration test in this
+// file already has). See docs/superpowers/specs/2026-08-08-rag-evidence-admission-design.md
+// for the admission rule this section verifies against real pgvector
+// cosine similarity and real pg_trgm word-similarity, not synthetic
+// scores — admission_test.go and hybrid_test.go already cover the pure
+// logic exhaustively; these tests exist to prove the same rule holds when
+// wired through the real SQL scoring these thresholds were calibrated
+// against.
+
+// cosineVec returns a unit vector [c, sqrt(1-c*c), 0]. Every query
+// embedding in this file's fake provider is the fixed unit vector
+// [1,0,0], so pgvector's cosine similarity between this vector and the
+// query is EXACTLY c (dot product of two unit vectors) — this is what
+// lets these tests hit vectorAdmissionThreshold's 0.35 boundary precisely
+// instead of approximately.
+func cosineVec(c float64) []float32 {
+	s := math.Sqrt(1 - c*c)
+	return []float32{float32(c), float32(s), 0}
+}
+
+// seedVectorOnlyFillers seeds n throwaway chunks in the given KB/document
+// prefix whose cosine score against the query descends from just under
+// highCos, none of which share any keyword overlap with the tokens this
+// file's Phase 8 tests search for (plain unrelated Chinese filler text,
+// calibrated against real pg_trgm to word_similarity==0 — see this
+// section's doc comment). Their only purpose is to occupy candidateK's
+// LIMIT window ahead of a deliberately weak target chunk, so that target
+// chunk falls out of searchVectorChunks' result set entirely rather than
+// merely ranking low within it — see the tests that use this for exactly
+// which scenario needs that.
+func seedVectorOnlyFillers(t *testing.T, repo *Repository, kbID, docPrefix string, n int, highCos float64) {
+	t.Helper()
+	for i := 0; i < n; i++ {
+		cos := highCos - float64(i)*0.01
+		seedChunkWithContent(t, repo, kbID, fmt.Sprintf("%s-%d", docPrefix, i), fmt.Sprintf("%s-filler-%d", docPrefix, i),
+			cosineVec(cos), fmt.Sprintf("内容与关键词完全无关的填充文本编号%d", i))
+	}
+}
+
+// 1. 非空知识库 + 正交向量 + 无关键词命中，Service.Retrieve 返回空.
+func TestIntegrationRetrieveAdmissionReturnsEmptyForIrrelevantQueryAgainstNonEmptyKB(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	svc := newTestService(repo, fp, t.TempDir())
+	ctx := context.Background()
+
+	seedKB(t, repo, "kb-admission-irrelevant", "m3", "u1", true)
+	// Orthogonal to the query's fixed [1,0,0] embedding (cos=0) and, per
+	// this section's doc comment, calibrated to zero pg_trgm overlap with
+	// the query text too — genuinely no evidence on either path.
+	seedChunkWithContent(t, repo, "kb-admission-irrelevant", "doc-irrelevant", "irrelevant-1",
+		[]float32{0, 1, 0}, "内容与关键词完全无关的填充文本零一")
+
+	got, err := svc.Retrieve(ctx, []string{"kb-admission-irrelevant"}, "BACKFILLTOKENXYZ", 5)
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("got %v, want empty — a non-empty KB with zero qualifying evidence on either path must return empty, not the best-of-a-bad-lot candidate", ids(got))
+	}
+}
+
+// 2. vector 0.35 边界通过、低于边界拒绝（真实 pgvector 余弦相似度）.
+func TestIntegrationRetrieveAdmissionVectorThresholdBoundaryAgainstRealPgvector(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	svc := newTestService(repo, fp, t.TempDir())
+	ctx := context.Background()
+
+	seedKB(t, repo, "kb-admission-vec-boundary", "m3", "u1", true)
+	seedChunkWithContent(t, repo, "kb-admission-vec-boundary", "doc-below", "vec-below",
+		cosineVec(0.34), "内容与关键词完全无关的填充文本零二")
+	// 0.36, not exactly 0.35: float32 storage (pgvector's column type) and
+	// real SQL cosine computation round-trip a float64-computed 0.35
+	// target to a value that can land a hair under 0.35 — a flaky false
+	// rejection unrelated to what this test wants to prove. Exact
+	// float64-precision equality AT the threshold is already covered
+	// deterministically in admission_test.go's pure-logic tests
+	// (TestAdmitBySourceSignalVectorThreshold's "equal" case); this test's
+	// job is proving the real pgvector-computed score crosses the
+	// threshold correctly, which 0.36 (clearly above, clearly a real
+	// pgvector value) already does.
+	seedChunkWithContent(t, repo, "kb-admission-vec-boundary", "doc-above", "vec-above",
+		cosineVec(0.36), "内容与关键词完全无关的填充文本零三")
+
+	got, err := svc.Retrieve(ctx, []string{"kb-admission-vec-boundary"}, "BACKFILLTOKENXYZ", 5)
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	want := []string{"vec-above"}
+	if gotIDs := ids(got); !reflect.DeepEqual(gotIDs, want) {
+		t.Fatalf("got %v, want %v — cos=0.34 must be rejected, cos=0.36 (above the threshold) must be admitted", gotIDs, want)
+	}
+}
+
+// 3. keyword 0.45 边界通过、低于边界拒绝（真实 pg_trgm word_similarity）.
+//
+// "abcdefghij" vs "xx abcd yy" / "xx abcde yy" are calibrated (see this
+// phase's report) to real word_similarity scores of ~0.3636 (below 0.45)
+// and ~0.4545 (above 0.45) against this repo's actual pg_trgm extension —
+// not a hand-picked "should be close enough" pair.
+func TestIntegrationRetrieveAdmissionKeywordThresholdBoundaryAgainstRealPgTrgm(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	svc := newTestService(repo, fp, t.TempDir())
+	ctx := context.Background()
+
+	seedKB(t, repo, "kb-admission-kw-boundary", "m3", "u1", true)
+	// Orthogonal vector embedding on both — the vector path must not be
+	// able to rescue either candidate, isolating this test to the keyword
+	// threshold alone.
+	seedChunkWithContent(t, repo, "kb-admission-kw-boundary", "doc-kw-below", "kw-below",
+		[]float32{0, 1, 0}, "xx abcd yy")
+	seedChunkWithContent(t, repo, "kb-admission-kw-boundary", "doc-kw-above", "kw-above",
+		[]float32{0, 1, 0}, "xx abcde yy")
+
+	got, err := svc.Retrieve(ctx, []string{"kb-admission-kw-boundary"}, "abcdefghij", 5)
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	want := []string{"kw-above"}
+	if gotIDs := ids(got); !reflect.DeepEqual(gotIDs, want) {
+		t.Fatalf("got %v, want %v — word_similarity below 0.45 must be rejected, above 0.45 must be admitted", gotIDs, want)
+	}
+}
+
+// 4. 两路都弱时拒绝，任一路强时通过.
+func TestIntegrationRetrieveAdmissionEitherStrongPathAdmitsBothWeakRejects(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	svc := newTestService(repo, fp, t.TempDir())
+	ctx := context.Background()
+
+	seedKB(t, repo, "kb-admission-either-path", "m3", "u1", true)
+	// Weak on both paths: low cosine, and content with no meaningful
+	// overlap with the query text.
+	seedChunkWithContent(t, repo, "kb-admission-either-path", "doc-weak-both", "weak-both",
+		cosineVec(0.10), "完全不相关的向量填充内容，用于弱信号双路拒绝场景")
+	// Strong vector, no keyword overlap.
+	seedChunkWithContent(t, repo, "kb-admission-either-path", "doc-strong-vec", "strong-vec",
+		cosineVec(0.90), "内容与关键词完全无关的填充文本零四")
+	// Orthogonal vector, strong keyword overlap.
+	seedChunkWithContent(t, repo, "kb-admission-either-path", "doc-strong-kw", "strong-kw",
+		[]float32{0, 1, 0}, "zz STRONGKWTOKEN yy pure keyword strong hit content")
+
+	got, err := svc.Retrieve(ctx, []string{"kb-admission-either-path"}, "STRONGKWTOKEN", 5)
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	gotIDs := ids(got)
+	wantPresent := map[string]bool{"strong-vec": true, "strong-kw": true}
+	if len(gotIDs) != 2 {
+		t.Fatalf("got %v, want exactly 2 results (weak-both rejected, strong-vec and strong-kw admitted)", gotIDs)
+	}
+	for _, id := range gotIDs {
+		if !wantPresent[id] {
+			t.Fatalf("got %v, want only strong-vec and strong-kw — weak-both must be rejected", gotIDs)
+		}
+	}
+}
+
+// 5. topK 前部拒绝项被删除，后续合格候选补位.
+//
+// "rej-rank1" is the single highest-fusionScore candidate (vector rank 1,
+// weight-heavy vector path) but its raw cosine (0.30) is below
+// vectorAdmissionThreshold, so it must be rejected outright. It has no
+// keyword overlap. "kw-1st"/"kw-2nd" are pure keyword hits (real
+// word_similarity 1.0 / 0.8235, both well above keywordAdmissionThreshold)
+// pushed out of the vector candidateK window by seedVectorOnlyFillers so
+// their own (near-zero) cosine never contributes to their fusionScore —
+// isolating this test to "does an admitted-but-lower-ranked candidate
+// backfill the topK slot a higher-ranked rejected candidate would have
+// wasted", not any other interaction.
+func TestIntegrationRetrieveAdmissionRejectedTopCandidateLetsLowerRankedAdmittedCandidateBackfillTopK(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	svc := newTestService(repo, fp, t.TempDir())
+	ctx := context.Background()
+
+	const kb = "kb-admission-backfill"
+	seedKB(t, repo, kb, "m3", "u1", true)
+
+	seedChunkWithContent(t, repo, kb, "doc-rej-rank1", "rej-rank1",
+		cosineVec(0.30), "内容与关键词完全无关的填充文本零五")
+	// 8 fillers with cosine strictly between rej-rank1's 0.30 and kw-1st/
+	// kw-2nd's near-zero cosine — candidateK(topK=2) = 8, so these fill the
+	// entire vector LIMIT window, pushing kw-1st/kw-2nd's own weak cosine
+	// completely out of searchVectorChunks' results.
+	seedVectorOnlyFillers(t, repo, kb, "doc-filler", 8, 0.29)
+	seedChunkWithContent(t, repo, kb, "doc-kw-1st", "kw-1st",
+		cosineVec(0.01), "zz DUPTOKENQWERTY yy strong keyword match for admitted duplicate")
+	// word_similarity("DUPTOKENQWERTY", this) == 0.8 in this repo's real
+	// pg_trgm — a real second-place keyword rank, still comfortably above
+	// keywordAdmissionThreshold (0.45).
+	seedChunkWithContent(t, repo, kb, "doc-kw-2nd", "kw-2nd",
+		cosineVec(0.01), "zz DUPTOKENQWER yy second ranked admitted duplicate content padding")
+
+	got, err := svc.Retrieve(ctx, []string{kb}, "DUPTOKENQWERTY", 2)
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	want := []string{"kw-1st", "kw-2nd"}
+	if gotIDs := ids(got); !reflect.DeepEqual(gotIDs, want) {
+		t.Fatalf("got %v, want %v — rej-rank1 (highest fusionScore, but below vectorAdmissionThreshold) must be dropped before topK, letting kw-2nd (originally ranked below topK=2) backfill", gotIDs, want)
+	}
+}
+
+// 6. 高排名不合格重复项不能让低排名合格重复项丢失.
+//
+// Note on what's realistically constructible against a REAL database vs.
+// what needs the pure-logic tests: hybrid_test.go/admission_test.go
+// (TestRRFFuseAdmissionBeforeDedupKeepsAdmittedDuplicateOverRejectedHigherRank)
+// already proves, with directly-injected synthetic ranks/scores, that an
+// unqualified higher-fusionScore duplicate never causes dedup to discard a
+// qualified lower-fusionScore duplicate of the SAME content. That specific
+// "same content, rank inverted relative to admission outcome" combination
+// is mathematically impossible to reproduce through the REAL pipeline: two
+// rows with identical `content` always get an IDENTICAL real
+// word_similarity score (keyword admission ties for both), so the only
+// remaining differentiator is each row's own vector embedding — but
+// vector-path fusion rank is itself monotonic in real cosine score, so a
+// row with a real cosine high enough to be independently vector-admitted
+// can never rank BELOW a same-content row whose cosine is weaker (real
+// sorting keeps the higher score ahead, never behind, within the same
+// globally-sorted, LIMIT-bounded candidate list). This test instead
+// verifies the realistic, DB-achievable form of the same underlying
+// guarantee: a content-UNRELATED rejected candidate ranked ahead of a
+// content-duplicated ADMITTED pair must not interfere with that pair's
+// ordinary Phase 5 dedup resolution — the final result is neither the
+// rejected candidate nor both halves of the duplicate, only the
+// higher-keyword-ranked surviving half.
+func TestIntegrationRetrieveAdmissionRejectedCandidateDoesNotInterfereWithDuplicateResolutionAmongAdmittedSurvivors(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	svc := newTestService(repo, fp, t.TempDir())
+	ctx := context.Background()
+
+	const kb = "kb-admission-dedup-order"
+	seedKB(t, repo, kb, "m3", "u1", true)
+
+	seedChunkWithContent(t, repo, kb, "doc-rej-unrelated", "rej-unrelated",
+		cosineVec(0.30), "内容与关键词完全无关的填充文本一一")
+	seedVectorOnlyFillers(t, repo, kb, "doc-dd-filler", 8, 0.29)
+	dupContent := "zz DUPTOKENQWERTY yy 重复正文用于验证准入去重顺序"
+	seedChunkWithContent(t, repo, kb, "doc-dup-a", "dup-a", cosineVec(0.01), dupContent) // keyword rank 1 (score 1.0)
+	seedChunkWithContent(t, repo, kb, "doc-dup-b", "dup-b", cosineVec(0.01), dupContent) // same content, tied keyword score
+
+	got, err := svc.Retrieve(ctx, []string{kb}, "DUPTOKENQWERTY", 5)
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %v, want exactly 1 result — rej-unrelated must be rejected by admission, and dup-a/dup-b's shared content must collapse to exactly one survivor", ids(got))
+	}
+	if got[0].ID != "dup-a" && got[0].ID != "dup-b" {
+		t.Fatalf("got %v, want the surviving half of the dup-a/dup-b pair, not rej-unrelated", ids(got))
+	}
+	for _, c := range got {
+		if c.ID == "rej-unrelated" {
+			t.Fatalf("got %v — rej-unrelated must have been rejected by admission, never reaching the final result", ids(got))
+		}
+	}
+}
+
+// 7. 被拒绝候选不触发邻接查询.
+//
+// rejected-core's own document has a neighbor chunk carrying a distinctive
+// "poison probe" content string. If the final Retrieve() result ever
+// contained that probe (by ID or by its DocumentID), it would prove a
+// rejected candidate's coordinates leaked into the neighbor batch request
+// — buildNeighborRequests/expandWithNeighborWindow only ever look at
+// anchors (post-admission), so this must never happen.
+func TestIntegrationRetrieveAdmissionRejectedCandidateNeverTriggersNeighborLookup(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	svc := newTestService(repo, fp, t.TempDir())
+	ctx := context.Background()
+
+	const kb = "kb-admission-no-neighbor-probe"
+	seedKB(t, repo, kb, "m3", "u1", true)
+
+	seedNeighborChunkBatch(t, repo, kb, "doc-rejected-core", 1, []neighborSeedChunk{
+		{ID: "rejected-core", ChunkIndex: 5, Content: "内容与关键词完全无关的填充文本零六", Vec: cosineVec(0.10)},
+		{ID: "poison-probe", ChunkIndex: 6, Content: "污染探针：不应该出现在结果里（Phase 8 admission）", Vec: cosineVec(0.10)},
+	}, true)
+	// A genuinely admitted anchor in a separate document, so Retrieve
+	// returns something and this isn't just re-testing scenario 1's
+	// "everything empty" path.
+	seedChunkWithContent(t, repo, kb, "doc-admitted-anchor", "admitted-anchor",
+		cosineVec(0.90), "内容与关键词完全无关的填充文本零七")
+
+	got, err := svc.Retrieve(ctx, []string{kb}, "BACKFILLTOKENXYZ", 5)
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	for _, c := range got {
+		if c.ID == "poison-probe" || c.DocumentID == "doc-rejected-core" {
+			t.Fatalf("got %v — a rejected candidate's document must never be looked up for neighbors, but the poison probe leaked into the result", ids(got))
+		}
+	}
+	want := []string{"admitted-anchor"}
+	if gotIDs := ids(got); !reflect.DeepEqual(gotIDs, want) {
+		t.Fatalf("got %v, want %v", gotIDs, want)
+	}
+}
+
+// 8. 跨知识库、跨 embedding 模型组合仍正确.
+//
+// kb-a uses model m3 (3-dim), kb-b uses model m2 (2-dim) — two entirely
+// separate per-model vector search groups (service.go's kbsByModel), each
+// embedding the same query text independently, merged by
+// sortVectorCandidatesByScoreThenID before ever reaching rrfFuse. Each KB
+// contributes one admitted and one rejected candidate; admission must act
+// identically regardless of which model/KB a candidate came from.
+func TestIntegrationRetrieveAdmissionCorrectAcrossKnowledgeBasesAndEmbeddingModels(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	svc := newTestService(repo, fp, t.TempDir())
+	ctx := context.Background()
+
+	seedKB(t, repo, "kb-cross-a", "m3", "u1", true)
+	seedKB(t, repo, "kb-cross-b", "m2", "u1", true)
+
+	// kb-a (3-dim model m3): one admitted, one rejected.
+	seedChunkWithContent(t, repo, "kb-cross-a", "doc-cross-a-admitted", "cross-a-admitted",
+		cosineVec(0.80), "zz CROSSKBTOKEN yy cross kb keyword admitted content")
+	seedChunkWithContent(t, repo, "kb-cross-a", "doc-cross-a-rejected", "cross-a-rejected",
+		cosineVec(0.20), "内容与关键词完全无关的填充文本零八")
+
+	// kb-b (2-dim model m2): fakeProvider's query embedding for any 2-dim
+	// model is also the fixed unit vector [1,0], so the same cosine-vector
+	// trick applies with a 2-component vector.
+	seedChunkWithContent(t, repo, "kb-cross-b", "doc-cross-b-admitted", "cross-b-admitted",
+		[]float32{0.9, float32(math.Sqrt(1 - 0.9*0.9))}, "内容与关键词完全无关的填充文本零九")
+	seedChunkWithContent(t, repo, "kb-cross-b", "doc-cross-b-rejected", "cross-b-rejected",
+		[]float32{0.2, float32(math.Sqrt(1 - 0.2*0.2))}, "内容与关键词完全无关的填充文本一零")
+
+	got, err := svc.Retrieve(ctx, []string{"kb-cross-a", "kb-cross-b"}, "CROSSKBTOKEN", 5)
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	gotIDs := ids(got)
+	wantPresent := map[string]bool{"cross-a-admitted": true, "cross-b-admitted": true}
+	if len(gotIDs) != 2 {
+		t.Fatalf("got %v, want exactly 2 (cross-a-admitted, cross-b-admitted) — both rejected candidates must be excluded regardless of which KB/model they came from", gotIDs)
+	}
+	for _, id := range gotIDs {
+		if !wantPresent[id] {
+			t.Fatalf("got %v, want only cross-a-admitted and cross-b-admitted", gotIDs)
+		}
 	}
 }
