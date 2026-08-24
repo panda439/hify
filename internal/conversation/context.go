@@ -161,11 +161,44 @@ func (s *service) assembleContext(ctx context.Context, conversationID string, ag
 		return assembledContext{}, err
 	}
 
+	// Fetched here (rather than where it used to live, right before
+	// truncateByBudget below) so 001-rag-query-rerank's query rewrite
+	// (below) has the conversation history it needs BEFORE
+	// knowledge.Retrieve is called — see rewriteQuery's doc comment: it
+	// must run "before Retrieve" per FR-001, and it needs `older` (every
+	// row strictly before the just-persisted latest user message) as its
+	// history argument. Splitting into older/latest happens right here
+	// too, once, instead of twice.
+	rows, err := s.repo.listRecentMessages(ctx, conversationID, maxContextFetchMessages)
+	if err != nil {
+		return assembledContext{}, err
+	}
+	reverseMessages(rows) // DB gives newest-first; we want chronological order
+
+	// See truncateByBudget's doc comment for why the latest (just-persisted)
+	// user message is split off here rather than left in rows for
+	// truncateByBudget to see later.
+	var latest *Message
+	older := rows
+	if len(rows) > 0 {
+		older = rows[:len(rows)-1]
+		latest = &rows[len(rows)-1]
+	}
+
 	var evidence []Evidence
 	var retrievedCount, filteredByScore, filteredByBudget int
 	if len(ag.KnowledgeBaseIDs) > 0 {
+		// Query rewrite (US1, FR-001): turns an elliptical follow-up like
+		// "那它的上限呢" into a standalone question BEFORE Retrieve sees
+		// it. rewrite.SearchQuery is latestUserMessage unchanged on every
+		// skip/degrade/ambiguous path (see rewriteQuery's doc comment) —
+		// latestUserMessage itself still goes into the message sequence
+		// unmodified further down (the rewrite only ever affects what's
+		// searched for, never what's shown as the user's question).
+		rewrite := s.rewriteQuery(ctx, ag, model, older, latestUserMessage)
+
 		spanStart := time.Now()
-		candidates, err := s.knowledgeSvc.Retrieve(ctx, ag.KnowledgeBaseIDs, latestUserMessage, retrievalTopK)
+		candidates, err := s.knowledgeSvc.Retrieve(ctx, ag.KnowledgeBaseIDs, rewrite.SearchQuery, retrievalTopK)
 		status := trace.StatusOK
 		errMsg := ""
 		if err != nil {
@@ -233,25 +266,14 @@ func (s *service) assembleContext(ctx context.Context, conversationID string, ag
 		historyBudget = 0
 	}
 
-	rows, err := s.repo.listRecentMessages(ctx, conversationID, maxContextFetchMessages)
-	if err != nil {
-		return assembledContext{}, err
-	}
-	reverseMessages(rows) // DB gives newest-first; we want chronological order
-
-	// Split off the latest (just-persisted) user message BEFORE truncation
-	// — its cost was already reserved out of fixedBudget up front (see
-	// computeFixedBudget's latestUserMessageChars parameter), so
-	// truncateByBudget must never see it as part of the slice it's
-	// deciding how much of to keep, or its length gets charged a second
-	// time against historyBudget on top of that reservation (the review
-	// fix this closes). older is everything else, oldest to newest.
-	var latest *Message
-	older := rows
-	if len(rows) > 0 {
-		older = rows[:len(rows)-1]
-		latest = &rows[len(rows)-1]
-	}
+	// older/latest were already split off above (before the query-rewrite
+	// and Retrieve calls) — its cost was already reserved out of
+	// fixedBudget up front (see computeFixedBudget's
+	// latestUserMessageChars parameter), so truncateByBudget must never
+	// see the latest message as part of the slice it's deciding how much
+	// of to keep, or its length gets charged a second time against
+	// historyBudget on top of that reservation (the review fix this
+	// closes).
 	kept := truncateByBudget(older, historyBudget)
 
 	out := make([]provider.Message, 0, len(kept)+3)

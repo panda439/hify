@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -45,6 +46,25 @@ type Config struct {
 	// can't starve the online API request path running in the same
 	// process (see "已知性能风险" #3).
 	AsynqConcurrency int
+
+	// RAGQueryRewriteEnabled/RAGQueryRewriteModelID/RAGQueryRewriteTimeout
+	// gate conversation's query-rewrite step (see
+	// specs/001-rag-query-rerank/data-model.md §3). Default false keeps
+	// output identical to pre-feature behavior (SC-003). An empty
+	// RAGQueryRewriteModelID means "use the current Agent's own chat
+	// model" — see conversation/queryrewrite.go.
+	RAGQueryRewriteEnabled bool
+	RAGQueryRewriteModelID string
+	RAGQueryRewriteTimeout time.Duration
+
+	// RAGRerankEnabled/RAGRerankModelID/RAGRerankTimeout gate knowledge's
+	// rerank step. Unlike query rewrite, RAGRerankModelID has no "use the
+	// current model" fallback — it must point at a capability='rerank'
+	// model, or rerank silently degrades to disabled (validated in Load,
+	// not left to fail the whole process — see below).
+	RAGRerankEnabled bool
+	RAGRerankModelID string
+	RAGRerankTimeout time.Duration
 }
 
 func Load() (Config, error) {
@@ -87,6 +107,43 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: parse HIFY_JWT_REFRESH_TTL: %w", err)
 	}
 	cfg.JWTRefreshTTL = refreshTTL
+
+	rewriteEnabled, err := strconv.ParseBool(getEnv("HIFY_RAG_QUERY_REWRITE_ENABLED", "false"))
+	if err != nil {
+		return Config{}, fmt.Errorf("config: parse HIFY_RAG_QUERY_REWRITE_ENABLED: %w", err)
+	}
+	cfg.RAGQueryRewriteEnabled = rewriteEnabled
+	cfg.RAGQueryRewriteModelID = os.Getenv("HIFY_RAG_QUERY_REWRITE_MODEL_ID")
+
+	rewriteTimeout, err := time.ParseDuration(getEnv("HIFY_RAG_QUERY_REWRITE_TIMEOUT", "1500ms"))
+	if err != nil {
+		return Config{}, fmt.Errorf("config: parse HIFY_RAG_QUERY_REWRITE_TIMEOUT: %w", err)
+	}
+	cfg.RAGQueryRewriteTimeout = rewriteTimeout
+
+	rerankEnabled, err := strconv.ParseBool(getEnv("HIFY_RAG_RERANK_ENABLED", "false"))
+	if err != nil {
+		return Config{}, fmt.Errorf("config: parse HIFY_RAG_RERANK_ENABLED: %w", err)
+	}
+	cfg.RAGRerankModelID = os.Getenv("HIFY_RAG_RERANK_MODEL_ID")
+	// A rerank model ID's existence/capability/is_active is only checked
+	// where it's actually used (knowledge, on first use — see
+	// data-model.md §3) — this is only the "did the operator even
+	// configure one" guard. Enabled-but-unconfigured must NOT fail
+	// process startup (FR-014's "any failure degrades" applies to
+	// misconfiguration too, not just runtime failures), so this only
+	// downgrades cfg.RAGRerankEnabled and warns, never returns an error.
+	if rerankEnabled && cfg.RAGRerankModelID == "" {
+		slog.Warn("config: HIFY_RAG_RERANK_ENABLED=true but HIFY_RAG_RERANK_MODEL_ID is empty, disabling rerank")
+		rerankEnabled = false
+	}
+	cfg.RAGRerankEnabled = rerankEnabled
+
+	rerankTimeout, err := time.ParseDuration(getEnv("HIFY_RAG_RERANK_TIMEOUT", "1500ms"))
+	if err != nil {
+		return Config{}, fmt.Errorf("config: parse HIFY_RAG_RERANK_TIMEOUT: %w", err)
+	}
+	cfg.RAGRerankTimeout = rerankTimeout
 
 	if cfg.MySQLDSN == "" {
 		return Config{}, fmt.Errorf("config: HIFY_MYSQL_DSN is required")

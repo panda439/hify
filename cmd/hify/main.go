@@ -155,7 +155,7 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 
 	// Layer 2
 	knowledgeRepo := knowledge.NewRepository(db, pgdb)
-	knowledgeSvc := knowledge.NewService(knowledgeRepo, providerSvc, asynqClient, cfg.KnowledgeStorageDir)
+	knowledgeSvc := knowledge.NewService(knowledgeRepo, providerSvc, asynqClient, cfg.KnowledgeStorageDir, cfg.RAGRerankEnabled, cfg.RAGRerankModelID, cfg.RAGRerankTimeout)
 	knowledgeHandler := knowledge.NewHandler(knowledgeSvc)
 	knowledge.RegisterRoutes(v1, knowledgeHandler, cfg.JWTSecret)
 
@@ -168,7 +168,7 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 	// Layer 4
 	conversationRepo := conversation.NewRepository(db)
 	traceStore := trace.NewStore(db)
-	conversationSvc := conversation.NewService(conversationRepo, agentSvc, providerSvc, knowledgeSvc, mcpSvc, traceStore)
+	conversationSvc := conversation.NewService(conversationRepo, agentSvc, providerSvc, knowledgeSvc, mcpSvc, traceStore, cfg.RAGQueryRewriteEnabled, cfg.RAGQueryRewriteModelID, cfg.RAGQueryRewriteTimeout)
 	conversationHandler := conversation.NewHandler(conversationSvc)
 	conversation.RegisterRoutes(v1, conversationHandler, cfg.JWTSecret)
 

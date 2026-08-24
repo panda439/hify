@@ -126,6 +126,18 @@ type service struct {
 	// unaffected; every other service method still reaches the database
 	// through s.repo exactly as before.
 	findNeighborBatch func(ctx context.Context, requests []neighborRequest) ([]RetrievedChunk, error)
+
+	// rerankEnabled/rerankModelID/rerankTimeout are 001-rag-query-rerank's
+	// rerank configuration, threaded through from cmd/hify's buildApp
+	// (see config.Config.RAGRerankEnabled et al.). They are unused
+	// placeholders as of this task set (T001-T015 only cover the query
+	// rewrite side, US1) — the rerank step itself (applyRerank,
+	// Retrieve's insertion point) is US2's scope (T016+), not implemented
+	// here. Wiring the config through now means US2 only has to consume
+	// these fields, not add another NewService signature change.
+	rerankEnabled bool
+	rerankModelID string
+	rerankTimeout time.Duration
 }
 
 func (s *service) CreateKnowledgeBase(ctx context.Context, input CreateKnowledgeBaseInput) (KnowledgeBase, error) {

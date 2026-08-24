@@ -94,10 +94,10 @@ func run(testsetPath, judgeModelID, userID, baselinePath, outPath string, regres
 		return fmt.Errorf("build provider service: %w", err)
 	}
 	mcpSvc := mcp.NewService(mcp.NewRepository(db))
-	knowledgeSvc := knowledge.NewService(knowledge.NewRepository(db, pgdb), providerSvc, asynqClient, cfg.KnowledgeStorageDir)
+	knowledgeSvc := knowledge.NewService(knowledge.NewRepository(db, pgdb), providerSvc, asynqClient, cfg.KnowledgeStorageDir, cfg.RAGRerankEnabled, cfg.RAGRerankModelID, cfg.RAGRerankTimeout)
 	agentSvc := agent.NewService(agent.NewRepository(db), providerSvc, knowledgeSvc, mcpSvc)
 	traceStore := trace.NewStore(db)
-	conversationSvc := conversation.NewService(conversation.NewRepository(db), agentSvc, providerSvc, knowledgeSvc, mcpSvc, traceStore)
+	conversationSvc := conversation.NewService(conversation.NewRepository(db), agentSvc, providerSvc, knowledgeSvc, mcpSvc, traceStore, cfg.RAGQueryRewriteEnabled, cfg.RAGQueryRewriteModelID, cfg.RAGQueryRewriteTimeout)
 
 	judgeModel, err := providerSvc.GetModel(context.Background(), judgeModelID)
 	if err != nil {

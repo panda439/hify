@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"database/sql"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/hibiken/asynq"
@@ -22,8 +23,11 @@ func NewRepository(db, pgdb *sql.DB) *Repository {
 // NewService needs the asynq client to enqueue document-processing jobs
 // and a local directory to store uploaded files under (see the "本地磁盘存
 // 储是当前阶段的已知限制" note in the plan — not multi-instance safe, fine
-// at Hify's current single-instance deployment scale).
-func NewService(repo *Repository, providerSvc provider.Service, asynqClient *asynq.Client, storageDir string) Service {
+// at Hify's current single-instance deployment scale). rerankEnabled/
+// rerankModelID/rerankTimeout are 001-rag-query-rerank's rerank config —
+// see the service struct's doc comment: stored but unused until US2 (out
+// of this task set's scope) implements the rerank step itself.
+func NewService(repo *Repository, providerSvc provider.Service, asynqClient *asynq.Client, storageDir string, rerankEnabled bool, rerankModelID string, rerankTimeout time.Duration) Service {
 	return &service{
 		repo:        repo,
 		providerSvc: providerSvc,
@@ -33,6 +37,9 @@ func NewService(repo *Repository, providerSvc provider.Service, asynqClient *asy
 		// this is a method value instead of expandWithNeighborWindow
 		// calling repo.findPublishedNeighborChunksBatch directly.
 		findNeighborBatch: repo.findPublishedNeighborChunksBatch,
+		rerankEnabled:     rerankEnabled,
+		rerankModelID:     rerankModelID,
+		rerankTimeout:     rerankTimeout,
 	}
 }
 

@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"database/sql"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -23,9 +24,14 @@ func NewRepository(db *sql.DB) *Repository {
 // recording is cross-cutting infrastructure (see internal/platform/trace's
 // package doc), not a business module, so it doesn't fall under the
 // "cross-module calls only through Service interfaces" rule that governs
-// agent/provider/knowledge/mcp below.
-func NewService(repo *Repository, agentSvc agent.Service, providerSvc provider.Service, knowledgeSvc knowledge.Service, mcpSvc mcp.Service, traceStore *trace.Store) Service {
-	return &service{repo: repo, agentSvc: agentSvc, providerSvc: providerSvc, knowledgeSvc: knowledgeSvc, mcpSvc: mcpSvc, traceStore: traceStore}
+// agent/provider/knowledge/mcp below. rewriteEnabled/rewriteModelID/
+// rewriteTimeout are 001-rag-query-rerank's query-rewrite config — see the
+// service struct's doc comment.
+func NewService(repo *Repository, agentSvc agent.Service, providerSvc provider.Service, knowledgeSvc knowledge.Service, mcpSvc mcp.Service, traceStore *trace.Store, rewriteEnabled bool, rewriteModelID string, rewriteTimeout time.Duration) Service {
+	return &service{
+		repo: repo, agentSvc: agentSvc, providerSvc: providerSvc, knowledgeSvc: knowledgeSvc, mcpSvc: mcpSvc, traceStore: traceStore,
+		rewriteEnabled: rewriteEnabled, rewriteModelID: rewriteModelID, rewriteTimeout: rewriteTimeout,
+	}
 }
 
 func NewHandler(svc Service) *Handler {

@@ -97,7 +97,7 @@ func newTestService(repo *Repository, fp *fakeProviderService, storageDir string
 	// asynq client 传 nil：这些用例不走 UploadDocument/RetryDocument 的入队
 	// 路径——真正需要入队（比如验证 RetryDocument 重新排队）的用例改用
 	// newTestAsynqClient 构造一个连真实 Redis 的 client。
-	return NewService(repo, fp, nil, storageDir)
+	return NewService(repo, fp, nil, storageDir, false, "", 1500*time.Millisecond)
 }
 
 // newTestAsynqClient connects to the docker-compose Redis instance —
@@ -836,7 +836,7 @@ func TestIntegrationRetryDocumentOnlyAllowedFromPendingOrFailed(t *testing.T) {
 	repo := setupIntegration(t)
 	// RetryDocument's success path enqueues a task, unlike everything else
 	// in this file — needs a real asynq client, not newTestService's nil.
-	svc := NewService(repo, newFakeProvider(), newTestAsynqClient(t), t.TempDir())
+	svc := NewService(repo, newFakeProvider(), newTestAsynqClient(t), t.TempDir(), false, "", 1500*time.Millisecond)
 	ctx := context.Background()
 
 	seedKB(t, repo, "kb-retry", "m3", "owner-4", true)
@@ -1232,7 +1232,7 @@ func TestIntegrationExpiredLeaseReclaimedAndStaleWorkerStops(t *testing.T) {
 	fp := newFakeProvider()
 	fp.embed = embedFn
 	dir := t.TempDir()
-	svc := NewService(repo, fp, newTestAsynqClient(t), dir) // reconciliation 的回收要真的入队
+	svc := NewService(repo, fp, newTestAsynqClient(t), dir, false, "", 1500*time.Millisecond) // reconciliation 的回收要真的入队
 	ctx := context.Background()
 
 	seedKB(t, repo, "kb-expire", "m3", "u1", true)

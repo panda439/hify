@@ -6,10 +6,12 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"hify/internal/agent"
 	"hify/internal/knowledge"
 	"hify/internal/mcp"
+	"hify/internal/platform"
 	"hify/internal/platform/trace"
 	"hify/internal/provider"
 	"hify/internal/testutil"
@@ -82,10 +84,32 @@ type fakeKnowledgeSvc struct {
 	knowledge.Service
 	chunks []knowledge.RetrievedChunk
 	err    error
+	// queries 记录每次 Retrieve 实际收到的 query——001-rag-query-rerank
+	// 的 T015 用它断言查询改写是否真的把 SearchQuery 换成了改写后的问题。
+	queries []string
 }
 
 func (f *fakeKnowledgeSvc) Retrieve(ctx context.Context, kbIDs []string, query string, topK int) ([]knowledge.RetrievedChunk, error) {
+	f.queries = append(f.queries, query)
 	return f.chunks, f.err
+}
+
+// rewriteAwareChatClient 同时提供 ChatStream（主问答循环用，复用
+// scriptedChatClient 的既有脚本机制）与一个可编程的 Chat（001-rag-
+// query-rerank 查询改写调用用）。两条路径共享同一个 fake 实例是必要的：
+// rewriteQuery 默认没有配置改写模型覆盖（HIFY_RAG_QUERY_REWRITE_MODEL_ID
+// 为空），复用的正是 Agent 自己的 chat 模型/provider，也就是
+// fakeProviderSvc.ResolveClient 返回的同一个 client。
+type rewriteAwareChatClient struct {
+	scriptedChatClient
+	chatResponse provider.Message
+	chatErr      error
+	chatCalls    int
+}
+
+func (f *rewriteAwareChatClient) Chat(ctx context.Context, req provider.ChatRequest) (provider.Message, error) {
+	f.chatCalls++
+	return f.chatResponse, f.chatErr
 }
 
 type fakeMCPSvc struct {
@@ -176,6 +200,7 @@ func TestIntegrationStreamMessageToolCallLoop(t *testing.T) {
 		}}},
 		mcpSvc,
 		trace.NewStore(db),
+		false, "", 1500*time.Millisecond,
 	)
 
 	seedConversation(t, repo, "conv-1", "ag-1", "u1")
@@ -273,7 +298,7 @@ func TestIntegrationStreamMessageOwnership(t *testing.T) {
 	svc := NewService(repo,
 		&fakeAgentSvc{ag: agent.Agent{ID: "ag-own", ModelID: "m1"}},
 		&fakeProviderSvc{client: &scriptedChatClient{}},
-		&fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db))
+		&fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-own", "ag-own", "owner-user")
 	// 别人的会话：必须拒绝（防越权是链路 8 在 service 层的延伸）。
@@ -294,7 +319,7 @@ func TestIntegrationStreamMessageMidStreamErrorPersistsPartial(t *testing.T) {
 	svc := NewService(repo,
 		&fakeAgentSvc{ag: agent.Agent{ID: "ag-err", ModelID: "m1"}},
 		&fakeProviderSvc{client: chat},
-		&fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db))
+		&fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-err", "ag-err", "u1")
 	events, err := svc.StreamMessage(ctx, "u1", "conv-err", "hi")
@@ -339,7 +364,7 @@ func TestIntegrationStreamMessageUnknownToolFedBackAsError(t *testing.T) {
 	svc := NewService(repo,
 		&fakeAgentSvc{ag: agent.Agent{ID: "ag-hal", ModelID: "m1", MCPToolIDs: []string{"tool-1"}}},
 		&fakeProviderSvc{client: chat},
-		&fakeKnowledgeSvc{}, mcpSvc, trace.NewStore(db))
+		&fakeKnowledgeSvc{}, mcpSvc, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-hal", "ag-hal", "u1")
 	events, err := svc.StreamMessage(ctx, "u1", "conv-hal", "hi")
@@ -390,7 +415,7 @@ func TestIntegrationStreamMessageCitationFullPipeline(t *testing.T) {
 			{Chunk: knowledge.Chunk{ID: "c-hit", KnowledgeBaseID: "kb-1", DocumentID: "doc-1", DocumentName: "architecture.md", ChunkIndex: 3, Content: "相关的参考内容"}, Score: 0.9},
 			{Chunk: knowledge.Chunk{ID: "c-miss", KnowledgeBaseID: "kb-1", DocumentID: "doc-2", DocumentName: "unrelated.md", Content: "完全无关的内容"}, Score: 0.01},
 		}},
-		&fakeMCPSvc{}, trace.NewStore(db))
+		&fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-cite", "ag-cite", "u1")
 	events, err := svc.StreamMessage(ctx, "u1", "conv-cite", "问题")
@@ -473,7 +498,7 @@ func TestIntegrationStreamMessageMaliciousChunkNeverBecomesInstruction(t *testin
 		&fakeKnowledgeSvc{chunks: []knowledge.RetrievedChunk{
 			{Chunk: knowledge.Chunk{ID: "c-evil", KnowledgeBaseID: "kb-1", DocumentID: "doc-evil", DocumentName: "evil.md", Content: injection}, Score: 0.9},
 		}},
-		mcpSvc, trace.NewStore(db))
+		mcpSvc, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-inj", "ag-inj", "u1")
 	events, err := svc.StreamMessage(ctx, "u1", "conv-inj", "你好")
@@ -539,7 +564,7 @@ func TestIntegrationStreamMessageNoRAGNoCitationsRegression(t *testing.T) {
 	svc := NewService(repo,
 		&fakeAgentSvc{ag: agent.Agent{ID: "ag-plain", ModelID: "m1"}},
 		&fakeProviderSvc{client: chat},
-		&fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db))
+		&fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-plain", "ag-plain", "u1")
 	events, err := svc.StreamMessage(ctx, "u1", "conv-plain", "你好")
@@ -571,7 +596,7 @@ func TestIntegrationStreamMessageRAGRetrievalFailureFailsOpen(t *testing.T) {
 	svc := NewService(repo,
 		&fakeAgentSvc{ag: agent.Agent{ID: "ag-ragfail", ModelID: "m1", KnowledgeBaseIDs: []string{"kb-1"}}},
 		&fakeProviderSvc{client: chat},
-		&fakeKnowledgeSvc{err: errors.New("向量库暂时不可用")}, &fakeMCPSvc{}, trace.NewStore(db))
+		&fakeKnowledgeSvc{err: errors.New("向量库暂时不可用")}, &fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-ragfail", "ag-ragfail", "u1")
 	events, err := svc.StreamMessage(ctx, "u1", "conv-ragfail", "问题")
@@ -652,7 +677,7 @@ func TestIntegrationListMessagesBatchLoadsCitationsWithoutN1(t *testing.T) {
 	}
 
 	svc := NewService(repo, &fakeAgentSvc{ag: agent.Agent{ID: "ag-hist", ModelID: "m1"}},
-		&fakeProviderSvc{}, &fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db))
+		&fakeProviderSvc{}, &fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	messages, citations, _, err := svc.ListMessages(ctx, "u1", "conv-hist", nil, 10)
 	if err != nil {
@@ -723,7 +748,7 @@ func TestIntegrationStreamMessagePersistFailureSendsOnlyErrorNoFinalNoDone(t *te
 		&fakeKnowledgeSvc{chunks: []knowledge.RetrievedChunk{
 			{Chunk: knowledge.Chunk{ID: "c1", KnowledgeBaseID: oversizedKBID, DocumentID: "doc-1", DocumentName: "a.md", Content: "相关内容"}, Score: 0.9},
 		}},
-		&fakeMCPSvc{}, trace.NewStore(db))
+		&fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-persistfail", "ag-persistfail", "u1")
 
@@ -803,7 +828,7 @@ func TestIntegrationStreamMessageSuccessfulPersistStillSatisfiesBothConsistencyE
 		&fakeKnowledgeSvc{chunks: []knowledge.RetrievedChunk{
 			{Chunk: knowledge.Chunk{ID: "c1", KnowledgeBaseID: "kb-1", DocumentID: "doc-1", DocumentName: "a.md", Content: "相关内容"}, Score: 0.9},
 		}},
-		&fakeMCPSvc{}, trace.NewStore(db))
+		&fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-okpath", "ag-okpath", "u1")
 	before, err := repo.getConversationForUser(ctx, "conv-okpath", "u1")
@@ -873,7 +898,7 @@ func TestIntegrationTraceSpansNeverStoreFullPrivateContent(t *testing.T) {
 		&fakeKnowledgeSvc{chunks: []knowledge.RetrievedChunk{
 			{Chunk: knowledge.Chunk{ID: "c1", KnowledgeBaseID: "kb-1", DocumentID: "doc-1", DocumentName: "a.md", Content: "检索到的资料：" + secret}, Score: 0.9},
 		}},
-		&fakeMCPSvc{}, trace.NewStore(db))
+		&fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-secret", "ag-secret", "u1")
 	events, err := svc.StreamMessage(ctx, "u1", "conv-secret", "问题里也有 "+secret)
@@ -958,7 +983,7 @@ func TestIntegrationStreamMessageContextTooLargeWhenLatestMessageAlone(t *testin
 	svc := NewService(repo,
 		&fakeAgentSvc{ag: agent.Agent{ID: "ag-toolarge", ModelID: "m1"}},
 		&fakeProviderSvc{client: chat, model: provider.Model{ContextWindow: intp(1100)}},
-		&fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db))
+		&fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-toolarge", "ag-toolarge", "u1")
 	tooLong := strings.Repeat("测", 500)
@@ -998,7 +1023,7 @@ func TestIntegrationStreamMessageContextTooLargeWhenSystemPromptPlusLatestExceed
 	svc := NewService(repo,
 		&fakeAgentSvc{ag: agent.Agent{ID: "ag-combo", ModelID: "m1", SystemPrompt: strings.Repeat("s", 300)}},
 		&fakeProviderSvc{client: chat, model: provider.Model{ContextWindow: intp(1100)}}, // totalBudgetChars = 400
-		&fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db))
+		&fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-combo", "ag-combo", "u1")
 	// system prompt(300) + latest(200) = 500 > 400，但 latest 单独(200)
@@ -1026,7 +1051,7 @@ func TestIntegrationStreamMessageContextTooLargeWhenContextWindowBelowOutputRese
 	svc := NewService(repo,
 		&fakeAgentSvc{ag: agent.Agent{ID: "ag-belowreserve", ModelID: "m1"}},
 		&fakeProviderSvc{client: chat, model: provider.Model{ContextWindow: intp(900)}}, // <= outputReserveTokens
-		&fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db))
+		&fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-belowreserve", "ag-belowreserve", "u1")
 	events, err := svc.StreamMessage(ctx, "u1", "conv-belowreserve", "随便一句话")
@@ -1052,7 +1077,7 @@ func TestIntegrationStreamMessageContextExactBoundaryStillSucceeds(t *testing.T)
 	svc := NewService(repo,
 		&fakeAgentSvc{ag: agent.Agent{ID: "ag-boundary", ModelID: "m1"}},
 		&fakeProviderSvc{client: chat, model: model},
-		&fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db))
+		&fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-boundary", "ag-boundary", "u1")
 	events, err := svc.StreamMessage(ctx, "u1", "conv-boundary", latest)
@@ -1065,5 +1090,141 @@ func TestIntegrationStreamMessageContextExactBoundaryStillSucceeds(t *testing.T)
 	}
 	if len(chat.requests) != 1 {
 		t.Fatalf("provider.ChatStream should have been called exactly once, got %d", len(chat.requests))
+	}
+}
+
+// --- 001-rag-query-rerank US1：查询改写集成测试（T015） ---
+
+// seedPriorTurn 在 conv 里插入一轮"前置对话"（user+assistant），用来满足
+// shouldSkipRewrite 的"有历史"条件——有历史时快速路径总是不 skip，这样
+// 下面几个测试断言的就是改写本身的行为，而不是快速路径判定。
+func seedPriorTurn(t *testing.T, repo *Repository, convID string) {
+	t.Helper()
+	ctx := context.Background()
+	if err := repo.createMessage(ctx, Message{ID: platform.NewID(), ConversationID: convID, Role: "user", Content: "Hify 的分块策略是什么"}); err != nil {
+		t.Fatalf("seed prior user turn: %v", err)
+	}
+	if err := repo.createMessage(ctx, Message{ID: platform.NewID(), ConversationID: convID, Role: "assistant", Content: "按固定 token 数分块"}); err != nil {
+		t.Fatalf("seed prior assistant turn: %v", err)
+	}
+}
+
+func TestIntegrationQueryRewriteSuccessUsesRewrittenQuestionForRetrieve(t *testing.T) {
+	// 改写成功：knowledge.Retrieve 实际收到的必须是改写后的独立问题，不是
+	// 用户说的原话；改写只调用一次 Chat（不是 ChatStream）。
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	seedConversation(t, repo, "conv-rw-ok", "ag-rw-ok", "u1")
+	seedPriorTurn(t, repo, "conv-rw-ok")
+
+	chat := &rewriteAwareChatClient{
+		scriptedChatClient: scriptedChatClient{scripts: [][]provider.ChatChunk{{
+			{DeltaContent: "上限是 500 token"},
+			{FinishReason: "stop"},
+		}}},
+		chatResponse: provider.Message{Content: `{"standalone_question":"Hify 文档分块策略的分块大小上限是多少","ambiguous":false}`},
+	}
+	knowledgeSvc := &fakeKnowledgeSvc{chunks: []knowledge.RetrievedChunk{{
+		Chunk: knowledge.Chunk{KnowledgeBaseID: "kb-1", DocumentID: "doc-1", Content: "分块上限相关内容"},
+		Score: 0.9,
+	}}}
+	svc := NewService(repo,
+		&fakeAgentSvc{ag: agent.Agent{ID: "ag-rw-ok", ModelID: "m1", KnowledgeBaseIDs: []string{"kb-1"}}},
+		&fakeProviderSvc{client: chat},
+		knowledgeSvc, &fakeMCPSvc{}, trace.NewStore(db),
+		true, "", 1500*time.Millisecond)
+
+	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-ok", "那它的上限呢")
+	if err != nil {
+		t.Fatalf("StreamMessage: %v", err)
+	}
+	drainEvents(t, events)
+
+	if len(knowledgeSvc.queries) != 1 || knowledgeSvc.queries[0] != "Hify 文档分块策略的分块大小上限是多少" {
+		t.Fatalf("knowledge.Retrieve queries = %v, want exactly the rewritten standalone question", knowledgeSvc.queries)
+	}
+	if chat.chatCalls != 1 {
+		t.Fatalf("rewrite Chat call count = %d, want exactly 1", chat.chatCalls)
+	}
+}
+
+func TestIntegrationQueryRewriteAmbiguousFallsBackToOriginalQuestion(t *testing.T) {
+	// ambiguous=true：不得猜测补全，Retrieve 必须收到原问题，且不能打断
+	// 本轮回答（FR-003）——StreamMessage 仍需正常完成到 done。
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	seedConversation(t, repo, "conv-rw-amb", "ag-rw-amb", "u1")
+	seedPriorTurn(t, repo, "conv-rw-amb")
+
+	chat := &rewriteAwareChatClient{
+		scriptedChatClient: scriptedChatClient{scripts: [][]provider.ChatChunk{{
+			{DeltaContent: "不确定你说的是哪个，先按常规理解回答。"},
+			{FinishReason: "stop"},
+		}}},
+		chatResponse: provider.Message{Content: `{"standalone_question":"","ambiguous":true}`},
+	}
+	knowledgeSvc := &fakeKnowledgeSvc{}
+	svc := NewService(repo,
+		&fakeAgentSvc{ag: agent.Agent{ID: "ag-rw-amb", ModelID: "m1", KnowledgeBaseIDs: []string{"kb-1"}}},
+		&fakeProviderSvc{client: chat},
+		knowledgeSvc, &fakeMCPSvc{}, trace.NewStore(db),
+		true, "", 1500*time.Millisecond)
+
+	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-amb", "它怎么配置")
+	if err != nil {
+		t.Fatalf("StreamMessage: %v", err)
+	}
+	got := drainEvents(t, events)
+	if got[len(got)-1].Type != EventDone {
+		t.Fatalf("ambiguous rewrite must not break the turn, events: %v", eventTypes(got))
+	}
+
+	if len(knowledgeSvc.queries) != 1 || knowledgeSvc.queries[0] != "它怎么配置" {
+		t.Fatalf("knowledge.Retrieve queries = %v, want exactly the original question (ambiguous must not guess)", knowledgeSvc.queries)
+	}
+	if chat.chatCalls != 1 {
+		t.Fatalf("rewrite Chat call count = %d, want exactly 1", chat.chatCalls)
+	}
+}
+
+func TestIntegrationQueryRewriteDisabledSkipsLLMCall(t *testing.T) {
+	// 开关关闭：Retrieve 收到原问题，且改写的 Chat 调用次数必须是 0——
+	// 即便这一轮本身满足"有历史+含指代词"这些会触发改写的条件。
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	seedConversation(t, repo, "conv-rw-off", "ag-rw-off", "u1")
+	seedPriorTurn(t, repo, "conv-rw-off")
+
+	chat := &rewriteAwareChatClient{
+		scriptedChatClient: scriptedChatClient{scripts: [][]provider.ChatChunk{{
+			{DeltaContent: "直接按原话回答。"},
+			{FinishReason: "stop"},
+		}}},
+		chatResponse: provider.Message{Content: `{"standalone_question":"不该被用到的改写结果","ambiguous":false}`},
+	}
+	knowledgeSvc := &fakeKnowledgeSvc{}
+	svc := NewService(repo,
+		&fakeAgentSvc{ag: agent.Agent{ID: "ag-rw-off", ModelID: "m1", KnowledgeBaseIDs: []string{"kb-1"}}},
+		&fakeProviderSvc{client: chat},
+		knowledgeSvc, &fakeMCPSvc{}, trace.NewStore(db),
+		false, "", 1500*time.Millisecond)
+
+	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-off", "它怎么配置")
+	if err != nil {
+		t.Fatalf("StreamMessage: %v", err)
+	}
+	drainEvents(t, events)
+
+	if chat.chatCalls != 0 {
+		t.Fatalf("rewrite Chat must not be called when the feature is disabled, got %d calls", chat.chatCalls)
+	}
+	if len(knowledgeSvc.queries) != 1 || knowledgeSvc.queries[0] != "它怎么配置" {
+		t.Fatalf("knowledge.Retrieve queries = %v, want exactly the original question", knowledgeSvc.queries)
 	}
 }

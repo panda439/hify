@@ -56,6 +56,16 @@ type service struct {
 	knowledgeSvc knowledge.Service
 	mcpSvc       mcp.Service
 	traceStore   *trace.Store
+
+	// rewriteEnabled/rewriteModelID/rewriteTimeout are
+	// 001-rag-query-rerank's query-rewrite configuration, threaded
+	// through from cmd/hify's buildApp (see
+	// config.Config.RAGQueryRewriteEnabled et al.). rewriteModelID empty
+	// means "use the current Agent's own chat model" — see
+	// queryrewrite.go's rewriteQuery.
+	rewriteEnabled bool
+	rewriteModelID string
+	rewriteTimeout time.Duration
 }
 
 func (s *service) CreateConversation(ctx context.Context, userID, agentID string) (Conversation, error) {
