@@ -1,0 +1,121 @@
+<!--
+Sync Impact Report
+- 版本变化：template -> 1.0.0
+- 新增原则：I 如实标注 AI 辅助开发归属；II 规格先行；III 模块分层是硬约束；
+  IV 模块内实现顺序固定；V 确定性优先；VI 证据式验收；VII 面向用户的文案用中文；
+  VIII Codex / Claude 角色分离；IX 最小范围
+- 新增章节：技术栈与工程约束；开发工作流
+- 移除章节：无
+- 延后项：无
+-->
+# Hify 宪法
+
+## Core Principles
+
+### I. 如实标注 AI 辅助开发归属
+
+Hify 的代码由 Claude Code / Codex 等 AI 工具编写，仓库所有者是通过指挥 AI 工具完成本项目的，
+大部分代码（尤其前端）所有者本人没有逐行阅读过。任何面向第三方的材料——简历、面试话术、
+LinkedIn、README、对外演示稿——**禁止**把 Hify 描述成所有者"亲手设计/实现"的作品，只能使用
+"AI 辅助开发""指挥 AI 构建"这类如实措辞。本条对所有在本仓库工作的会话生效，且优先级高于任何
+"让项目显得更有说服力"的诉求。
+
+**理由**：求职材料中的归属失实是不可逆的诚信风险，其代价远高于任何包装收益。
+
+### II. 规格先行
+
+每个新功能或行为变更**必须**先有一份被接受的 `spec.md`，写明需求、可观察行为、排除范围和验收
+标准；再有 `plan.md` 说明技术方案；再有 `tasks.md` 拆成可独立验证的任务；最后才允许写实现代码。
+在关键需求仍然含糊、或所有者尚未接受范围时，**禁止**开始实现。制品层级是权威的：代码必须与
+`tasks.md` 一致，`tasks.md` 必须与 `plan.md` 一致，`plan.md` 必须与 `spec.md` 一致；意图变了要先
+回头改上层文档，不允许让代码单方面漂移。
+
+### III. 模块分层是硬约束
+
+`internal/` 下的业务模块按 6 层组织（第0层 platform/config/db/gen/user；第1层 auth/provider/mcp；
+第2层 knowledge；第3层 agent；第4层 conversation；第5层 workflow），依赖方向只能自上而下。
+只能依赖更低层模块导出的 `Service` 接口，**禁止**反向依赖，**禁止**同层模块互相依赖，
+**禁止**用事件/回调假装没有环。同层两个模块发现必须互相调用，说明分层分错了——要么合并，
+要么下沉一层。每加一个模块、每次改动跨模块依赖，**必须**跑 `make check-deps`，非 0 退出即视为
+未完成。
+
+### IV. 模块内实现顺序固定
+
+涉及数据结构变化时先 `migration → sqlc`；模块内实现顺序固定为
+`model.go → errors.go → repository.go → service.go → dto.go → handler.go → wire.go`，
+然后接入 `buildApp`，再做前端。每层职责边界不可越界：handler 不碰 SQL 与其他模块类型，
+service 是唯一允许跨模块调用的层，repository 只做 CRUD 不含业务判断。没内容的层也要留空文件
+占位，**禁止**合并层。
+
+**理由**：固定顺序让每一步都能独立编译和验证，避免"先写 handler 再倒推数据模型"式返工。
+
+### V. 确定性优先
+
+RAG 检索链路（分块、融合排序、门禁、准入、去重、截断、邻接扩展）的行为**必须**可确定性复现：
+相同输入必须产出相同顺序的结果，排序比较**必须**有最终确定的 tie-break（如 chunk ID 升序），
+不允许结果依赖 Go map 迭代顺序或任何未固定的随机源。判定逻辑**必须**可以抽成不依赖数据库的
+纯函数并被单元测试覆盖。引入 LLM 参与检索链路时，**必须**同时定义失败降级路径、超时上限和
+关闭开关，且 LLM 失败**禁止**导致整轮对话失败。
+
+### VI. 证据式验收
+
+项目缺少端到端自动化测试，因此"证据"有明确定义：`go test ./...`（含 `-race`）、`go vet`、
+`make check-deps` 的真实输出，加上 `/smoke-test` 或真实 HTTP 请求的实际响应。**禁止**把口头说明、
+计划文档或"应该没问题"当作实现证据。数据库相关测试**禁止**静默 skip——skip 等同于未验证。
+声称"完成/修好/通过"之前**必须**先跑命令并确认输出。
+
+### VII. 面向用户的文案用中文
+
+`apperr.AppError.Message` 是直接展示给用户的文案，**必须**是中文；代码注释与项目文档用中文。
+内部 `fmt.Errorf` 包装链是给日志和开发者看的，保持英文、小写开头、无句末标点。两者读者不同，
+不得混用。敏感信息（密码/token/API Key）永远不进日志，包括 Debug 级别。
+
+### VIII. Codex / Claude 角色分离
+
+Codex 主导澄清、设计评审、任务拆解与独立审计；Claude 主导实现与测试。Claude **禁止**擅自执行
+`git commit` / `git push`——提交由所有者或审核方决定时机。协作状态写在
+`.claude/CODEX_CLAUDE_HANDOFF.md`，双方都以当前代码和真实测试输出为准，不把对方的报告当作
+实现证据。
+
+### IX. 最小范围
+
+只做 `tasks.md` 列出的内容。**禁止**顺手重构无关代码、**禁止**顺手升级依赖、**禁止**在实现任务里
+夹带未经规格化的新能力。发现范围外的问题，记录下来另立任务，不在当前改动里解决。
+
+**理由**：范围蔓延会让"证据式验收"失效——没人能验证一个边界不清的改动。
+
+## 技术栈与工程约束
+
+- 后端 Go + Gin；MySQL 8.x 存业务数据；PostgreSQL + pgvector 存 chunk 向量；Redis 只做缓存、
+  限流状态和 asynq 任务队列，**禁止**存任何"真相"数据；熔断器状态保持进程内。
+- 前端 React + Vite + TS + Tailwind + shadcn/ui，最终 `go:embed` 打包进单个 Go 二进制。
+- API 统一挂在 `/api/v1/*`，其余路径走 SPA fallback。响应体不包壳：成功直接返回资源 JSON，
+  HTTP 状态码承载语义；错误固定 `{"error":{"code":"...","message":"..."}}`。
+- 日常命令走 `Makefile`（`dev`/`build`/`migrate-up`/`migrate-down`/`sqlc`/`check-deps`/`eval`），
+  不手写等价命令。
+- 可观测：每次 `conversation.Service.StreamMessage` 落 `trace_spans`，属性名照抄 OpenTelemetry
+  GenAI 语义约定；RAG 变更用 `make eval` 跑固定测试集回归。
+
+## 开发工作流
+
+1. `/speckit-specify` 产出 `spec.md`；需求含糊时先 `/speckit-clarify`。
+2. `/speckit-plan` 产出 `plan.md` 及设计制品；`/speckit-tasks` 产出 `tasks.md`。
+3. `/speckit-analyze` 做跨制品一致性检查，所有者接受范围后才进入实现。
+4. `/speckit-implement` 按任务顺序实现，严格测试先行：先加失败测试，再写最小实现使其通过。
+5. 验收：`go test ./... -race`、`go vet`、`make check-deps`、`/smoke-test`，RAG 变更额外跑
+   `make eval` 并产出阶段报告到 `docs/`。
+6. 汇报实现结果与未验证项，由所有者决定提交。
+
+## Governance
+
+本宪法优先于任何其他实践约定与个人习惯。与 `CLAUDE.md` / `AGENTS.md` 冲突时，以本宪法为准，
+并同步修正对应文档。
+
+- **修订流程**：修订必须写明动机、受影响的原则与章节，并在文件顶部的 Sync Impact Report 中记录；
+  由仓库所有者接受后生效。
+- **版本策略**：语义化版本。MAJOR = 原则被移除或作不兼容的重新定义；MINOR = 新增原则或实质性
+  扩充指导；PATCH = 措辞澄清、错别字、不改变语义的润色。
+- **合规审查**：每次进入 `/speckit-plan` 与 `/speckit-implement` 前对照本宪法自查；任何偏离必须在
+  `plan.md` 的复杂度追踪一节写明理由与更简单方案为何被否决，无法说明理由的偏离一律视为违规。
+
+**Version**: 1.0.0 | **Ratified**: 2026-08-24 | **Last Amended**: 2026-08-24
