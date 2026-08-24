@@ -109,6 +109,14 @@ func (f *fakeJudgeClient) Embed(context.Context, provider.EmbedRequest) (provide
 }
 func (f *fakeJudgeClient) TestConnection(context.Context) error { return nil }
 
+// Rerank：001-rag-query-rerank（T024）给 provider.Client 接口新增的方法，
+// fakeJudgeClient 没有内嵌 provider.Client（下面 var _ provider.Client 是
+// 显式断言），接口一变就编译不过，补一个空实现——只加这一个方法，不改这
+// 个文件的其他内容。
+func (f *fakeJudgeClient) Rerank(context.Context, provider.RerankRequest) (provider.RerankResult, error) {
+	return provider.RerankResult{}, errors.New("not implemented")
+}
+
 var _ provider.Client = (*fakeJudgeClient)(nil)
 
 func okJudge(score int) *fakeJudgeClient {

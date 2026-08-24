@@ -49,6 +49,14 @@ func (f *fakeEmbedClient) Embed(ctx context.Context, req provider.EmbedRequest) 
 	return f.embed(req.Input)
 }
 
+// Rerank：001-rag-query-rerank（T024）给 provider.Client 接口新增的方法，
+// 补一个空实现——fakeEmbedClient 只测嵌入路径，重排相关的集成测试
+// （T031+）另有自己可编程的 fake，见 rerank_test.go/新增的
+// integration_test.go 用例。
+func (f *fakeEmbedClient) Rerank(ctx context.Context, req provider.RerankRequest) (provider.RerankResult, error) {
+	return provider.RerankResult{}, nil
+}
+
 type fakeProviderService struct {
 	provider.Service
 	models map[string]provider.Model
@@ -2173,7 +2181,7 @@ func TestIntegrationHybridSearchPromotesStrongKeywordMatchIntoTopK(t *testing.T)
 		}
 	}
 
-	fused, _ := rrfFuse(vectorChunks, keywordChunks, topK)
+	fused, _ := fuseTopK(vectorChunks, keywordChunks, topK)
 	if len(fused) != topK {
 		t.Fatalf("got %d fused results, want topK=%d", len(fused), topK)
 	}
@@ -2231,7 +2239,7 @@ func TestIntegrationHybridSearchDeduplicatesChunkHitByBothPaths(t *testing.T) {
 		t.Fatalf("test setup invalid: 'both' must appear in both raw candidate lists (vector=%v, keyword=%v)", ids(vectorChunks), ids(keywordChunks))
 	}
 
-	fused, _ := rrfFuse(vectorChunks, keywordChunks, 5)
+	fused, _ := fuseTopK(vectorChunks, keywordChunks, 5)
 	count := 0
 	for _, c := range fused {
 		if c.ID == "both" {
@@ -2275,7 +2283,7 @@ func TestIntegrationHybridSearchPreservesCitationMetadata(t *testing.T) {
 		t.Fatalf("keyword path lost Citation metadata: %+v", keywordChunks)
 	}
 
-	fused, _ := rrfFuse(vectorChunks, keywordChunks, 10)
+	fused, _ := fuseTopK(vectorChunks, keywordChunks, 10)
 	if len(fused) != 1 || fused[0].DocumentName != "policy-handbook.pdf" ||
 		fused[0].PageNumber == nil || *fused[0].PageNumber != page ||
 		fused[0].SectionTitle == nil || *fused[0].SectionTitle != section {
@@ -2319,7 +2327,7 @@ func TestIntegrationRRFFuseDedupsExactDuplicateCoreContentAgainstRealPostgres(t 
 		t.Fatalf("test setup invalid: got %d raw candidates %v, want all 3 seeded chunks back before dedup", len(vectorChunks), ids(vectorChunks))
 	}
 
-	fused, _ := rrfFuse(vectorChunks, nil, topK)
+	fused, _ := fuseTopK(vectorChunks, nil, topK)
 
 	want := []string{"dup-high", "unique"}
 	if got := ids(fused); !reflect.DeepEqual(got, want) {
@@ -2358,7 +2366,7 @@ func TestIntegrationExpandWithNeighborWindowNeverQueriesNeighborsOfDedupedCoreCh
 		t.Fatalf("searchVectorChunks: %v", err)
 	}
 
-	anchors, _ := rrfFuse(vectorChunks, nil, topK)
+	anchors, _ := fuseTopK(vectorChunks, nil, topK)
 	if got := ids(anchors); !reflect.DeepEqual(got, []string{"skip-dup-high"}) {
 		t.Fatalf("test setup invalid: anchors = %v, want exactly [dup-high] (dup-low must already be content-deduped out before neighbor lookup)", got)
 	}
@@ -2506,7 +2514,7 @@ func TestIntegrationRealVectorSearchDrivenAnchorSelectionPrefersCoreOverDuplicat
 	// the FINAL result is correct, anchor and core2 (both real core hits)
 	// both survive, anchor-prev never does, and dedup happened somewhere
 	// in the pipeline.
-	anchors, admission := rrfFuse(vectorChunks, nil, topK)
+	anchors, admission := fuseTopK(vectorChunks, nil, topK)
 	wantAnchors := []string{"rv-anchor", "rv-core2"}
 	if got := ids(anchors); !reflect.DeepEqual(got, wantAnchors) {
 		t.Fatalf("got anchors %v, want %v — anchor-prev's weak cosine score must keep it out of the topK core hits, letting core2 (a real perfect-cosine hit) in instead", got, wantAnchors)
@@ -3514,5 +3522,115 @@ func TestIntegrationRetrieveAdmissionCorrectAcrossKnowledgeBasesAndEmbeddingMode
 		if !wantPresent[id] {
 			t.Fatalf("got %v, want only cross-a-admitted and cross-b-admitted", gotIDs)
 		}
+	}
+}
+
+// --- 001-rag-query-rerank US2：T031，真实 PostgreSQL + fake provider ---
+
+// newTestServiceWithRerank 是 newTestService 的重排变体：真正走
+// NewService（rerankEnabled=true、非空 rerankModelID），再把
+// rerankScoreFn 换成调用方给定的固定打分函数——和 neighbor_batch_test.go
+// 的 &service{findNeighborBatch: spy} 是同一个思路（service.go 的
+// rerankScoreFn 文档注释），只是这里外层套了真实 Repository/Postgres，
+// 断言的是"重排结果如何影响 Retrieve 对真实数据库发出的查询"，不是纯函数
+// 本身（applyRerank 的纯函数覆盖见 rerank_test.go）。
+func newTestServiceWithRerank(repo *Repository, fp *fakeProviderService, storageDir string, scoreFn func(ctx context.Context, query string, documents []string) (provider.RerankResult, error)) *service {
+	svc := NewService(repo, fp, nil, storageDir, true, "rerank-model", 1500*time.Millisecond).(*service)
+	svc.rerankScoreFn = scoreFn
+	return svc
+}
+
+// T031：融合排名第 6 位的候选被重排到第 1 位、进入 topK=3 的结果；且邻接
+// 批量查询只为"重排之后真正进入 topK 的核心块"发生——重排淘汰掉的候选
+// （原本融合排名前 3，重排后掉出 topK）绝不能触发它自己文档的邻接查询
+// （FR-012：不能为被重排淘汰的候选白付一次数据库查询）。
+func TestIntegrationRetrieveRerankPromotesLowRankedCandidateIntoTopKAndSkipsNeighborLookupForDemoted(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	ctx := context.Background()
+
+	const kb = "kb-rerank-promote"
+	seedKB(t, repo, kb, "m3", "u1", true)
+
+	// c1..c6：向量相似度严格递减，且全部清过 vectorAdmissionThreshold
+	// (0.35)。内容彼此无关键词重叠（既有的"内容与关键词完全无关的填充文
+	// 本零X"套路），让融合排序完全由向量路径决定——这样"融合排名第几位"
+	// 就是可预测、可断言的。
+	seedChunkWithContent(t, repo, kb, "doc-c1", "c1", cosineVec(0.90), "内容与关键词完全无关的填充文本零一")
+	seedChunkWithContent(t, repo, kb, "doc-c2", "c2", cosineVec(0.85), "内容与关键词完全无关的填充文本零二")
+	// c3 融合排名第 3（进 pre-rerank 的 topK=3），重排后必须被挤出去——它的
+	// 文档里放一个"毒探针"邻居块：如果 Retrieve 在重排之后仍然为 c3 查邻
+	// 接，这个探针就会泄漏进最终结果。
+	seedNeighborChunkBatch(t, repo, kb, "doc-c3", 1, []neighborSeedChunk{
+		{ID: "c3", ChunkIndex: 5, Content: "内容与关键词完全无关的填充文本零三", Vec: cosineVec(0.80)},
+		{ID: "c3-poison-neighbor", ChunkIndex: 6, Content: "毒探针：c3 被重排淘汰后不该为它查邻接", Vec: cosineVec(0.80)},
+	}, true)
+	seedChunkWithContent(t, repo, kb, "doc-c4", "c4", cosineVec(0.75), "内容与关键词完全无关的填充文本零四")
+	seedChunkWithContent(t, repo, kb, "doc-c5", "c5", cosineVec(0.70), "内容与关键词完全无关的填充文本零五")
+	// c6 融合排名第 6（pre-rerank 会被 topK=3 截掉），重排后必须被提到第
+	// 1 位、进入最终结果——它的文档里放一个真实邻居，断言重排"救回来"的
+	// 核心块确实触发了邻接查询（不是"反正从来没查过邻接"这种假阳性）。
+	seedNeighborChunkBatch(t, repo, kb, "doc-c6", 1, []neighborSeedChunk{
+		{ID: "c6", ChunkIndex: 5, Content: "内容与关键词完全无关的填充文本零六", Vec: cosineVec(0.65)},
+		{ID: "c6-real-neighbor", ChunkIndex: 6, Content: "c6 的真实邻居：重排把 c6 救进 topK 后必须能查到它", Vec: cosineVec(0.65)},
+	}, true)
+
+	// scoreFn 只认内容里的中文数字标记，不关心 index 顺序本身——c6 给最高
+	// 分，其余原样递减，验证的是"分数决定顺序"而不是巧合。
+	scoreFn := func(ctx context.Context, query string, documents []string) (provider.RerankResult, error) {
+		scoresByMarker := map[string]float64{
+			"零一": 0.10, "零二": 0.09, "零三": 0.08,
+			"零四": 0.07, "零五": 0.06, "零六": 0.99,
+		}
+		out := make([]provider.RerankScore, len(documents))
+		for i, doc := range documents {
+			var score float64
+			for marker, s := range scoresByMarker {
+				if strings.Contains(doc, marker) {
+					score = s
+					break
+				}
+			}
+			out[i] = provider.RerankScore{Index: i, Score: score}
+		}
+		return provider.RerankResult{Scores: out}, nil
+	}
+	svc := newTestServiceWithRerank(repo, fp, t.TempDir(), scoreFn)
+
+	got, err := svc.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3)
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+
+	// 核心断言 1：c6 从融合排名第 6 位被重排到第 1 位，进入 topK=3 的结果。
+	wantAnchors := []string{"c6", "c1", "c2"}
+	var gotAnchors []string
+	for _, c := range got {
+		if c.NeighborOf == "" {
+			gotAnchors = append(gotAnchors, c.ID)
+		}
+	}
+	if !reflect.DeepEqual(gotAnchors, wantAnchors) {
+		t.Fatalf("anchors = %v, want %v (c6 promoted to rank 1 by rerank, c3/c4/c5 demoted out of topK=3)", gotAnchors, wantAnchors)
+	}
+
+	// 核心断言 2：重排后真正进入 topK 的 c6 触发了邻接查询，它的真实邻居
+	// 出现在结果里。
+	foundRealNeighbor := false
+	for _, c := range got {
+		if c.ID == "c6-real-neighbor" {
+			foundRealNeighbor = true
+			if c.NeighborOf != "c6" {
+				t.Fatalf("c6-real-neighbor.NeighborOf = %q, want c6", c.NeighborOf)
+			}
+		}
+		// 核心断言 3：重排淘汰掉的 c3 绝不能触发它自己的邻接查询——毒探针
+		// 绝不能出现在结果里。
+		if c.ID == "c3-poison-neighbor" {
+			t.Fatalf("c3-poison-neighbor leaked into the result — c3 was demoted out of topK by rerank and must never have had its neighbors looked up (FR-012)")
+		}
+	}
+	if !foundRealNeighbor {
+		t.Fatalf("got %v, want c6-real-neighbor present (c6 was promoted into topK by rerank, its neighbor lookup must have run)", ids(got))
 	}
 }

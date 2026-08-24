@@ -66,6 +66,13 @@ type scriptedChatClient struct {
 	requests []provider.ChatRequest
 }
 
+// Rerank：001-rag-query-rerank（T024）给 provider.Client 接口新增的方法，
+// 补一个空实现——conversation 的集成测试不涉及重排（那是 knowledge 层的
+// 职责），只加这一个方法。
+func (f *scriptedChatClient) Rerank(ctx context.Context, req provider.RerankRequest) (provider.RerankResult, error) {
+	return provider.RerankResult{}, nil
+}
+
 func (f *scriptedChatClient) ChatStream(ctx context.Context, req provider.ChatRequest) (<-chan provider.ChatChunk, error) {
 	f.requests = append(f.requests, req)
 	call := len(f.requests) - 1

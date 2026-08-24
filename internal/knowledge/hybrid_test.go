@@ -37,8 +37,26 @@ func idsOf(chunks []RetrievedChunk) []string {
 	return out
 }
 
+// fuseTopK 是 001-rag-query-rerank T026 之后的兼容包装：rrfFuse 本身不再
+// 接收/截断 topK（截断挪到了 service.go 的 Retrieve 里，重排之后才做，见
+// hybrid.go 的新文档注释与 contracts/internal-contracts.md §4）。这个包内
+// 测试文件里几十处既有用例都是在验证"融合排序/去重/tie-break"这些和 topK
+// 截断本身无关的行为，把它们全部逐个改写成"调用 rrfFuse 再手动截断"两步会
+// 让 diff 爆炸且毫无必要——用一个同名参数列表的包装函数收敛所有调用点，
+// 只有 TestRRFFuseWithoutTopKMatchesOldTruncatedBehavior 这一条新测试直接
+// 调用真正的 rrfFuse(vectorChunks, keywordChunks)，因为它就是在验证"包装
+// 函数的截断"和"真实 rrfFuse 输出的前 topK 项"逐字相同（FR-018 的单测级
+// 证据，T025）。
+func fuseTopK(vectorChunks, keywordChunks []RetrievedChunk, topK int) ([]RetrievedChunk, admissionStats) {
+	got, stats := rrfFuse(vectorChunks, keywordChunks)
+	if len(got) > topK {
+		got = got[:topK]
+	}
+	return got, stats
+}
+
 // fuseIDs is a test-only convenience wrapper: rrfFuse now returns
-// (chunks, admissionStats) since Phase 5/8, so a bare idsOf(rrfFuse(...))
+// (chunks, admissionStats) since Phase 5/8, so a bare idsOf(fuseTopK(...))
 // no longer compiles (idsOf takes one argument, not two) — tests that only
 // care about the resulting ID order and don't need to assert on admission
 // stats use this instead of re-declaring the two-step "call rrfFuse, then
@@ -52,8 +70,36 @@ func idsOf(chunks []RetrievedChunk) []string {
 // Phase 8's own admission behavior is covered separately, in
 // TestRRFFuse*Admission* below and in admission_test.go.
 func fuseIDs(vectorChunks, keywordChunks []RetrievedChunk, topK int) []string {
-	got, _ := rrfFuse(vectorChunks, keywordChunks, topK)
+	got, _ := fuseTopK(vectorChunks, keywordChunks, topK)
 	return idsOf(got)
+}
+
+// T025：rrfFuse 去掉 topK 参数后必须返回"完整已准入已去重"的候选列表，且
+// 对同一输入，真正的 rrfFuse(...)[:topK] 必须和旧版"内部截断"版本
+// （fuseTopK 包装）逐字相同——截断挪到 Retrieve 里、发生在重排之后，不能
+// 改变"关闭重排时输出与改造前一致"这条不变量（FR-018/SC-003）。
+func TestRRFFuseWithoutTopKMatchesOldTruncatedBehavior(t *testing.T) {
+	// 全部候选都要清过各自路径的准入门槛（vector>=0.35, keyword>=0.45），
+	// 否则会被 admission 提前拒绝，混淆"截断丢的"和"准入拒的"。
+	vector := []RetrievedChunk{rc("v1", 0.9), rc("v2", 0.8), rc("v3", 0.7), rc("v4", 0.6)}
+	keyword := []RetrievedChunk{rc("k1", 0.5), rc("k2", 0.46)}
+	const topK = 3
+
+	full, fullStats := rrfFuse(vector, keyword)
+	wantTruncated, wantStats := fuseTopK(vector, keyword, topK)
+
+	if len(full) < topK {
+		t.Fatalf("full result has %d entries, want at least topK=%d to actually exercise truncation", len(full), topK)
+	}
+	if got := idsOf(full[:topK]); !reflect.DeepEqual(got, idsOf(wantTruncated)) {
+		t.Fatalf("rrfFuse(...)[:topK] = %v, want %v (must equal the old in-function truncation)", got, idsOf(wantTruncated))
+	}
+	if fullStats != wantStats {
+		t.Fatalf("admissionStats changed by removing topK truncation: got %+v, want %+v", fullStats, wantStats)
+	}
+	if len(full) != len(vector)+len(keyword) {
+		t.Fatalf("full result has %d entries, want the complete admitted+deduped pool (%d) — truncation must be gone from rrfFuse itself", len(full), len(vector)+len(keyword))
+	}
 }
 
 // 1. 同时命中 vector 和 keyword 的 chunk 排名提升.
@@ -67,7 +113,7 @@ func TestRRFFusePromotesChunkHitByBothPaths(t *testing.T) {
 	// assert on fusion order.
 	keyword := []RetrievedChunk{rc("both", 0.7), rc("k2", 0.5)}
 
-	got, _ := rrfFuse(vector, keyword, 10)
+	got, _ := fuseTopK(vector, keyword, 10)
 
 	if len(got) != 4 {
 		t.Fatalf("got %d results %v, want 4 distinct chunks", len(got), idsOf(got))
@@ -84,7 +130,7 @@ func TestRRFFuseDedupesChunkPresentInBothPaths(t *testing.T) {
 	// same Phase 8 admission-gate note above.
 	keyword := []RetrievedChunk{rc("dup", 0.6), rc("k-only", 0.5)}
 
-	got, _ := rrfFuse(vector, keyword, 10)
+	got, _ := fuseTopK(vector, keyword, 10)
 
 	seen := map[string]int{}
 	for _, c := range got {
@@ -106,7 +152,7 @@ func TestRRFFuseVectorOnly(t *testing.T) {
 	// unaffected.
 	vector := []RetrievedChunk{rc("v1", 0.9), rc("v2", 0.5), rc("v3", 0.4)}
 
-	got, _ := rrfFuse(vector, nil, 10)
+	got, _ := fuseTopK(vector, nil, 10)
 
 	want := []string{"v1", "v2", "v3"}
 	if !reflect.DeepEqual(idsOf(got), want) {
@@ -126,7 +172,7 @@ func TestRRFFuseKeywordOnly(t *testing.T) {
 	// descending order is unaffected.
 	keyword := []RetrievedChunk{rc("k1", 0.8), rc("k2", 0.5)}
 
-	got, _ := rrfFuse(nil, keyword, 10)
+	got, _ := fuseTopK(nil, keyword, 10)
 
 	want := []string{"k1", "k2"}
 	if !reflect.DeepEqual(idsOf(got), want) {
@@ -170,7 +216,7 @@ func TestRRFFuseTiedFusionScoreBreaksByIDWhenScoreAlsoTies(t *testing.T) {
 	}
 	keyword[keywordRank-1] = rc("aaa-keyword-hit", 0.5)
 
-	got, _ := rrfFuse(vector, keyword, len(vector)+len(keyword))
+	got, _ := fuseTopK(vector, keyword, len(vector)+len(keyword))
 
 	var rankOfA, rankOfZ = -1, -1
 	for i, c := range got {
@@ -194,7 +240,7 @@ func TestRRFFuseTruncatesToTopK(t *testing.T) {
 	vector := []RetrievedChunk{rc("v1", 0.9), rc("v2", 0.8), rc("v3", 0.7), rc("v4", 0.6)}
 	keyword := []RetrievedChunk{rc("k1", 0.5), rc("k2", 0.4)}
 
-	got, _ := rrfFuse(vector, keyword, 3)
+	got, _ := fuseTopK(vector, keyword, 3)
 
 	if len(got) != 3 {
 		t.Fatalf("got %d results, want exactly topK=3: %v", len(got), idsOf(got))
@@ -211,7 +257,7 @@ func TestRRFFuseScoreIsRelevanceNotRawFusionScore(t *testing.T) {
 	vector := []RetrievedChunk{rc("v1", 0.93)}
 	keyword := []RetrievedChunk{rc("k1", 0.81)}
 
-	got, _ := rrfFuse(vector, keyword, 10)
+	got, _ := fuseTopK(vector, keyword, 10)
 
 	byID := map[string]RetrievedChunk{}
 	for _, c := range got {
@@ -241,7 +287,7 @@ func TestRRFFuseScoreForBothPathsHitIsMaxNotSum(t *testing.T) {
 	vector := []RetrievedChunk{rc("both", 0.4)}
 	keyword := []RetrievedChunk{rc("both", 0.9)}
 
-	got, _ := rrfFuse(vector, keyword, 10)
+	got, _ := fuseTopK(vector, keyword, 10)
 	if len(got) != 1 {
 		t.Fatalf("got %d results, want 1: %v", len(got), idsOf(got))
 	}
@@ -366,7 +412,7 @@ func TestRRFFusePreservesChunkMetadata(t *testing.T) {
 		Score: 0.77,
 	}
 
-	got, _ := rrfFuse([]RetrievedChunk{c}, nil, 10)
+	got, _ := fuseTopK([]RetrievedChunk{c}, nil, 10)
 	if len(got) != 1 {
 		t.Fatalf("got %d results, want 1", len(got))
 	}
@@ -393,7 +439,7 @@ func TestRRFFuseContentDedupLetsUniqueLowerRankedCandidateFillTopKSlot(t *testin
 		rcContent("c", 0.70, "内容C"),
 	}
 
-	got, _ := rrfFuse(vector, nil, 3)
+	got, _ := fuseTopK(vector, nil, 3)
 
 	want := []string{"a-high", "b", "c"}
 	if got := idsOf(got); !reflect.DeepEqual(got, want) {
@@ -410,7 +456,7 @@ func TestRRFFuseContentDedupKeepsHigherFusionRankedDuplicate(t *testing.T) {
 	// same rank makes low-rank-dup's fusionScore the larger one, so despite
 	// the variable names this exercises "whichever ends up ranked first by
 	// fusionScore survives", not literally input order.
-	got, _ := rrfFuse(vector, keyword, 10)
+	got, _ := fuseTopK(vector, keyword, 10)
 	if len(got) != 1 {
 		t.Fatalf("got %d results %v, want exactly 1 (same normalized content must collapse to one)", len(got), idsOf(got))
 	}
@@ -451,14 +497,14 @@ func TestRRFFuseReturnsCoreDuplicateCount(t *testing.T) {
 		rcContent("a-dup2", 0.85, "重复内容A"),
 		rcContent("b", 0.80, "内容B"),
 	}
-	_, stats := rrfFuse(vector, nil, 10)
+	_, stats := fuseTopK(vector, nil, 10)
 	if stats.ContentDuplicateCount != 2 {
 		t.Fatalf("ContentDuplicateCount = %d, want 2 (a-dup1 and a-dup2 both suppressed, a-high survives, b is unique)", stats.ContentDuplicateCount)
 	}
 
 	// 无重复内容时计数为 0。
 	noDup := []RetrievedChunk{rcContent("x", 0.9, "内容X"), rcContent("y", 0.8, "内容Y")}
-	_, zeroStats := rrfFuse(noDup, nil, 10)
+	_, zeroStats := fuseTopK(noDup, nil, 10)
 	if zeroStats.ContentDuplicateCount != 0 {
 		t.Fatalf("ContentDuplicateCount = %d, want 0 (no duplicate content)", zeroStats.ContentDuplicateCount)
 	}

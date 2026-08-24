@@ -314,9 +314,12 @@ func (s *service) runLLMCall(ctx context.Context, step Step, ec execContext) (st
 	}
 
 	reply, err := client.Chat(ctx, provider.ChatRequest{
-		Model:       model.ModelName,
-		Messages:    messages,
-		Temperature: temperature,
+		Model:    model.ModelName,
+		Messages: messages,
+		// temperature 在上面已经被规范化为"非零"（0 会被视为未配置->0.7 默
+		// 认值，workflow 自己既有的语义，本次不改），所以这里恒是显式非
+		// 零值，取地址即可——不涉及 T023a 修的"显式 0 被吞"那个坑。
+		Temperature: &temperature,
 		MaxTokens:   cfg.MaxTokens,
 	})
 	if err != nil {

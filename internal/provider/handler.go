@@ -141,7 +141,10 @@ func (h *Handler) ListModels(c *gin.Context) error {
 // but doesn't require managing providers.
 func (h *Handler) ListModelsByCapability(c *gin.Context) error {
 	capability := c.Query("capability")
-	if capability != CapabilityChat && capability != CapabilityEmbedding {
+	// 001-rag-query-rerank：白名单放行 rerank——前端本次不新增界面（plan.md
+	// 「已知范围边界」），但直接调用方（比如以后要做的 rerank 模型选择器）
+	// 已经能查询到；非法值仍返回中文 invalid_input。
+	if capability != CapabilityChat && capability != CapabilityEmbedding && capability != CapabilityRerank {
 		return ErrInvalidRequest
 	}
 	models, err := h.service.ListModelsByCapability(c.Request.Context(), capability)

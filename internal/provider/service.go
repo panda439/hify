@@ -169,7 +169,10 @@ func (s *service) AddModel(ctx context.Context, providerID string, input CreateM
 	if _, err := s.repo.getProvider(ctx, providerID); err != nil {
 		return Model{}, err
 	}
-	if input.Capability != CapabilityChat && input.Capability != CapabilityEmbedding {
+	// 001-rag-query-rerank：能力白名单放行 rerank（第三类模型能力，见
+	// model.go 的 CapabilityRerank 文档注释）；非法值仍归为
+	// ErrWrongCapability，映射到中文 invalid_input。
+	if input.Capability != CapabilityChat && input.Capability != CapabilityEmbedding && input.Capability != CapabilityRerank {
 		return Model{}, ErrWrongCapability
 	}
 

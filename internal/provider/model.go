@@ -20,6 +20,12 @@ const (
 const (
 	CapabilityChat      = "chat"
 	CapabilityEmbedding = "embedding"
+	// CapabilityRerank 是 001-rag-query-rerank 新增的第三类模型能力——供应
+	// 商体系原本只区分 chat/embedding，重排序需要接入交叉编码器式的
+	// /rerank 端点（见 llm.go 的 RerankRequest），因此单独开一个能力枚举，
+	// 而不是复用 embedding（量纲和调用协议完全不同）。migration 000012 把
+	// provider_models.capability 的 CHECK 约束同步扩到三个合法值。
+	CapabilityRerank = "rerank"
 )
 
 // ExtraConfig holds the resilience/adapter knobs stored in

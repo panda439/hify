@@ -60,9 +60,22 @@ type ToolDefinition struct {
 }
 
 type ChatRequest struct {
-	Model       string
-	Messages    []Message
-	Temperature float64
+	Model    string
+	Messages []Message
+	// Temperature 是 *float64 而不是 float64（T023a，001-rag-query-rerank
+	// US1 review 追加）：go-openai v1.41.2 的
+	// ChatCompletionRequest.Temperature 标签是
+	// `json:"temperature,omitempty"`，float32 类型的零值和"没设置"在
+	// encoding/json 眼里没有区别——调用方显式传 0（比如查询改写要求的
+	// "确定性输出"、Agent 配置里显式选择的 0）会被整个从请求体里省略掉，
+	// 供应商按自己的默认温度（通常 1.0）执行，且没有任何报错，是个纯粹的
+	// 静默行为偏差。改成指针后 nil 才代表"未设置、用供应商默认"，
+	// 非 nil（包括 *0.0）代表"调用方明确要这个值"——但这只解决了 Hify
+	// 自己内部"能不能区分"的问题，真正让 0 值发到线上还需要
+	// openai_compat.go 的 zeroTemperatureRoundTripper（见该文件），因为
+	// go-openai 的 CreateChatCompletion 自己对请求体的序列化不受调用方
+	// 控制，光改这里的类型改变不了它序列化出的 JSON 字节。
+	Temperature *float64
 	MaxTokens   int
 	TopP        float64
 	Tools       []ToolDefinition
@@ -91,6 +104,35 @@ type EmbedResult struct {
 	Dimension  int
 }
 
+// RerankRequest is 001-rag-query-rerank's third model capability — see
+// contracts/rerank-http-api.md. Documents is index-addressed: the request's
+// slice position IS the candidate's identity as far as the rerank service
+// is concerned, and RerankScore.Index refers back to that same position.
+// TopN is always sent as len(Documents) (contract §「请求」) — Hify wants
+// every candidate scored, never a server-side pre-filter.
+type RerankRequest struct {
+	Model     string
+	Query     string
+	Documents []string
+	TopN      int
+}
+
+// RerankResult.Scores' order is NOT meaningful — see RerankScore's doc
+// comment. Consumers (knowledge.applyRerank) must index by Score.Index, never
+// assume Scores[i] corresponds to Documents[i].
+type RerankResult struct {
+	Scores []RerankScore
+}
+
+// RerankScore.Index addresses RerankRequest.Documents (0-based). Score's
+// scale is whatever the serving model defines — Hify only ever compares
+// scores against each other within the same response, never against a fixed
+// threshold or across two different rerank calls.
+type RerankScore struct {
+	Index int
+	Score float64
+}
+
 // Client is the single seam every model provider adapter implements.
 // Business code (agent/conversation/knowledge, in later phases) only ever
 // depends on this interface, never on a concrete adapter.
@@ -98,5 +140,11 @@ type Client interface {
 	Chat(ctx context.Context, req ChatRequest) (Message, error)
 	ChatStream(ctx context.Context, req ChatRequest) (<-chan ChatChunk, error)
 	Embed(ctx context.Context, req EmbedRequest) (EmbedResult, error)
+	// Rerank is 001-rag-query-rerank's addition — a breaking change to this
+	// interface (contracts/internal-contracts.md §2). Every existing
+	// implementation (openai_compat.go's real adapter, resilience.go's
+	// decorator, and every test-only fake across workflow/knowledge/eval/
+	// conversation) must grow this method for the package to compile.
+	Rerank(ctx context.Context, req RerankRequest) (RerankResult, error)
 	TestConnection(ctx context.Context) error
 }

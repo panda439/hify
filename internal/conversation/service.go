@@ -184,9 +184,13 @@ func (s *service) StreamMessage(ctx context.Context, userID, conversationID, con
 	}
 
 	req := provider.ChatRequest{
-		Model:       model.ModelName,
-		Messages:    assembled.Messages,
-		Temperature: ag.Temperature,
+		Model:    model.ModelName,
+		Messages: assembled.Messages,
+		// ag.Temperature 是 resolveTemperature 已经落好默认值的具体
+		// float64（agent/service.go），不是"可能未设置"——取地址传给
+		// *float64 就是把 Agent 的显式配置如实带到线上，T023a 修好之后
+		// Agent 显式配 0 才第一次真的生效。
+		Temperature: &ag.Temperature,
 		TopP:        derefFloat(ag.TopP),
 		MaxTokens:   derefInt(ag.MaxTokens),
 		Tools:       assembled.Tools,

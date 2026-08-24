@@ -46,6 +46,12 @@ func (c *wfFakeChatClient) Chat(ctx context.Context, req provider.ChatRequest) (
 	return provider.Message{Role: provider.RoleAssistant, Content: c.svc.chatContent}, nil
 }
 
+// Rerank：001-rag-query-rerank（T024）给 provider.Client 接口新增的方法，
+// 补一个空实现，workflow 链路本身不涉及 rerank。
+func (c *wfFakeChatClient) Rerank(ctx context.Context, req provider.RerankRequest) (provider.RerankResult, error) {
+	return provider.RerankResult{}, nil
+}
+
 type wfFakeKnowledge struct{ knowledge.Service }
 
 type wfFakeMCP struct{ mcp.Service }

@@ -53,6 +53,13 @@ func (f *fakeClient) Embed(ctx context.Context, req EmbedRequest) (EmbedResult, 
 
 func (f *fakeClient) TestConnection(ctx context.Context) error { return nil }
 
+// Rerank：001-rag-query-rerank 给 Client 接口新增的方法——这个 fake 是显式
+// 实现（没有内嵌 provider.Client），接口一变就编译不过，补一个空实现，不
+// 改这个文件本来测的东西（resilientClient 的重试/熔断/超时特征化测试）。
+func (f *fakeClient) Rerank(ctx context.Context, req RerankRequest) (RerankResult, error) {
+	return RerankResult{}, nil
+}
+
 func wrap(f *fakeClient, maxRetries int) Client {
 	return WithResilience(f, ResilienceConfig{
 		ProviderID:        "test",

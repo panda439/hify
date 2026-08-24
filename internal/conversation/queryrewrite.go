@@ -362,10 +362,16 @@ func (s *service) rewriteQuery(ctx context.Context, ag agent.Agent, model provid
 	defer cancel()
 
 	prompt := buildRewritePrompt(history, latestUserMessage)
+	// 改写要的是确定性输出，Temperature 必须真的是 0——T023a 修复前，
+	// provider.ChatRequest.Temperature 是 float64，0 会被 go-openai 的
+	// omitempty 悄悄丢弃，供应商实际按自己的默认温度（通常 1.0）跑，
+	// 改写结果会带上不必要的随机性。现在改成 *float64 显式传 0，
+	// openai_compat.go 的 zeroTemperatureRoundTripper 保证它真的发到线上。
+	zeroTemp := 0.0
 	resp, err := client.Chat(rewriteCtx, provider.ChatRequest{
 		Model:       modelName,
 		Messages:    []provider.Message{{Role: provider.RoleUser, Content: prompt}},
-		Temperature: 0,
+		Temperature: &zeroTemp,
 	})
 	duration := time.Since(start).Milliseconds()
 	if err != nil {

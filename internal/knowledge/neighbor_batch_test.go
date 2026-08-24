@@ -186,7 +186,7 @@ func TestExpandWithNeighborWindowSkipsBatchCallWhenAdmissionRejectsEveryCandidat
 		rc("weak-1", 0.1), // below vectorAdmissionThreshold, no keyword signal
 		rc("weak-2", 0.2), // below vectorAdmissionThreshold, no keyword signal
 	}
-	anchors, admission := rrfFuse(vectorCandidates, nil, 10)
+	anchors, admission := fuseTopK(vectorCandidates, nil, 10)
 	if len(anchors) != 0 {
 		t.Fatalf("test setup invalid: anchors = %v, want empty (both candidates should be rejected by admission)", idsOf(anchors))
 	}
@@ -218,7 +218,7 @@ func TestExpandWithNeighborWindowBatchRequestOnlyContainsAdmittedAnchorCoordinat
 	rejected := RetrievedChunk{Chunk: Chunk{ID: "rejected", DocumentID: "doc-rejected", DocumentVersion: 1, ChunkIndex: 9, Content: "content-rejected"}, Score: 0.1}
 	admitted := RetrievedChunk{Chunk: Chunk{ID: "admitted", DocumentID: "doc-admitted", DocumentVersion: 1, ChunkIndex: 5, Content: "content-admitted"}, Score: 0.9}
 
-	anchors, admission := rrfFuse([]RetrievedChunk{rejected, admitted}, nil, 10)
+	anchors, admission := fuseTopK([]RetrievedChunk{rejected, admitted}, nil, 10)
 	if got := idsOf(anchors); !equalIDs(got, []string{"admitted"}) {
 		t.Fatalf("test setup invalid: anchors = %v, want exactly [admitted]", got)
 	}

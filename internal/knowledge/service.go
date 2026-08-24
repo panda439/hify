@@ -128,16 +128,22 @@ type service struct {
 	findNeighborBatch func(ctx context.Context, requests []neighborRequest) ([]RetrievedChunk, error)
 
 	// rerankEnabled/rerankModelID/rerankTimeout are 001-rag-query-rerank's
-	// rerank configuration, threaded through from cmd/hify's buildApp
-	// (see config.Config.RAGRerankEnabled et al.). They are unused
-	// placeholders as of this task set (T001-T015 only cover the query
-	// rewrite side, US1) — the rerank step itself (applyRerank,
-	// Retrieve's insertion point) is US2's scope (T016+), not implemented
-	// here. Wiring the config through now means US2 only has to consume
-	// these fields, not add another NewService signature change.
+	// rerank configuration, threaded through from cmd/hify's buildApp (see
+	// config.Config.RAGRerankEnabled et al.).
 	rerankEnabled bool
 	rerankModelID string
 	rerankTimeout time.Duration
+
+	// rerankScoreFn is Retrieve's only way to reach the rerank provider —
+	// deliberately a method-value field, same pattern (and same reason)
+	// as findNeighborBatch above: rerank_test.go/integration_test.go can
+	// construct a bare &service{rerankScoreFn: spy} and inject a fixed,
+	// deterministic scoring function without a mocking framework or a
+	// hand-rolled fake satisfying provider.Service. NewService sets this
+	// to s.resolveRerankScores (a method on service itself — self-
+	// referential construction, see NewService) so production code
+	// reaches the database/provider exactly as before.
+	rerankScoreFn func(ctx context.Context, query string, documents []string) (provider.RerankResult, error)
 }
 
 func (s *service) CreateKnowledgeBase(ctx context.Context, input CreateKnowledgeBaseInput) (KnowledgeBase, error) {
@@ -958,7 +964,24 @@ func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query
 	// rrfFuse rather than as a separate post-processing step here: it
 	// needs each candidate's own per-path raw score, which only rrfFuse's
 	// internal fusionEntry bookkeeping has.
-	anchors, admission := rrfFuse(vectorCandidates, keywordCandidates, topK)
+	//
+	// 001-rag-query-rerank T026：rrfFuse 不再自己截断 topK——它返回的是
+	// "已准入、已内容去重"的完整候选池（上界 2*candidateK）。截断挪到下面
+	// applyRerankStep 重排之后才做：顺序变成"融合排序 → 准入 → 内容去重 →
+	// 重排 → topK 截断 → 邻接批量查询"（plan.md「检索链路的新顺序」）。
+	fused, admission := rrfFuse(vectorCandidates, keywordCandidates)
+
+	// T029：在 topK 截断之前、内容去重之后插入重排步骤——重排必须看到完整
+	// 候选池才有意义（被截断掉的候选没机会翻身），也必须在邻接批量查询之
+	// 前完成（FR-012：不能为被重排淘汰的候选白付一次数据库查询）。
+	// applyRerankStep 自己处理"候选数≤1/开关关闭/未配模型"的短路、超时降
+	// 级、响应校验失败降级——任何一条都不让 Retrieve 失败，只是保持 fused
+	// 的融合排序继续（降级矩阵，plan.md）。
+	reranked, rStats := s.applyRerankStep(ctx, query, fused)
+	if len(reranked) > topK {
+		reranked = reranked[:topK]
+	}
+	anchors := reranked
 	// expandWithNeighborWindow already short-circuits on an empty anchors
 	// slice without issuing any batch neighbor query (see its own doc
 	// comment) — so "every candidate rejected by admission" naturally
@@ -1000,7 +1023,112 @@ func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query
 			"neighbor_duplicate_count", neighborDuplicateCount,
 			"topK", topK)
 	}
+	// 001-rag-query-rerank：单独一行、只在重排真的被应用或降级时才打
+	// （开关关闭/未配模型/候选数≤1 是最常见的稳态，不值得每轮都记）——只含
+	// 计数/耗时/布尔状态，不含 query 原文、片段正文、逐条 rerank 分数
+	// （FR-017）。是否要把这几个字段并进上面那行既有日志是 Phase 5/US3
+	// （T035）的范围，这里先独立成行，不越界改动既有行的触发条件/字段。
+	if rStats.Applied || rStats.Degraded {
+		slog.Debug("knowledge: retrieval rerank",
+			"rerank_enabled", rStats.Enabled,
+			"rerank_applied", rStats.Applied,
+			"rerank_degraded", rStats.Degraded,
+			"rerank_input_count", rStats.InputCount,
+			"rerank_duration_ms", rStats.DurationMs)
+	}
 	return expanded, nil
+}
+
+// resolveRerankScores is rerankScoreFn's production implementation — it
+// resolves s.rerankModelID (existence/capability/is_active, per
+// data-model.md §3's "rerank 模型 ID 的合法性在 knowledge 首次使用时校
+// 验") and issues one provider.Client.Rerank call. It never caches a
+// resolution failure: a model that gets fixed (re-enabled, capability
+// corrected) between two Retrieve calls just works again on the next call,
+// no restart required. Every error it returns is handled uniformly by
+// applyRerankStep — this method has no knowledge of degradation, timeouts,
+// or short-circuiting; that's applyRerankStep's job.
+func (s *service) resolveRerankScores(ctx context.Context, query string, documents []string) (provider.RerankResult, error) {
+	model, err := s.providerSvc.GetModel(ctx, s.rerankModelID)
+	if err != nil {
+		return provider.RerankResult{}, err
+	}
+	if model.Capability != provider.CapabilityRerank || !model.IsActive {
+		return provider.RerankResult{}, fmt.Errorf("knowledge: rerank model %s is not an active rerank-capability model", s.rerankModelID)
+	}
+	client, err := s.providerSvc.ResolveClient(ctx, model.ProviderID)
+	if err != nil {
+		return provider.RerankResult{}, err
+	}
+	return client.Rerank(ctx, provider.RerankRequest{Model: model.ModelName, Query: query, Documents: documents})
+}
+
+// applyRerankStep is FR-007/FR-010/FR-013/FR-014/FR-015's orchestration
+// point: short-circuit rules, the rerankInputLimit(50) split, the timeout,
+// and every degradation path funnel through here so Retrieve's own call
+// site stays a three-line insertion. It NEVER returns an error — same
+// convention rewriteQuery (conversation/queryrewrite.go) already
+// established for the query-rewrite side of this same feature: every
+// failure mode degrades to "keep fused's order unchanged", never fails the
+// call.
+//
+// candidates is rrfFuse's full admitted+deduped pool (fused, in Retrieve),
+// already sorted best-first. Only the front rerankInputLimit(50) entries
+// are sent to the rerank model — see the constant's doc comment for why;
+// the remainder (if any) is appended AFTER the reranked head, unchanged
+// relative order, so a low-ranked tail candidate can never leapfrog ahead
+// of a candidate that was actually scored.
+func (s *service) applyRerankStep(ctx context.Context, query string, candidates []RetrievedChunk) ([]RetrievedChunk, rerankStats) {
+	stats := rerankStats{Enabled: s.rerankEnabled}
+	// 候选数 ≤1 时重排不可能改变顺序，且不该为它付一次外部调用的代价
+	// （FR-010）；开关关闭/未配模型是 data-model.md §3 明确要求的静默降级
+	// （不让进程启动失败，运行期也不让本轮失败），两者都不发任何外部请求。
+	if !s.rerankEnabled || s.rerankModelID == "" || len(candidates) <= 1 {
+		return candidates, stats
+	}
+
+	head := candidates
+	var tail []RetrievedChunk
+	if len(head) > rerankInputLimit {
+		head, tail = candidates[:rerankInputLimit], candidates[rerankInputLimit:]
+	}
+
+	documents := make([]string, len(head))
+	for i, c := range head {
+		documents[i] = c.Content
+	}
+
+	start := time.Now()
+	rerankCtx, cancel := context.WithTimeout(ctx, s.rerankTimeout)
+	defer cancel()
+	result, err := s.rerankScoreFn(rerankCtx, query, documents)
+	stats.InputCount = len(head)
+	stats.DurationMs = time.Since(start).Milliseconds()
+	if err != nil {
+		// 覆盖失败与超时（ctx deadline exceeded 也从这里进来）——
+		// 绝不记 query 原文或候选正文，只记错误本身和候选数（FR-017）。
+		slog.Warn("knowledge: rerank call failed, keeping fused order", "err", err, "input_count", stats.InputCount)
+		stats.Degraded = true
+		return candidates, stats
+	}
+
+	rerankedHead, ok := applyRerank(head, result.Scores)
+	if !ok {
+		// contracts/rerank-http-api.md 的响应校验不通过——整体丢弃，保持
+		// 融合排序，绝不部分采用（FR-011）。
+		slog.Warn("knowledge: rerank response failed validation, keeping fused order", "input_count", stats.InputCount)
+		stats.Degraded = true
+		return candidates, stats
+	}
+
+	stats.Applied = true
+	if len(tail) == 0 {
+		return rerankedHead, stats
+	}
+	out := make([]RetrievedChunk, 0, len(rerankedHead)+len(tail))
+	out = append(out, rerankedHead...)
+	out = append(out, tail...)
+	return out, stats
 }
 
 // expandWithNeighborWindow is Neighbor Window Retrieval's DB-facing half —

@@ -17,7 +17,7 @@ func TestRRFFuseAdmissionRejectedCandidateNeverConsumesTopKSlot(t *testing.T) {
 	// with no keyword signal, so it must be rejected outright.
 	vector := []RetrievedChunk{rc("a-rejected", 0.2), rc("b", 0.9), rc("c", 0.5)}
 
-	got, stats := rrfFuse(vector, nil, 2)
+	got, stats := fuseTopK(vector, nil, 2)
 
 	want := []string{"b", "c"}
 	if got := idsOf(got); len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
@@ -37,7 +37,7 @@ func TestRRFFuseAdmissionBeforeDedupKeepsAdmittedDuplicateOverRejectedHigherRank
 		rcContent("b-admitted", 0.5, "重复正文"), // rank 2, admitted
 	}
 
-	got, _ := rrfFuse(vector, nil, 10)
+	got, _ := fuseTopK(vector, nil, 10)
 
 	if len(got) != 1 || got[0].ID != "b-admitted" {
 		t.Fatalf("got %v, want exactly [b-admitted] — the higher-ranked but unqualified duplicate must be rejected first, leaving the admitted one to survive dedup", idsOf(got))
@@ -53,7 +53,7 @@ func TestRRFFuseAdmissionThenDedupKeepsHigherRankedWhenBothAdmitted(t *testing.T
 		rcContent("b-lower-rank", 0.5, "重复正文"),  // rank 2, admitted
 	}
 
-	got, _ := rrfFuse(vector, nil, 10)
+	got, _ := fuseTopK(vector, nil, 10)
 
 	if len(got) != 1 || got[0].ID != "a-higher-rank" {
 		t.Fatalf("got %v, want exactly [a-higher-rank] — both admitted, so ordinary dedup precedence (higher fusion rank wins) applies", idsOf(got))
@@ -84,7 +84,7 @@ func TestRRFFuseAdmissionAndDedupPreserveSurvivorFields(t *testing.T) {
 	// admission — not dedup rank order — is what determines the survivor.
 	vector := []RetrievedChunk{rejectedDuplicate, survivor}
 
-	got, _ := rrfFuse(vector, nil, 10)
+	got, _ := fuseTopK(vector, nil, 10)
 
 	if len(got) != 1 || got[0].ID != "survivor" {
 		t.Fatalf("got %v, want exactly [survivor]", idsOf(got))

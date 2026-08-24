@@ -90,6 +90,23 @@ func (r *resilientClient) Embed(ctx context.Context, req EmbedRequest) (EmbedRes
 	})
 }
 
+// Rerank wraps Client.Rerank with the same concurrency/rate-limit/circuit-
+// breaker/retry decoration as Embed above — same-shaped call (single
+// request/response, no streaming), so it reuses the identical structure
+// rather than inventing a new one.
+func (r *resilientClient) Rerank(ctx context.Context, req RerankRequest) (RerankResult, error) {
+	if err := r.acquire(ctx); err != nil {
+		return RerankResult{}, err
+	}
+	defer r.sem.Release(1)
+	if err := r.checkRateLimit(ctx); err != nil {
+		return RerankResult{}, err
+	}
+	return callWithRetry(ctx, r.breaker, r.inner, r.cfg.MaxRetries, func() (RerankResult, error) {
+		return r.inner.Rerank(ctx, req)
+	})
+}
+
 func (r *resilientClient) TestConnection(ctx context.Context) error {
 	if err := r.acquire(ctx); err != nil {
 		return err

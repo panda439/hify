@@ -125,7 +125,20 @@ type fusionEntry struct {
 // content-free aggregate of both the admission gate's and this dedup
 // pass's counts. service.go's Retrieve logs it via a safe, content-free
 // structured debug line.
-func rrfFuse(vectorChunks, keywordChunks []RetrievedChunk, topK int) ([]RetrievedChunk, admissionStats) {
+//
+// 001-rag-query-rerank T026：不再接收/截断 topK。以前这里是"融合排序 →
+// 准入 → 内容去重 → topK 截断"，现在 topK 截断挪到了 service.go 的
+// Retrieve 里、重排序（rerank.go）之后——顺序变成"融合排序 → 准入 → 内容
+// 去重 → 重排 → topK 截断 → 邻接批量查询"（见 plan.md「检索链路的新顺
+// 序」）。放在截断之前重排没有意义：被截掉的候选根本没机会翻身；放在截断
+// 之后又在邻接查询之前，是因为邻接扩展只应该为真正进入 topK 的候选查询，
+// 不能为被重排淘汰的候选白付一次数据库查询（FR-012）。
+//
+// 这里返回的是"已准入、已内容去重"的完整候选池（上界 2*candidateK≤200，
+// 见 candidateK 的文档注释），不是最终结果——调用方（Retrieve）必须自己在
+// 重排之后做截断。TestRRFFuseWithoutTopKMatchesOldTruncatedBehavior（T025）
+// 证明这是行为等价改造：rrfFuse(...)[:topK] 和旧版"内部截断"逐字相同。
+func rrfFuse(vectorChunks, keywordChunks []RetrievedChunk) ([]RetrievedChunk, admissionStats) {
 	entries := make(map[string]*fusionEntry)
 
 	addPath := func(chunks []RetrievedChunk, weight float64, isVector bool) {
@@ -214,9 +227,6 @@ func rrfFuse(vectorChunks, keywordChunks []RetrievedChunk, topK int) ([]Retrieve
 	admitted, contentDuplicateCount := dedupExactContentChunks(admitted)
 	stats.ContentDuplicateCount = contentDuplicateCount
 
-	if len(admitted) > topK {
-		admitted = admitted[:topK]
-	}
 	return admitted, stats
 }
 

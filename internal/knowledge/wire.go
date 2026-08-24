@@ -24,11 +24,10 @@ func NewRepository(db, pgdb *sql.DB) *Repository {
 // and a local directory to store uploaded files under (see the "本地磁盘存
 // 储是当前阶段的已知限制" note in the plan — not multi-instance safe, fine
 // at Hify's current single-instance deployment scale). rerankEnabled/
-// rerankModelID/rerankTimeout are 001-rag-query-rerank's rerank config —
-// see the service struct's doc comment: stored but unused until US2 (out
-// of this task set's scope) implements the rerank step itself.
+// rerankModelID/rerankTimeout are 001-rag-query-rerank's rerank config
+// (data-model.md §3).
 func NewService(repo *Repository, providerSvc provider.Service, asynqClient *asynq.Client, storageDir string, rerankEnabled bool, rerankModelID string, rerankTimeout time.Duration) Service {
-	return &service{
+	s := &service{
 		repo:        repo,
 		providerSvc: providerSvc,
 		asynqClient: asynqClient,
@@ -41,6 +40,14 @@ func NewService(repo *Repository, providerSvc provider.Service, asynqClient *asy
 		rerankModelID:     rerankModelID,
 		rerankTimeout:     rerankTimeout,
 	}
+	// rerankScoreFn defaults to s.resolveRerankScores (see the service
+	// struct's doc comment for why this is a replaceable method-value
+	// field, same pattern as findNeighborBatch above) — self-referential
+	// construction (s must exist before its own method can be taken as a
+	// value), unlike findNeighborBatch which is bound to the already-
+	// constructed repo parameter instead.
+	s.rerankScoreFn = s.resolveRerankScores
+	return s
 }
 
 func NewHandler(svc Service) *Handler {
