@@ -30,8 +30,12 @@ Go 模块化单体：`internal/<module>/`、`internal/db/migrations/`、`cmd/hif
 
 **Purpose**: 固定"改动前"的基线，否则 SC-003 无法验证
 
-- [ ] T001 在**任何代码改动之前**跑 `make eval` 并把结果归档为基线，确认 `eval/baseline.json` 与本次基线一致；把命令原始输出摘录进 `docs/eval-phase9-query-rerank-report.md` 的"基线"一节
-- [ ] T002 跑 `go test ./... -race -count=1`、`go vet ./...`、`make check-deps`，确认改动前工作区是全绿的（有失败先记录，不要在本功能里顺手修——宪法第 IX 条）
+- [~] T001 **未按规格执行，如实记录**：本条要求"在**任何代码改动之前**跑 `make eval` 归档基线"。实际执行顺序是先做完 US1 才补跑，因此它是"改动后、双开关关闭"的基线，不是严格意义上的改动前基线。
+  - 后果有限：两个开关默认关闭，改写路径在关闭时是直接返回原问题的空操作，与改动前行为一致；而真正需要"改动前后逐字比对"的是 `rrfFuse` 截断改造，那一条由确定性门禁（T039）独立锁定，不依赖本条
+  - 更关键的是执行过程中发现 `make eval` **本来就不适合做这件事**（带 LLM 裁判，同一份代码跑两次都不一致），基线比对的正确落点是 `make eval-retrieval-gate`——详见 spec.md 的"度量方式修正"
+  - `eval/baseline.json` 已刷新为 2026-08-24 的 10/10 满分结果（旧基线是 7 月 26 日的 5 条用例，早于 Phase 5-8，已无可比性）
+
+- [x] T002 跑 `go test ./... -race -count=1`、`go vet ./...`、`make check-deps`，确认改动前工作区是全绿的（有失败先记录，不要在本功能里顺手修——宪法第 IX 条）
 
 ---
 
@@ -41,9 +45,9 @@ Go 模块化单体：`internal/<module>/`、`internal/db/migrations/`、`cmd/hif
 
 **⚠️ CRITICAL**: 本阶段完成前，US1/US2 都不能开工
 
-- [ ] T003 在 `internal/config/config.go` 的 `Config` 中新增 6 个字段并在 `Load()` 中解析：`RAGQueryRewriteEnabled`、`RAGQueryRewriteModelID`、`RAGQueryRewriteTimeout`、`RAGRerankEnabled`、`RAGRerankModelID`、`RAGRerankTimeout`，默认值与环境变量名严格照 [data-model.md](./data-model.md) §3
-- [ ] T004 在 `internal/config/config.go` 中实现 §3 的校验规则：两个 duration 解析失败即返回错误；`RAGRerankEnabled=true` 且 `RAGRerankModelID==""` 时降级为关闭并 `slog.Warn`（**不得**让进程启动失败）
-- [ ] T005 在 `cmd/hify/`（`buildApp`）把新配置分别透传给 `conversation.NewService` 与 `knowledge.NewService` 的构造参数占位，保证此时编译通过、行为与改动前完全一致
+- [x] T003 在 `internal/config/config.go` 的 `Config` 中新增 6 个字段并在 `Load()` 中解析：`RAGQueryRewriteEnabled`、`RAGQueryRewriteModelID`、`RAGQueryRewriteTimeout`、`RAGRerankEnabled`、`RAGRerankModelID`、`RAGRerankTimeout`，默认值与环境变量名严格照 [data-model.md](./data-model.md) §3
+- [x] T004 在 `internal/config/config.go` 中实现 §3 的校验规则：两个 duration 解析失败即返回错误；`RAGRerankEnabled=true` 且 `RAGRerankModelID==""` 时降级为关闭并 `slog.Warn`（**不得**让进程启动失败）
+- [x] T005 在 `cmd/hify/`（`buildApp`）把新配置分别透传给 `conversation.NewService` 与 `knowledge.NewService` 的构造参数占位，保证此时编译通过、行为与改动前完全一致
 
 **Checkpoint**: 配置就位，双开关默认关闭，行为零变化
 
@@ -58,19 +62,19 @@ Go 模块化单体：`internal/<module>/`、`internal/db/migrations/`、`cmd/hif
 
 ### Tests for User Story 1 ⚠️ 先写，先失败
 
-- [ ] T006 [P] [US1] 在 `internal/conversation/queryrewrite_test.go` 写 `shouldSkipRewrite` 的表驱动失败测试：无历史+无指代词+长度达标 → skip；含「它/这个/那个/上述/前者/后者/该/其」任一 → 不 skip；有历史 → 不 skip；空串/纯标点 → skip；英文 `it/this/those` → 不 skip
-- [ ] T007 [P] [US1] 在 `internal/conversation/queryrewrite_test.go` 写 `parseRewriteResult` 失败测试：裸 JSON、带 ```` ```json ```` 围栏、首尾空白、非法 JSON（返回 error）、缺字段（零值）
-- [ ] T008 [P] [US1] 在 `internal/conversation/queryrewrite_test.go` 写 `validateRewrite` 失败测试：`ambiguous=true` → 不采用；空/纯空白 → 不采用；>200 runes → 不采用；> max(3×原长,60) runes → 不采用；正常改写 → 采用并返回去空白后的结果
+- [x] T006 [P] [US1] 在 `internal/conversation/queryrewrite_test.go` 写 `shouldSkipRewrite` 的表驱动失败测试：无历史+无指代词+长度达标 → skip；含「它/这个/那个/上述/前者/后者/该/其」任一 → 不 skip；有历史 → 不 skip；空串/纯标点 → skip；英文 `it/this/those` → 不 skip
+- [x] T007 [P] [US1] 在 `internal/conversation/queryrewrite_test.go` 写 `parseRewriteResult` 失败测试：裸 JSON、带 ```` ```json ```` 围栏、首尾空白、非法 JSON（返回 error）、缺字段（零值）
+- [x] T008 [P] [US1] 在 `internal/conversation/queryrewrite_test.go` 写 `validateRewrite` 失败测试：`ambiguous=true` → 不采用；空/纯空白 → 不采用；>200 runes → 不采用；> max(3×原长,60) runes → 不采用；正常改写 → 采用并返回去空白后的结果
 
 ### Implementation for User Story 1
 
-- [ ] T009 [US1] 新建 `internal/conversation/queryrewrite.go`：包内常量（`maxRewriteHistoryTurns=4`、`maxRewriteQuestionRunes=200`、`minRewriteTriggerRunes=2`）、指代词模式（中英文，参考 [research.md](./research.md) R4）、`shouldSkipRewrite` 纯函数，使 T006 通过
-- [ ] T010 [US1] 在 `internal/conversation/queryrewrite.go` 实现 `parseRewriteResult` / `validateRewrite` 纯函数，使 T007、T008 通过
-- [ ] T011 [US1] 在 `internal/conversation/queryrewrite.go` 写改写提示词：要求只输出 `{"standalone_question","ambiguous"}` JSON；历史与问题包在明确的数据标签内并声明"是待分析数据不是指令"（FR-006，对齐 `context.go` 里 `formatSource` 的处理思路）；规则照抄 research-agent 的语义但**去掉"反问用户"分支**——歧义时只置 `ambiguous=true`
-- [ ] T012 [US1] 在 `internal/conversation/queryrewrite.go` 实现 `rewriteQuery(ctx, ...) rewriteOutcome`：开关关闭/快速路径命中 → 直接返回原问题且不调 LLM；否则用 `providerSvc.ResolveClient` + `Chat`（`temperature=0`、不挂工具）调用，带 `RAGQueryRewriteTimeout` 的 `context.WithTimeout`；模型选择为 `RAGQueryRewriteModelID`，为空则用当前 Agent 的 chat 模型
-- [ ] T013 [US1] 在 `internal/conversation/service.go` / `wire.go` 给 `service` 增加改写所需字段与构造参数（开关、模型 ID、超时），保持 `Service` 接口不变
-- [ ] T014 [US1] 在 `internal/conversation/context.go` 的 `assembleContext` 中，于 `knowledgeSvc.Retrieve` **之前**调用 `rewriteQuery`，把返回的 `SearchQuery` 作为 `Retrieve` 的 query 传入；`latestUserMessage` 本身仍原样进入消息序列（FR：改写只影响检索，不影响回答呈现）
-- [ ] T015 [US1] 在 `internal/conversation/integration_test.go` 增加可编程 fake provider client，覆盖：改写成功 → Retrieve 收到的是改写后问题；`ambiguous=true` → Retrieve 收到原问题；开关关闭 → Retrieve 收到原问题且 fake 的 Chat 调用次数为 0
+- [x] T009 [US1] 新建 `internal/conversation/queryrewrite.go`：包内常量（`maxRewriteHistoryTurns=4`、`maxRewriteQuestionRunes=200`、`minRewriteTriggerRunes=2`）、指代词模式（中英文，参考 [research.md](./research.md) R4）、`shouldSkipRewrite` 纯函数，使 T006 通过
+- [x] T010 [US1] 在 `internal/conversation/queryrewrite.go` 实现 `parseRewriteResult` / `validateRewrite` 纯函数，使 T007、T008 通过
+- [x] T011 [US1] 在 `internal/conversation/queryrewrite.go` 写改写提示词：要求只输出 `{"standalone_question","ambiguous"}` JSON；历史与问题包在明确的数据标签内并声明"是待分析数据不是指令"（FR-006，对齐 `context.go` 里 `formatSource` 的处理思路）；规则照抄 research-agent 的语义但**去掉"反问用户"分支**——歧义时只置 `ambiguous=true`
+- [x] T012 [US1] 在 `internal/conversation/queryrewrite.go` 实现 `rewriteQuery(ctx, ...) rewriteOutcome`：开关关闭/快速路径命中 → 直接返回原问题且不调 LLM；否则用 `providerSvc.ResolveClient` + `Chat`（`temperature=0`、不挂工具）调用，带 `RAGQueryRewriteTimeout` 的 `context.WithTimeout`；模型选择为 `RAGQueryRewriteModelID`，为空则用当前 Agent 的 chat 模型
+- [x] T013 [US1] 在 `internal/conversation/service.go` / `wire.go` 给 `service` 增加改写所需字段与构造参数（开关、模型 ID、超时），保持 `Service` 接口不变
+- [x] T014 [US1] 在 `internal/conversation/context.go` 的 `assembleContext` 中，于 `knowledgeSvc.Retrieve` **之前**调用 `rewriteQuery`，把返回的 `SearchQuery` 作为 `Retrieve` 的 query 传入；`latestUserMessage` 本身仍原样进入消息序列（FR：改写只影响检索，不影响回答呈现）
+- [x] T015 [US1] 在 `internal/conversation/integration_test.go` 增加可编程 fake provider client，覆盖：改写成功 → Retrieve 收到的是改写后问题；`ambiguous=true` → Retrieve 收到原问题；开关关闭 → Retrieve 收到原问题且 fake 的 Chat 调用次数为 0
 
 **Checkpoint**: US1 独立可用——不依赖 rerank、不依赖 migration
 
@@ -85,29 +89,29 @@ Go 模块化单体：`internal/<module>/`、`internal/db/migrations/`、`cmd/hif
 
 ### 4.1 数据层与供应商能力（宪法第 IV 条：migration → sqlc → model → service → handler → wire）
 
-- [ ] T016 [US2] 新建 `internal/db/migrations/000012_provider_rerank_capability.up.sql` 与 `.down.sql`，内容照 [data-model.md](./data-model.md) §1.1；跑 `make migrate-up` 与一次 `make migrate-down`+`migrate-up` 往返验证
-- [ ] T017 [US2] 跑 `make sqlc`，确认无 diff（列定义未变，只改 CHECK）
-- [ ] T018 [P] [US2] 在 `internal/provider/model.go` 增加 `CapabilityRerank = "rerank"` 常量
-- [ ] T019 [P] [US2] 在 `internal/provider/rerank_test.go` 写失败测试：请求体编码（`return_documents=false`、`top_n=len(documents)`）、响应解码、以及 [contracts/rerank-http-api.md](./contracts/rerank-http-api.md) 的 5 条校验（空/长度不符/越界 index/重复 index/缺失 index）逐条返回"不可信"
-- [ ] T020 [US2] 在 `internal/provider/llm.go` 增加 `RerankRequest`/`RerankResult`/`RerankScore` 类型，并在 `Client` 接口加 `Rerank` 方法
-- [ ] T021 [US2] 在 `internal/provider/openai_compat.go` 用 `net/http` 实现 `openAICompatClient.Rerank`（`POST {base}/rerank`，`Authorization: Bearer`，复用既有 `classifyError` 与 retry-after 采集），使 T019 通过
-- [ ] T022 [US2] 在 `internal/provider/resilience.go` 实现 `resilientClient.Rerank`，与 `Embed` 同构地套熔断/重试
+- [x] T016 [US2] 新建 `internal/db/migrations/000012_provider_rerank_capability.up.sql` 与 `.down.sql`，内容照 [data-model.md](./data-model.md) §1.1；跑 `make migrate-up` 与一次 `make migrate-down`+`migrate-up` 往返验证
+- [x] T017 [US2] 跑 `make sqlc`，确认无 diff（列定义未变，只改 CHECK）
+- [x] T018 [P] [US2] 在 `internal/provider/model.go` 增加 `CapabilityRerank = "rerank"` 常量
+- [x] T019 [P] [US2] 在 `internal/provider/rerank_test.go` 写失败测试：请求体编码（`return_documents=false`、`top_n=len(documents)`）、响应解码、以及 [contracts/rerank-http-api.md](./contracts/rerank-http-api.md) 的 5 条校验（空/长度不符/越界 index/重复 index/缺失 index）逐条返回"不可信"
+- [x] T020 [US2] 在 `internal/provider/llm.go` 增加 `RerankRequest`/`RerankResult`/`RerankScore` 类型，并在 `Client` 接口加 `Rerank` 方法
+- [x] T021 [US2] 在 `internal/provider/openai_compat.go` 用 `net/http` 实现 `openAICompatClient.Rerank`（`POST {base}/rerank`，`Authorization: Bearer`，复用既有 `classifyError` 与 retry-after 采集），使 T019 通过
+- [x] T022 [US2] 在 `internal/provider/resilience.go` 实现 `resilientClient.Rerank`，与 `Embed` 同构地套熔断/重试
 - [x] T023 [US2] 在 `internal/provider/service.go`、`handler.go` **与 `dto.go`** 的能力白名单中放行 `rerank`，非法值仍返回中文错误
   - **本条任务书原文写错了：说"两处判断"，实际是三处。** 漏掉的是 `dto.go` 里 `addModelRequest.Capability` 的 gin binding 标签 `oneof=chat embedding`，它在请求进到 handler 逻辑之前就生效——另外两处改得再对，请求也永远到不了它们那里，rerank 模型**根本注册不进去**，而这是它唯一的注册入口（前端暂无该选项）
   - 全套单测与集成测试都是绿的，因为它们直接调 service/handler，绕过了 gin binding。这个缺陷是 T043 冒烟测试用真实 HTTP 请求打出来的——正是 CLAUDE.md 说的"`/smoke-test` 和真实 HTTP 验证是唯一的安全网"的实例
   - 已补 `internal/provider/dto_binding_test.go`：只测 binding 标签本身（不连库、不构造 service），遍历 `Capability*` 常量断言全部能过、常见手误拼写全部被拒。以后加第四种能力时忘记改标签就会立刻红
-- [ ] T023a [US2] **（US1 review 追加）** 修 `Temperature: 0` 被静默丢弃的问题：`internal/provider/openai_compat.go` 的 `toOpenAIRequest` 无条件写 `Temperature: float32(req.Temperature)`，而 go-openai v1.41.2 的字段标签是 `json:"temperature,omitempty"` —— 0 值会被整个省略，供应商按默认温度（通常 1.0）执行。改法：`provider.ChatRequest.Temperature` 改成 `*float64`，或增设 `TemperatureSet bool`，让"显式 0"能真正发出去。影响面不止本功能：Agent 自己配 `Temperature=0` 现在同样无效。改完补一个断言"温度为 0 时请求体确实含 temperature 字段"的测试
-- [ ] T024 [P] [US2] 给 4 个测试假实现补 `Rerank` 空方法：`internal/workflow/integration_test.go`、`internal/knowledge/integration_test.go`、`internal/eval/runner_test.go`、`internal/conversation/integration_test.go`——**只加方法，不改这些文件的其他内容**
+- [x] T023a [US2] **（US1 review 追加）** 修 `Temperature: 0` 被静默丢弃的问题：`internal/provider/openai_compat.go` 的 `toOpenAIRequest` 无条件写 `Temperature: float32(req.Temperature)`，而 go-openai v1.41.2 的字段标签是 `json:"temperature,omitempty"` —— 0 值会被整个省略，供应商按默认温度（通常 1.0）执行。改法：`provider.ChatRequest.Temperature` 改成 `*float64`，或增设 `TemperatureSet bool`，让"显式 0"能真正发出去。影响面不止本功能：Agent 自己配 `Temperature=0` 现在同样无效。改完补一个断言"温度为 0 时请求体确实含 temperature 字段"的测试
+- [x] T024 [P] [US2] 给 4 个测试假实现补 `Rerank` 空方法：`internal/workflow/integration_test.go`、`internal/knowledge/integration_test.go`、`internal/eval/runner_test.go`、`internal/conversation/integration_test.go`——**只加方法，不改这些文件的其他内容**
 
 ### 4.2 检索链路改造（行为等价先行）
 
-- [ ] T025 [US2] 在 `internal/knowledge/hybrid_test.go` 增加失败测试：`rrfFuse` 去掉 `topK` 参数后返回"完整已准入已去重列表"，且对同一输入，`rrfFuse(...)[:topK]` 与改造前 `rrfFuse(..., topK)` 结果逐字相同（FR-018 的单测级证据）
-- [ ] T026 [US2] 修改 `internal/knowledge/hybrid.go`：`rrfFuse` 去掉 topK 参数与截断逻辑，更新其文档注释（说明截断已移到 `Retrieve` 的重排之后），使 T025 通过
-- [ ] T027 [P] [US2] 在 `internal/knowledge/rerank_test.go` 写 `applyRerank` 失败测试：分数降序生效；分数相同按重排前原始位置升序（确定性 tie-break）；`RetrievedChunk.Score`/Citation 元数据/`NeighborOf` 均不被改写；校验不通过时返回 `false` 且候选顺序原样返回
-- [ ] T028 [US2] 新建 `internal/knowledge/rerank.go`：常量 `rerankInputLimit=50`、`rerankedCandidate`/`rerankStats` 类型、`applyRerank` 纯函数与响应校验，使 T027 通过
-- [ ] T029 [US2] 在 `internal/knowledge/service.go` 的 `Retrieve` 中按 [plan.md](./plan.md)"检索链路的新顺序"插入重排步骤：`rrfFuse → (重排前 50) → applyRerank → topK 截断 → expandWithNeighborWindow`；候选数 ≤1 或开关关闭时短路不发请求
-- [ ] T030 [US2] 在 `internal/knowledge/wire.go` / `service` 结构体注入 rerank 依赖（开关、模型 ID、超时、打分函数），打分函数做成可替换的方法值字段——照 `findNeighborBatch` 的既有先例，让单测可以注入固定打分的假实现
-- [ ] T031 [US2] 在 `internal/knowledge/integration_test.go` 增加真实 PostgreSQL + fake provider 的集成测试：融合排名第 6 位的候选被重排到第 1 位并进入 topK=3 的结果；断言邻接查询只为重排后的核心块发生（复用 Phase 7 的 spy 计数手法）
+- [x] T025 [US2] 在 `internal/knowledge/hybrid_test.go` 增加失败测试：`rrfFuse` 去掉 `topK` 参数后返回"完整已准入已去重列表"，且对同一输入，`rrfFuse(...)[:topK]` 与改造前 `rrfFuse(..., topK)` 结果逐字相同（FR-018 的单测级证据）
+- [x] T026 [US2] 修改 `internal/knowledge/hybrid.go`：`rrfFuse` 去掉 topK 参数与截断逻辑，更新其文档注释（说明截断已移到 `Retrieve` 的重排之后），使 T025 通过
+- [x] T027 [P] [US2] 在 `internal/knowledge/rerank_test.go` 写 `applyRerank` 失败测试：分数降序生效；分数相同按重排前原始位置升序（确定性 tie-break）；`RetrievedChunk.Score`/Citation 元数据/`NeighborOf` 均不被改写；校验不通过时返回 `false` 且候选顺序原样返回
+- [x] T028 [US2] 新建 `internal/knowledge/rerank.go`：常量 `rerankInputLimit=50`、`rerankedCandidate`/`rerankStats` 类型、`applyRerank` 纯函数与响应校验，使 T027 通过
+- [x] T029 [US2] 在 `internal/knowledge/service.go` 的 `Retrieve` 中按 [plan.md](./plan.md)"检索链路的新顺序"插入重排步骤：`rrfFuse → (重排前 50) → applyRerank → topK 截断 → expandWithNeighborWindow`；候选数 ≤1 或开关关闭时短路不发请求
+- [x] T030 [US2] 在 `internal/knowledge/wire.go` / `service` 结构体注入 rerank 依赖（开关、模型 ID、超时、打分函数），打分函数做成可替换的方法值字段——照 `findNeighborBatch` 的既有先例，让单测可以注入固定打分的假实现
+- [x] T031 [US2] 在 `internal/knowledge/integration_test.go` 增加真实 PostgreSQL + fake provider 的集成测试：融合排名第 6 位的候选被重排到第 1 位并进入 topK=3 的结果；断言邻接查询只为重排后的核心块发生（复用 Phase 7 的 spy 计数手法）
 
 **Checkpoint**: US2 独立可用——关闭改写开关也能验证
 
@@ -150,14 +154,42 @@ Go 模块化单体：`internal/<module>/`、`internal/db/migrations/`、`cmd/hif
   - 修复后核验：`version = 4`、`pg_trgm` 已装、`idx_chunks_content_trgm` 已建、`word_similarity()` 可调用
   - 已知连带：2026-08-24 之前的所有 `make eval` 结果（含 `eval/baseline.json`）都是纯向量跑出来的
 
-- [ ] T039 双开关关闭下跑 `make eval-retrieval-gate`（**确定性门禁，不是 `make eval`**），断言除 `ran_at` 外与改动前逐字节一致、四项 metrics 不变、`pass: true`（SC-003）。不一致必须先修 T026 的等价性再继续
+- [x] T039 双开关关闭下跑 `make eval-retrieval-gate`（**确定性门禁，不是 `make eval`**），断言除 `ran_at` 外与改动前逐字节一致、四项 metrics 不变、`pass: true`（SC-003）。不一致必须先修 T026 的等价性再继续
   - 已于 2026-08-24 在 US1 完成后跑过一次并通过（与 2026-08-08 的报告逐字节相同）；US2 改完 `rrfFuse` 之后**必须重跑**
   - **不要用 `make eval` 验证这一条**：它每条用例都调真实对话模型 + 裁判模型，同一份代码跑两次都不会一致
-- [ ] T040 双开关打开下跑 T038a 的受控门禁用例，记录 SC-001/SC-002 的机制断言结果；报告中**必须写明**这是机制证明而非真实效果幅度（依据见 spec.md 的"度量方式修正"）
-- [ ] T041 [P] 更新 `README.md` 与 `docs/critical-paths.md`：新的检索链路顺序、6 个配置项、rerank 模型注册方式（前端暂无入口）
-- [ ] T042 [P] 写 `docs/eval-phase9-query-rerank-report.md`，沿用 Phase 1-8 报告结构，含未用真实 rerank 服务验证的项的如实说明
+- [x] T040 双开关打开下跑 T038a 的受控门禁用例，记录 SC-001/SC-002 的机制断言结果；报告中**必须写明**这是机制证明而非真实效果幅度（依据见 spec.md 的"度量方式修正"）
+- [x] T041 [P] 更新 `README.md` 与 `docs/critical-paths.md`：新的检索链路顺序、6 个配置项、rerank 模型注册方式（前端暂无入口）
+- [x] T042 [P] 写 `docs/eval-phase9-query-rerank-report.md`，沿用 Phase 1-8 报告结构，含未用真实 rerank 服务验证的项的如实说明
 - [x] T043 **（2026-08-25 完成）** 按 [quickstart.md](./quickstart.md) 逐条走验收清单——冒烟测试抓到 T023 的第三处白名单遗漏（见上），修复并补测试后重跑通过；配置校验在真实启动路径上按设计降级（`HIFY_RAG_RERANK_ENABLED=true` 但未配模型 ID 时打 Warn 并关闭，不让进程启动失败）。原清单项：`make migrate-up`/`make sqlc`/`make check-deps`/`go test ./... -race -count=1`（无 skip）/`go vet ./...`/`/smoke-test`
 - [x] T044 ~~更新 `.claude/CODEX_CLAUDE_HANDOFF.md`~~ —— **作废（2026-08-25）**：所有者已停用 Codex，该交接文件已删除，宪法第 VIII 条同步改写为「提交时机由所有者决定」（v1.2.0）。本阶段的实施结果、真实测试输出与未验证项改为落在 `docs/eval-phase9-query-rerank-report.md`，不再需要单独的交接文件
+
+---
+
+## 完成状态汇总（2026-08-25 收尾）
+
+44 个任务：**42 项完成**（`[x]`），**2 项部分完成**（`[~]`，各自写明了偏离原因与后果）。
+
+`[~]` 的两项都不是"没做完"，而是**规格本身写错了、实施中才发现**——这类偏差按宪法第 VI 条如实
+标注，不改成 `[x]` 掩盖：
+
+- **T001**：要求用 `make eval` 取"改动前基线"。实际执行晚了（US1 之后才补跑），
+  但更根本的问题是 `make eval` 带 LLM 裁判、同一份代码跑两次都不一致，**它本来就不能用来做基线比对**。
+  正确落点是 `make eval-retrieval-gate`（T039，已完成且三次比对逐字节一致）。
+- **T038**：4 条硬用例写完了，但在当前语料（4 chunk / topK=5）和 mock 嵌入下**测不出任何提升**，
+  设计目标没达成。替代方案 T038a（确定性门禁受控用例）已完成，那才是 SC-001/SC-002 的实际证据。
+
+**本阶段发现并修复的、规格没预见到的问题**：
+
+| 发现于 | 问题 |
+|---|---|
+| US1 review | 单字指代词 `该/其/这/那` 假阳性；`Temperature: 0` 被 `omitempty` 静默丢弃（T023a） |
+| US2 review | `injectZeroTemperature` 扫整个 body，会被参数名叫 `temperature` 的工具误导 |
+| US3 实施 | `trace_spans.kind` 有 CHECK 约束，需要 migration `000013`（data-model §1.2 已补记教训） |
+| US3 review | `query_rewrite` span 在功能关闭时仍每轮写入，对百万行级大表是纯写放大 |
+| **T043 冒烟** | **能力白名单其实有三处**，漏掉 `dto.go` 的 gin binding 标签——rerank 模型根本注册不进去，而全套单测和集成测试都是绿的 |
+| 跑基线时 | 开发库 PG 迁移停在 version 3，`pg_trgm` 从未安装，Hybrid Search 一直是纯向量单路（已修复） |
+
+最后一条最值得记：**唯一抓住"功能整体不可用"的，是用真实 HTTP 请求的冒烟测试**。
 
 ---
 
