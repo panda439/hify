@@ -73,8 +73,15 @@ func extraHeaderKeys(headers map[string]string) []string {
 }
 
 type addModelRequest struct {
-	ModelName          string `json:"model_name" binding:"required"`
-	Capability         string `json:"capability" binding:"required,oneof=chat embedding"`
+	ModelName string `json:"model_name" binding:"required"`
+	// 能力白名单在本仓库一共有**三处**，加新能力时必须同时改，漏一处就
+	// 是一个单元测试和集成测试都发现不了的缺陷：这里的 binding 标签、
+	// handler.go 的显式判断、service.go 的显式判断。binding 标签在请求
+	// 进到 handler 逻辑之前就生效，所以它漏了的话，另外两处改得再对，
+	// 请求也永远到不了它们那里——001-rag-query-rerank 加 rerank 能力时
+	// 就漏了这一处，直到冒烟测试用真实 HTTP 请求才暴露出来（单测直接调
+	// service/handler，绕过了 gin 的 binding）。
+	Capability         string `json:"capability" binding:"required,oneof=chat embedding rerank"`
 	ContextWindow      *int   `json:"context_window"`
 	MaxOutputTokens    *int   `json:"max_output_tokens"`
 	EmbeddingDimension *int   `json:"embedding_dimension"`

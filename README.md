@@ -10,7 +10,11 @@
 
 - **LLM Provider 抽象层**：统一 `Client` 接口（Chat / ChatStream / Embed），OpenAI 兼容协议适配多家供应商；API Key AES-256-GCM 加密落库。
 - **弹性调用装饰器**：per-provider 熔断（gobreaker）、并发限流 + Redis 令牌桶、指数退避重试（流式场景只重试首连，断流绝不重试以避免向客户端重复推送）、空闲超时。
-- **RAG 全流程**：结构感知文档解析分块（md 保留标题/段落/列表/代码块/表格并把标题带入 embedding 内容、txt 按段落/句子边界切、pdf 逐字形位置重建后按页切分保留页码；单个结构超限统一回退定长切分；PDF 无 OCR，扫描版/无文字层直接报错，Markdown 解析是行级启发式而非完整 CommonMark）→ 批量 embedding →  **Hybrid Search**：**PostgreSQL + pgvector** 余弦向量检索 + **pg_trgm** 字符级 trigram/word-similarity 关键词检索（不是 BM25，中英文一视同仁）并行召回，各自在库内打分/排序取宽候选窗口（`candidateK`），**Reciprocal Rank Fusion** 按 chunk ID 去重融合、**证据准入（Evidence Admission，Phase 8）**：用两路各自的原始相关度（不是 RRF 融合分，那只是排名信号）分别把关——向量余弦相似度 ≥ 0.35 或关键词 word-similarity ≥ 0.45，任一路达标即通过，两路都不达标的候选整体拒绝（固定包内常量，不做运行时可配置、也不用相对分差代替绝对门槛）；全部候选都被拒绝时 `Retrieve` 直接返回空结果，对话仍正常回答但不注入知识库内容、不生成引用——再**内容去重（Exact Content Dedup）**后截断全局 topK 核心命中（准入必须先于内容去重：被拒绝的高排名重复项先出局，剩余候选里"正文完全相同只保留排名最高者"才不会错误吞掉排名较低但合格的那一条；去重同样发生在截断到 topK 之前，让内容不同的候选可以补位；只做保守的 CRLF/首尾空白/行尾空格归一化，不做语义或模糊相似去重；无维度声明 vector 列支撑混合维度知识库；关键词一路不依赖 embedding，向量一路的 embedding 服务失败时仍可退化返回关键词结果）→ **邻接分块扩展（Neighbor Window Retrieval）**：每个核心命中块（已经过内容去重，被淘汰的重复核心块不再查询邻接窗口）best-effort 补上同文档、同 `document_version`、已发布的前一个/后一个 chunk（不参与排名；输出布局是全部核心块在前、全部邻接块整体在后的两层结构，绝不逐个核心块交替，配合对话侧按输入顺序贪心消耗预算的既有逻辑，保证预算不足时邻接块绝不挤出排名更低的核心块，也不需要提高 RAG 字符预算；绝不跨文档重处理版本混入邻接内容）——**批量邻接查询（Batch Neighbor Lookup）**：不管一次检索涉及多少个核心命中块、多少个不同的文档/版本，正常路径只发生一次数据库往返（把所有核心块需要的 `document_id + document_version + chunk_index` 坐标去重展平后一次批量取回，取代了早期按文档版本分组循环查询的 N+1 模式），批量查询失败或 KB 重新处理导致旧版本被删除时静默降级为只返回核心块 → 邻接扩展后再做一次内容去重（核心块优先于邻接块，邻接块之间保留输出顺序靠前者）→ 检索结果注入对话上下文并通过 SSE 暴露调试信息。详见 [docs/eval-phase3-hybrid-search-report.md](docs/eval-phase3-hybrid-search-report.md)、[docs/eval-phase4-neighbor-window-report.md](docs/eval-phase4-neighbor-window-report.md)、[docs/eval-phase5-content-dedup-report.md](docs/eval-phase5-content-dedup-report.md)、[docs/eval-phase6-retrieval-gate-report.md](docs/eval-phase6-retrieval-gate-report.md)、[docs/eval-phase7-batch-neighbor-report.md](docs/eval-phase7-batch-neighbor-report.md)、[docs/eval-phase8-evidence-admission-report.md](docs/eval-phase8-evidence-admission-report.md)。
+- **RAG 全流程**：结构感知文档解析分块（md 保留标题/段落/列表/代码块/表格并把标题带入 embedding 内容、txt 按段落/句子边界切、pdf 逐字形位置重建后按页切分保留页码；单个结构超限统一回退定长切分；PDF 无 OCR，扫描版/无文字层直接报错，Markdown 解析是行级启发式而非完整 CommonMark）→ 批量 embedding →  **Hybrid Search**：**PostgreSQL + pgvector** 余弦向量检索 + **pg_trgm** 字符级 trigram/word-similarity 关键词检索（不是 BM25，中英文一视同仁）并行召回，各自在库内打分/排序取宽候选窗口（`candidateK`），**Reciprocal Rank Fusion** 按 chunk ID 去重融合、**证据准入（Evidence Admission，Phase 8）**：用两路各自的原始相关度（不是 RRF 融合分，那只是排名信号）分别把关——向量余弦相似度 ≥ 0.35 或关键词 word-similarity ≥ 0.45，任一路达标即通过，两路都不达标的候选整体拒绝（固定包内常量，不做运行时可配置、也不用相对分差代替绝对门槛）；全部候选都被拒绝时 `Retrieve` 直接返回空结果，对话仍正常回答但不注入知识库内容、不生成引用——再**内容去重（Exact Content Dedup）**后截断全局 topK 核心命中（准入必须先于内容去重：被拒绝的高排名重复项先出局，剩余候选里"正文完全相同只保留排名最高者"才不会错误吞掉排名较低但合格的那一条；去重同样发生在截断到 topK 之前，让内容不同的候选可以补位；只做保守的 CRLF/首尾空白/行尾空格归一化，不做语义或模糊相似去重；无维度声明 vector 列支撑混合维度知识库；关键词一路不依赖 embedding，向量一路的 embedding 服务失败时仍可退化返回关键词结果）→ **邻接分块扩展（Neighbor Window Retrieval）**：每个核心命中块（已经过内容去重，被淘汰的重复核心块不再查询邻接窗口）best-effort 补上同文档、同 `document_version`、已发布的前一个/后一个 chunk（不参与排名；输出布局是全部核心块在前、全部邻接块整体在后的两层结构，绝不逐个核心块交替，配合对话侧按输入顺序贪心消耗预算的既有逻辑，保证预算不足时邻接块绝不挤出排名更低的核心块，也不需要提高 RAG 字符预算；绝不跨文档重处理版本混入邻接内容）——**批量邻接查询（Batch Neighbor Lookup）**：不管一次检索涉及多少个核心命中块、多少个不同的文档/版本，正常路径只发生一次数据库往返（把所有核心块需要的 `document_id + document_version + chunk_index` 坐标去重展平后一次批量取回，取代了早期按文档版本分组循环查询的 N+1 模式），批量查询失败或 KB 重新处理导致旧版本被删除时静默降级为只返回核心块 → 邻接扩展后再做一次内容去重（核心块优先于邻接块，邻接块之间保留输出顺序靠前者）→ 检索结果注入对话上下文并通过 SSE 暴露调试信息。
+
+  **查询优化与结果重排序（Phase 9）**在这条流水线的两端各加一层，两者都默认关闭、都可独立开关、任何失败都只降级为本功能上线前的行为而绝不让对话失败：**入口**在 `conversation` 组装上下文、调用 `knowledge.Retrieve` **之前**，把依赖上文的省略式追问（"那它的上限呢"）改写成脱离聊天记录也能独立理解的检索问题——无历史且不含指代词时走纯函数快速路径不产生任何模型调用，指代不明时模型置 `ambiguous` 并静默退回原问题（不打断对话反问用户），改写只影响检索输入，用户原话原样进入消息序列；**出口**在候选截断到 topK **之前**、准入与内容去重**之后**，用 cross-encoder 式 rerank 模型（供应商模型体系新增的第三类 `rerank` 能力，走 `/rerank` 端点）对融合排名前 50 的候选重新打分排序，分数相同时回退到重排前原始位置保证确定性，重排分数只用于决定顺序、绝不写入 `RetrievedChunk.Score`（后者语义是两路召回相关度的较大值，被覆盖会撞上对话侧 0.2 分数线把证据静默过滤掉），响应出现未知/重复/缺失 index 时整体丢弃保持融合排序、绝不部分采用。详见 [docs/eval-phase9-query-rerank-report.md](docs/eval-phase9-query-rerank-report.md)。
+
+  上游各阶段详见 [docs/eval-phase3-hybrid-search-report.md](docs/eval-phase3-hybrid-search-report.md)、[docs/eval-phase4-neighbor-window-report.md](docs/eval-phase4-neighbor-window-report.md)、[docs/eval-phase5-content-dedup-report.md](docs/eval-phase5-content-dedup-report.md)、[docs/eval-phase6-retrieval-gate-report.md](docs/eval-phase6-retrieval-gate-report.md)、[docs/eval-phase7-batch-neighbor-report.md](docs/eval-phase7-batch-neighbor-report.md)、[docs/eval-phase8-evidence-admission-report.md](docs/eval-phase8-evidence-admission-report.md)。
 - **Agent 工具调用循环**：OpenAI 风格 function calling，流式 tool_calls 按 Index 合并分片，MCP（stdio + SSE）工具发现/同步/调用，最大迭代保护。
 - **SSE 流式架构**：断线时部分内容仍落库；goroutine / 信号量泄漏防护（trySend + context 联动）。
 - **简化工作流引擎**：DAG 校验（无环/可达性）、条件分支（expr-lang）、模板变量渲染、执行轨迹持久化——一个迷你版工作流编排器。
@@ -65,6 +69,32 @@ make eval-retrieval-gate
 ```
 
 这套门禁走真实 MySQL + PostgreSQL/pgvector/pg_trgm + fake embedding，直接调用公开的 `knowledge.Service.Retrieve`（不是绕过公开入口直接测纯函数），固定的九个 case：Phase 6 起的六个覆盖语义向量命中、强关键词命中进 topK、同一 chunk 被向量/关键词同时召回不重复、不同 ID 相同正文只保留最高排名者唯一候选补位、核心块优先于重复邻接块、空结果场景不制造命中；Phase 8 新增三个负样本/边界 case（非空知识库 + 无关查询返回空、仅有低于 0.35 门槛的向量候选返回空、前部拒绝项不占 topK 让后续合格候选补位），且这三个负样本各自有独立断言，不会因为 `ExpectedConfigured=false` 被 Hit@K/MRR 平均值排除后就失去门禁作用。判定失败就是真的 `go test` 失败（非零退出码），不是只生成报告等人看——`internal/eval/retrieval` 的 `EvaluateGate` 是纯函数，"健康结果通过""任意一项指标退化则失败"两条路径都各有独立单测（不碰数据库），保证门禁本身不会形同虚设。数据库不可达时和其它集成测试一样打印原因后 SKIP（`internal/testutil` 既定约定），不是静默跳过。`go test` 的工作目录是包目录而不是仓库根，所以评测报告默认写进 `t.TempDir()`（自动清理，普通 `go test ./...`/CI 不会弄脏工作区）；`make eval-retrieval-gate` 通过 `HIFY_RETRIEVAL_GATE_REPORT_PATH` 环境变量显式指定仓库根目录路径，才会在 `eval/runs/phase6-retrieval-gate-latest.json`（已在 `.gitignore`）留下人类可读报告，只含 case 名、chunk/document ID、rank、`NeighborOf`、计数与聚合指标，不含检索到的正文、查询原文、embedding 或分数。详见 [docs/eval-phase6-retrieval-gate-report.md](docs/eval-phase6-retrieval-gate-report.md)。
+
+### 查询优化与重排序的配置（Phase 9）
+
+六个环境变量，两个能力各自独立，**默认全部关闭**——默认关闭是为了让"上线即与基线一致"可验证
+（`make eval-retrieval-gate` 的输出必须与改动前逐字节相同）。
+
+| 环境变量 | 默认 | 说明 |
+|---|---|---|
+| `HIFY_RAG_QUERY_REWRITE_ENABLED` | `false` | 查询优化总开关 |
+| `HIFY_RAG_QUERY_REWRITE_MODEL_ID` | `""` | 留空则用当前 Agent 自己的 chat 模型 |
+| `HIFY_RAG_QUERY_REWRITE_TIMEOUT` | `1500ms` | 超时立即降级为原问题 |
+| `HIFY_RAG_RERANK_ENABLED` | `false` | 重排总开关 |
+| `HIFY_RAG_RERANK_MODEL_ID` | `""` | 必须指向 `capability='rerank'` 且启用中的模型；为空视同关闭 |
+| `HIFY_RAG_RERANK_TIMEOUT` | `1500ms` | 超时立即降级为保持融合排序 |
+
+`HIFY_RAG_RERANK_ENABLED=true` 但没配模型 ID 时**不会**让进程启动失败，只降级为关闭并打一条
+`slog.Warn`——配置错误不该拖垮整个进程。
+
+**rerank 模型目前只能通过 API 注册**，前端模型管理表单的能力下拉暂未加 `rerank` 选项
+（本次范围明确不含前端改动，这是已知可用性缺口）：
+
+```bash
+curl -X POST "$HIFY/api/v1/providers/$PROVIDER_ID/models" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"model_name":"BAAI/bge-reranker-v2-m3","capability":"rerank","is_active":true}'
+```
 
 ## 架构决策记录
 

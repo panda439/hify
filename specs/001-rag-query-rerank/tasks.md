@@ -92,7 +92,10 @@ Go 模块化单体：`internal/<module>/`、`internal/db/migrations/`、`cmd/hif
 - [ ] T020 [US2] 在 `internal/provider/llm.go` 增加 `RerankRequest`/`RerankResult`/`RerankScore` 类型，并在 `Client` 接口加 `Rerank` 方法
 - [ ] T021 [US2] 在 `internal/provider/openai_compat.go` 用 `net/http` 实现 `openAICompatClient.Rerank`（`POST {base}/rerank`，`Authorization: Bearer`，复用既有 `classifyError` 与 retry-after 采集），使 T019 通过
 - [ ] T022 [US2] 在 `internal/provider/resilience.go` 实现 `resilientClient.Rerank`，与 `Embed` 同构地套熔断/重试
-- [ ] T023 [US2] 在 `internal/provider/service.go` 与 `handler.go` 的能力白名单中放行 `rerank`（两处判断都要改），非法值仍返回中文 `invalid_input`
+- [x] T023 [US2] 在 `internal/provider/service.go`、`handler.go` **与 `dto.go`** 的能力白名单中放行 `rerank`，非法值仍返回中文错误
+  - **本条任务书原文写错了：说"两处判断"，实际是三处。** 漏掉的是 `dto.go` 里 `addModelRequest.Capability` 的 gin binding 标签 `oneof=chat embedding`，它在请求进到 handler 逻辑之前就生效——另外两处改得再对，请求也永远到不了它们那里，rerank 模型**根本注册不进去**，而这是它唯一的注册入口（前端暂无该选项）
+  - 全套单测与集成测试都是绿的，因为它们直接调 service/handler，绕过了 gin binding。这个缺陷是 T043 冒烟测试用真实 HTTP 请求打出来的——正是 CLAUDE.md 说的"`/smoke-test` 和真实 HTTP 验证是唯一的安全网"的实例
+  - 已补 `internal/provider/dto_binding_test.go`：只测 binding 标签本身（不连库、不构造 service），遍历 `Capability*` 常量断言全部能过、常见手误拼写全部被拒。以后加第四种能力时忘记改标签就会立刻红
 - [ ] T023a [US2] **（US1 review 追加）** 修 `Temperature: 0` 被静默丢弃的问题：`internal/provider/openai_compat.go` 的 `toOpenAIRequest` 无条件写 `Temperature: float32(req.Temperature)`，而 go-openai v1.41.2 的字段标签是 `json:"temperature,omitempty"` —— 0 值会被整个省略，供应商按默认温度（通常 1.0）执行。改法：`provider.ChatRequest.Temperature` 改成 `*float64`，或增设 `TemperatureSet bool`，让"显式 0"能真正发出去。影响面不止本功能：Agent 自己配 `Temperature=0` 现在同样无效。改完补一个断言"温度为 0 时请求体确实含 temperature 字段"的测试
 - [ ] T024 [P] [US2] 给 4 个测试假实现补 `Rerank` 空方法：`internal/workflow/integration_test.go`、`internal/knowledge/integration_test.go`、`internal/eval/runner_test.go`、`internal/conversation/integration_test.go`——**只加方法，不改这些文件的其他内容**
 
@@ -153,7 +156,7 @@ Go 模块化单体：`internal/<module>/`、`internal/db/migrations/`、`cmd/hif
 - [ ] T040 双开关打开下跑 T038a 的受控门禁用例，记录 SC-001/SC-002 的机制断言结果；报告中**必须写明**这是机制证明而非真实效果幅度（依据见 spec.md 的"度量方式修正"）
 - [ ] T041 [P] 更新 `README.md` 与 `docs/critical-paths.md`：新的检索链路顺序、6 个配置项、rerank 模型注册方式（前端暂无入口）
 - [ ] T042 [P] 写 `docs/eval-phase9-query-rerank-report.md`，沿用 Phase 1-8 报告结构，含未用真实 rerank 服务验证的项的如实说明
-- [ ] T043 按 [quickstart.md](./quickstart.md) 逐条走验收清单：`make migrate-up`/`make sqlc`/`make check-deps`/`go test ./... -race -count=1`（无 skip）/`go vet ./...`/`/smoke-test`
+- [x] T043 **（2026-08-25 完成）** 按 [quickstart.md](./quickstart.md) 逐条走验收清单——冒烟测试抓到 T023 的第三处白名单遗漏（见上），修复并补测试后重跑通过；配置校验在真实启动路径上按设计降级（`HIFY_RAG_RERANK_ENABLED=true` 但未配模型 ID 时打 Warn 并关闭，不让进程启动失败）。原清单项：`make migrate-up`/`make sqlc`/`make check-deps`/`go test ./... -race -count=1`（无 skip）/`go vet ./...`/`/smoke-test`
 - [ ] T044 在 `.claude/CODEX_CLAUDE_HANDOFF.md` 更新"Claude 实施结果"：修改文件、关键实现、真实测试输出、未验证项；**不执行 git commit/push**（宪法第 VIII 条）
 
 ---
