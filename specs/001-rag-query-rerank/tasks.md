@@ -135,11 +135,11 @@ Go 模块化单体：`internal/<module>/`、`internal/db/migrations/`、`cmd/hif
   - 所有 `expected_facts` 逐字对应知识库里两篇真实文档的原文，无编造
   - **实测结果：设计目标没达成。** 关闭改写跑，三条"硬"用例 `RetrievalHit` 全为 `true`、`MRR` 全为 `1.00`，分数 5/5/4。原因不是问题不够难——**评测知识库总共只有 4 个 chunk、2 篇文档，而 `retrievalTopK = 5`**（`internal/conversation/context.go:39`），每次检索都把整个语料全量返回，Hit@1/MRR 在结构上不可能低于 1.00。任何问题在这个语料下都无法"检索失败"
 
-- [ ] T038a **【SC-001/SC-002 的度量落点，替代原"扩充语料"方案】** 在 `internal/knowledge/eval_gate_test.go` 既有的确定性门禁数据集上，扩两组受控用例，作为 SC-001/SC-002 的证据
-  - **SC-001 用例**：seed 一个目标片段，使其向量与省略式原问题正交、与补全后的独立问题相近；断言"改写关闭 → 检索不到 / 改写打开 → 检索到"。改写发生在 conversation 层，因此这组断言要么放在 conversation 的集成测试里，要么在门禁里直接以"两个不同 query 字符串"模拟改写前后（后者更简单且不跨层，优先）
-  - **SC-002 用例**：注入固定打分的假 rerank client（`service` 的可替换方法值字段，照 `findNeighborBatch` 先例），断言原本位于 topK 之外的正确片段被提进 topK 且排名提升
-  - **为什么不再扩充真实语料**：见 spec.md SC-001/SC-002 下的"度量方式修正"。mock 嵌入是 32 维非语义向量（实测语义相近片段余弦 0.8515 < 不相干片段 0.9352），在其上放大语料只会让检索退化为随机；接真实模型需付费 API，所有者已决定学习项目不承担该成本
-  - **边界必须写进报告**：这组用例证明的是机制成立，不是真实效果幅度。禁止在任何对外材料里表述成"提升了 N 个百分点"
+- [x] T038a **【SC-001/SC-002 的度量落点】** —— **已完成（2026-08-25）**，在 `internal/knowledge/eval_gate_test.go` 的确定性门禁数据集上新增 3 个受控 case
+  - **SC-001**（成对看）：`rewrite_before_elliptical_query_misses` + `rewrite_after_standalone_query_hits`。同一个知识库、**同一条目标片段**、同一条流水线，唯一变量是 query 字符串——这正是查询改写在生产里做的唯一一件事。数据是量过的而非拍脑袋：对目标正文 `word_similarity('它的上限呢', ...) = 0`、`word_similarity('分块大小上限', ...) = 0.5714286`，而 `keywordAdmissionThreshold = 0.45`；目标片段向量与查询向量正交（cos=0 < `vectorAdmissionThreshold=0.35`），两条召回路都堵死，除"改写后的关键词"外没有别的解释路径
+  - **SC-002**：`rerank_promotes_out_of_topk_candidate`。5 条候选靠正文长度差异拉开关键词相似度，目标稳定排在融合第 4；**case 内先跑一次不重排的 baseline 断言目标确实不在 topK 里**（前置条件不成立就直接 fail，避免"本来就在里面"的假通过），再用注入的固定打分把它提到第 1
+  - **变异验证**：把"改写前"的 query 换成补全后的字符串，该 case 立即以 `ResultCount = 1, want 0` 失败——证明断言真的会咬人，不是永远绿
+  - **边界（必须随报告一起说）**：这组 case 证明的是**机制成立**（改写确实改变了检索结果、重排确实改变了顺序），**不是真实效果幅度**。禁止在任何对外材料里表述成"提升了 N 个百分点"
 
 - [x] T038b 修复开发环境 PostgreSQL 落后的迁移版本 —— **已完成（2026-08-24）**
   - 问题：`schema_migrations.version = 3`，`pgmigrations/000004_chunks_content_trgm`（`pg_trgm` 扩展 + trigram 索引 + 库级 `word_similarity_threshold`）从未在开发库执行，关键词路每次调用都失败降级（`function word_similarity(unknown, text) does not exist`），**Hybrid Search 在开发环境一直是纯向量单路**

@@ -86,6 +86,7 @@ import (
 	"testing"
 
 	"hify/internal/eval/retrieval"
+	"hify/internal/provider"
 	"hify/internal/testutil"
 )
 
@@ -203,6 +204,9 @@ func TestRetrievalGatePhase6(t *testing.T) {
 	seedKB(t, repo, "kb-gate-admission-irrelevant", "m3", "gate-user", true)
 	seedKB(t, repo, "kb-gate-admission-vec-reject", "m3", "gate-user", true)
 	seedKB(t, repo, "kb-gate-admission-backfill", "m3", "gate-user", true)
+	// 001-rag-query-rerank T038a：SC-001（查询改写）与 SC-002（重排）的受控用例。
+	seedKB(t, repo, "kb-gate-rewrite", "m3", "gate-user", true)
+	seedKB(t, repo, "kb-gate-rerank", "m3", "gate-user", true)
 
 	var (
 		outcomes []retrieval.CaseOutcome
@@ -432,6 +436,108 @@ func TestRetrievalGatePhase6(t *testing.T) {
 		}
 		if o.DuplicateContentCount != 0 {
 			t.Fatalf("DuplicateContentCount = %d, want 0", o.DuplicateContentCount)
+		}
+		record(o, hits)
+	})
+
+	// 10/11. SC-001（查询改写）的受控证据。**这两个 case 必须成对看**：
+	// 同一个知识库、同一条目标片段、同一条流水线，唯一的变量是送进
+	// Retrieve 的 query 字符串——这正是查询改写在生产里做的唯一一件事
+	// （改写只改检索输入，不改别的，见 conversation/context.go）。
+	//
+	// 为什么可以在 knowledge 这一层模拟改写：改写发生在 conversation，
+	// 但它对 knowledge 的影响 100% 等价于"换一个 query 字符串"。在这里
+	// 用两个字符串跑同一条流水线，比把 conversation 拖进检索门禁更简单，
+	// 也不跨层（tasks.md T038a 明确选了这个方案）。
+	//
+	// 数据是量过的，不是拍脑袋：对目标正文，
+	//   word_similarity('它的上限呢',   正文) = 0
+	//   word_similarity('分块大小上限', 正文) = 0.5714286
+	// 而 keywordAdmissionThreshold = 0.45。所以省略式提问连准入门槛都够
+	// 不到，补全后的问题稳稳越过。目标片段的向量与查询向量正交（假嵌入对
+	// 任何 query 恒返回 x 轴单位向量，见 newFakeProvider），cos=0 也低于
+	// vectorAdmissionThreshold=0.35——两条路都堵死，目标片段只可能靠
+	// "改写后的关键词"被捞出来，不存在别的解释。
+	//
+	// ⚠️ 这组 case 证明的是**机制成立**（改写确实改变了检索结果），不是
+	// 真实效果幅度。真实幅度需要真实嵌入模型和足够大的语料，本仓库当前
+	// 两者都不具备——原因写在 spec.md 的"度量方式修正"里，任何对外材料
+	// 都不得把这里的通过表述成"提升了 N 个百分点"。
+	t.Run("rewrite_before_elliptical_query_misses", func(t *testing.T) {
+		const kb = "kb-gate-rewrite"
+		seedChunkWithContent(t, repo, kb, "doc-gate-rewrite", "grw-target",
+			[]float32{0, 1, 0}, "知识库的分块大小上限说明：单个文档分块大小上限为一千字符")
+
+		// expectedDocIDs 故意留空：这个 case 的"正确行为"就是什么都检索不
+		// 到，配了期望文档反而会把它算进 Hit@1 拉低门禁指标（和既有的
+		// nonempty_kb_irrelevant_query 同样的处理）。
+		o, hits := retrievalGateOutcome(t, svc, []string{kb}, "它的上限呢", 3, "rewrite_before_elliptical_query_misses", nil)
+		if o.ResultCount != 0 {
+			t.Fatalf("ResultCount = %d, want 0 —— 省略式提问 word_similarity=0，两条召回路都够不到准入门槛，不该检索到任何东西", o.ResultCount)
+		}
+		record(o, hits)
+	})
+
+	t.Run("rewrite_after_standalone_query_hits", func(t *testing.T) {
+		const kb = "kb-gate-rewrite"
+		// 不再 seed：复用上一个 case 种下的同一条 grw-target，确保两个
+		// case 之间**只有 query 字符串这一个变量**。
+		o, hits := retrievalGateOutcome(t, svc, []string{kb}, "分块大小上限", 3, "rewrite_after_standalone_query_hits", docSet("doc-gate-rewrite"))
+		if o.HitRank != 1 {
+			t.Fatalf("HitRank = %d, want 1 —— 补全后的问题 word_similarity=0.571 > 0.45，必须命中同一条 grw-target", o.HitRank)
+		}
+		if len(hits) != 1 || hits[0].ChunkID != "grw-target" {
+			t.Fatalf("got %v, want [grw-target]", hits)
+		}
+		record(o, hits)
+	})
+
+	// 12. SC-002（重排）的受控证据：目标片段在融合排名里排在 topK 之外，
+	// 重排把它提进 topK 且升到第一。用注入的固定打分假实现，不依赖任何
+	// 真实 rerank 服务——同时也就保证了这个 case 是确定性的。
+	//
+	// 构造方式：5 条候选都靠关键词路进来（正文都含同一个 token），靠正文
+	// 长度差异拉开 word_similarity，使 grr-target 稳定排在第 4；topK=3 时
+	// 它本来必然被截断掉。重排给它最高分，它必须变成第 1 名。
+	t.Run("rerank_promotes_out_of_topk_candidate", func(t *testing.T) {
+		const kb = "kb-gate-rerank"
+		seedChunkWithContent(t, repo, kb, "doc-grr-1", "grr-noise-1", cosineVec(0.01), "GATERERANKTOKEN 门禁重排场景噪声一")
+		seedChunkWithContent(t, repo, kb, "doc-grr-2", "grr-noise-2", cosineVec(0.01), "GATERERANKTOKEN 门禁重排场景噪声二")
+		seedChunkWithContent(t, repo, kb, "doc-grr-3", "grr-noise-3", cosineVec(0.01), "GATERERANKTOKEN 门禁重排场景噪声三")
+		seedChunkWithContent(t, repo, kb, "doc-grr-target", "grr-target", cosineVec(0.01), "GATERERANKTOKEN 门禁重排场景目标片段，正文更长因此关键词相似度更低，融合排名必然靠后")
+
+		// 先确认"不重排时它确实进不了 topK"——否则这个 case 就算通过也
+		// 什么都没证明（目标片段本来就在 topK 里的话，重排提不提升无从谈起）。
+		baseline, err := svc.Retrieve(context.Background(), []string{kb}, "GATERERANKTOKEN", 3)
+		if err != nil {
+			t.Fatalf("baseline Retrieve: %v", err)
+		}
+		for _, c := range baseline {
+			if c.ID == "grr-target" {
+				t.Fatalf("前置条件不成立：不重排时 grr-target 已经在 topK 里了，这个 case 证明不了任何东西")
+			}
+		}
+
+		// 固定打分：目标片段最高，其余按送入顺序递减——确定性，可复现。
+		rerankSvc := newTestServiceWithRerank(repo, fp, t.TempDir(),
+			func(_ context.Context, _ string, documents []string) (provider.RerankResult, error) {
+				scores := make([]provider.RerankScore, len(documents))
+				for i, d := range documents {
+					score := 0.1 - float64(i)*0.01
+					if strings.Contains(d, "目标片段") {
+						score = 0.99
+					}
+					scores[i] = provider.RerankScore{Index: i, Score: score}
+				}
+				return provider.RerankResult{Scores: scores}, nil
+			})
+
+		o, hits := retrievalGateOutcome(t, rerankSvc, []string{kb}, "GATERERANKTOKEN", 3, "rerank_promotes_out_of_topk_candidate", docSet("doc-grr-target"))
+		if o.HitRank != 1 {
+			t.Fatalf("HitRank = %d, want 1 —— 重排必须把融合排名 topK 之外的 grr-target 提到第一位", o.HitRank)
+		}
+		if hits[0].ChunkID != "grr-target" {
+			t.Fatalf("hits[0] = %s, want grr-target", hits[0].ChunkID)
 		}
 		record(o, hits)
 	})
