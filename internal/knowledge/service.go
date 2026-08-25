@@ -1012,7 +1012,13 @@ func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query
 	// duplicate content; only logged when there's something worth looking
 	// at — Retrieve runs on every conversation turn with RAG enabled, so an
 	// unconditional debug line here would be constant noise otherwise.
-	if admission.AdmissionRejectedCount > 0 || admission.ContentDuplicateCount > 0 || neighborDuplicateCount > 0 {
+	// T035（Phase 5/US3）：把 001-rag-query-rerank 的 5 个 rerank 字段并进
+	// 这一行既有的 admission/dedup 日志，不再单独成行——同一件事（这一轮
+	// Retrieve 的候选池发生了什么）现在只记一次。触发条件相应放宽为"发生
+	// 过拒绝/去重/邻接去重 **或** 重排被应用/降级"（data-model.md §5.2），
+	// 二者任一为真就打这行；只含计数/耗时/布尔状态，不含 query 原文、片段
+	// 正文、逐条 rerank 分数（FR-017）。
+	if admission.AdmissionRejectedCount > 0 || admission.ContentDuplicateCount > 0 || neighborDuplicateCount > 0 || rStats.Applied || rStats.Degraded {
 		slog.Debug("knowledge: retrieval candidate admission and dedup",
 			"candidate_count_before_admission", admission.CandidateCountBeforeAdmission,
 			"vector_below_admission_count", admission.VectorBelowAdmissionCount,
@@ -1021,15 +1027,7 @@ func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query
 			"admitted_anchor_count", len(anchors),
 			"core_duplicate_count", admission.ContentDuplicateCount,
 			"neighbor_duplicate_count", neighborDuplicateCount,
-			"topK", topK)
-	}
-	// 001-rag-query-rerank：单独一行、只在重排真的被应用或降级时才打
-	// （开关关闭/未配模型/候选数≤1 是最常见的稳态，不值得每轮都记）——只含
-	// 计数/耗时/布尔状态，不含 query 原文、片段正文、逐条 rerank 分数
-	// （FR-017）。是否要把这几个字段并进上面那行既有日志是 Phase 5/US3
-	// （T035）的范围，这里先独立成行，不越界改动既有行的触发条件/字段。
-	if rStats.Applied || rStats.Degraded {
-		slog.Debug("knowledge: retrieval rerank",
+			"topK", topK,
 			"rerank_enabled", rStats.Enabled,
 			"rerank_applied", rStats.Applied,
 			"rerank_degraded", rStats.Degraded,

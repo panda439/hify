@@ -2,6 +2,7 @@ package conversation
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -112,10 +113,20 @@ type rewriteAwareChatClient struct {
 	chatResponse provider.Message
 	chatErr      error
 	chatCalls    int
+	// chatBlockUntilCtxDone is T032's超时模拟开关：真正等到调用方传入的 ctx
+	// 被取消（rewriteQuery 用 context.WithTimeout(ctx, s.rewriteTimeout) 包
+	// 出来的那个 ctx）才返回 ctx.Err()，而不是用 time.Sleep 硬等一个真实的
+	// wall-clock 超时——测的是 rewriteTimeout 配置本身真的在生产路径上生
+	// 效，不是我们自己伪造一个 DeadlineExceeded 错误值。
+	chatBlockUntilCtxDone bool
 }
 
 func (f *rewriteAwareChatClient) Chat(ctx context.Context, req provider.ChatRequest) (provider.Message, error) {
 	f.chatCalls++
+	if f.chatBlockUntilCtxDone {
+		<-ctx.Done()
+		return provider.Message{}, ctx.Err()
+	}
 	return f.chatResponse, f.chatErr
 }
 
@@ -1228,10 +1239,178 @@ func TestIntegrationQueryRewriteDisabledSkipsLLMCall(t *testing.T) {
 	}
 	drainEvents(t, events)
 
+	// review 修正的行为：改写关闭时**不落** query_rewrite span。关掉的功能
+	// 每轮都写一行恒定内容 (enabled=false, skipped=true, ...) 的 span，
+	// 对排查没有任何帮助，而 trace_spans 是 CLAUDE.md 点名的百万行级增长
+	// 表——这是纯写放大。开启后走快速路径仍然照记，那个有信息量。
+	spans, err := trace.NewStore(db).ListByConversation(ctx, "conv-rw-off")
+	if err != nil {
+		t.Fatalf("list spans: %v", err)
+	}
+	for _, sp := range spans {
+		if sp.Kind == trace.KindQueryRewrite {
+			t.Fatal("query_rewrite span must not be recorded while the feature is disabled")
+		}
+	}
+
 	if chat.chatCalls != 0 {
 		t.Fatalf("rewrite Chat must not be called when the feature is disabled, got %d calls", chat.chatCalls)
 	}
 	if len(knowledgeSvc.queries) != 1 || knowledgeSvc.queries[0] != "它怎么配置" {
 		t.Fatalf("knowledge.Retrieve queries = %v, want exactly the original question", knowledgeSvc.queries)
+	}
+}
+
+// --- 001-rag-query-rerank US3：T032，查询改写降级——三种失败模式都必须让
+// Retrieve 收到原问题、本轮对话正常完成（EventDone），且 T034 记录的
+// query_rewrite span 里 rag.rewrite.degraded=true。三个用例共用这个断言
+// helper：直接查 trace_spans，而不是只看"没报错"——rewriteOutcome.Degraded
+// 是 rewriteQuery 的私有返回值，从 StreamMessage 外部看不到，query_rewrite
+// span 正是它对外唯一可观察的落点（T034 的作用就是把它接上）。
+
+// queryRewriteSpanAttr 从 conv 最新一轮 trace 里找到 kind=query_rewrite 的
+// span，解出它的 attrs，供调用方按需断言某个字段。找不到就直接 Fatal——
+// 三个降级用例都必须产生这个 span，缺失本身就是 bug。
+func queryRewriteSpanAttrs(t *testing.T, db *sql.DB, convID string) map[string]any {
+	t.Helper()
+	spans, err := trace.NewStore(db).ListByConversation(context.Background(), convID)
+	if err != nil {
+		t.Fatalf("list spans: %v", err)
+	}
+	for _, sp := range spans {
+		if sp.Kind != trace.KindQueryRewrite {
+			continue
+		}
+		var attrs map[string]any
+		if err := json.Unmarshal(sp.Attrs, &attrs); err != nil {
+			t.Fatalf("unmarshal query_rewrite span attrs: %v", err)
+		}
+		return attrs
+	}
+	t.Fatal("no query_rewrite span recorded")
+	return nil
+}
+
+func TestIntegrationQueryRewriteLLMErrorDegradesToOriginalQuestion(t *testing.T) {
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	seedConversation(t, repo, "conv-rw-err", "ag-rw-err", "u1")
+	seedPriorTurn(t, repo, "conv-rw-err")
+
+	chat := &rewriteAwareChatClient{
+		scriptedChatClient: scriptedChatClient{scripts: [][]provider.ChatChunk{{
+			{DeltaContent: "按原问题正常回答。"},
+			{FinishReason: "stop"},
+		}}},
+		chatErr: errors.New("simulated rewrite provider failure"),
+	}
+	knowledgeSvc := &fakeKnowledgeSvc{}
+	svc := NewService(repo,
+		&fakeAgentSvc{ag: agent.Agent{ID: "ag-rw-err", ModelID: "m1", KnowledgeBaseIDs: []string{"kb-1"}}},
+		&fakeProviderSvc{client: chat},
+		knowledgeSvc, &fakeMCPSvc{}, trace.NewStore(db),
+		true, "", 1500*time.Millisecond)
+
+	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-err", "那它呢")
+	if err != nil {
+		t.Fatalf("StreamMessage: %v", err)
+	}
+	got := drainEvents(t, events)
+	if got[len(got)-1].Type != EventDone {
+		t.Fatalf("rewrite LLM error must not break the turn, events: %v", eventTypes(got))
+	}
+	if len(knowledgeSvc.queries) != 1 || knowledgeSvc.queries[0] != "那它呢" {
+		t.Fatalf("knowledge.Retrieve queries = %v, want exactly the original question", knowledgeSvc.queries)
+	}
+	attrs := queryRewriteSpanAttrs(t, db, "conv-rw-err")
+	if degraded, _ := attrs["rag.rewrite.degraded"].(bool); !degraded {
+		t.Fatalf("query_rewrite span attrs = %+v, want rag.rewrite.degraded=true", attrs)
+	}
+}
+
+func TestIntegrationQueryRewriteLLMTimeoutDegradesToOriginalQuestion(t *testing.T) {
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	seedConversation(t, repo, "conv-rw-timeout", "ag-rw-timeout", "u1")
+	seedPriorTurn(t, repo, "conv-rw-timeout")
+
+	chat := &rewriteAwareChatClient{
+		scriptedChatClient: scriptedChatClient{scripts: [][]provider.ChatChunk{{
+			{DeltaContent: "按原问题正常回答。"},
+			{FinishReason: "stop"},
+		}}},
+		chatBlockUntilCtxDone: true,
+	}
+	knowledgeSvc := &fakeKnowledgeSvc{}
+	// rewriteTimeout 设成极小值（1ms）——rewriteQuery 内部用
+	// context.WithTimeout(ctx, s.rewriteTimeout) 包出一个会在 1ms 后被取消
+	// 的 ctx，chat.Chat 阻塞在 <-ctx.Done() 上，等它真的被取消才返回
+	// context.DeadlineExceeded。不用 time.Sleep 硬等，测的是超时配置本身。
+	svc := NewService(repo,
+		&fakeAgentSvc{ag: agent.Agent{ID: "ag-rw-timeout", ModelID: "m1", KnowledgeBaseIDs: []string{"kb-1"}}},
+		&fakeProviderSvc{client: chat},
+		knowledgeSvc, &fakeMCPSvc{}, trace.NewStore(db),
+		true, "", time.Millisecond)
+
+	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-timeout", "那它呢")
+	if err != nil {
+		t.Fatalf("StreamMessage: %v", err)
+	}
+	got := drainEvents(t, events)
+	if got[len(got)-1].Type != EventDone {
+		t.Fatalf("rewrite LLM timeout must not break the turn, events: %v", eventTypes(got))
+	}
+	if len(knowledgeSvc.queries) != 1 || knowledgeSvc.queries[0] != "那它呢" {
+		t.Fatalf("knowledge.Retrieve queries = %v, want exactly the original question", knowledgeSvc.queries)
+	}
+	attrs := queryRewriteSpanAttrs(t, db, "conv-rw-timeout")
+	if degraded, _ := attrs["rag.rewrite.degraded"].(bool); !degraded {
+		t.Fatalf("query_rewrite span attrs = %+v, want rag.rewrite.degraded=true", attrs)
+	}
+}
+
+func TestIntegrationQueryRewriteUnparsableOutputDegradesToOriginalQuestion(t *testing.T) {
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	seedConversation(t, repo, "conv-rw-unparsable", "ag-rw-unparsable", "u1")
+	seedPriorTurn(t, repo, "conv-rw-unparsable")
+
+	chat := &rewriteAwareChatClient{
+		scriptedChatClient: scriptedChatClient{scripts: [][]provider.ChatChunk{{
+			{DeltaContent: "按原问题正常回答。"},
+			{FinishReason: "stop"},
+		}}},
+		// 模型没有遵守"只输出一个 JSON 对象"的指令，直接开始回答——
+		// parseRewriteResult 对这种输出返回 error（不是空 JSON、也不是带
+		// 围栏的 JSON，是彻底不像 JSON 的自由文本）。
+		chatResponse: provider.Message{Content: "这个问题的答案是……（模型没有按格式要求输出 JSON，直接开始回答了）"},
+	}
+	knowledgeSvc := &fakeKnowledgeSvc{}
+	svc := NewService(repo,
+		&fakeAgentSvc{ag: agent.Agent{ID: "ag-rw-unparsable", ModelID: "m1", KnowledgeBaseIDs: []string{"kb-1"}}},
+		&fakeProviderSvc{client: chat},
+		knowledgeSvc, &fakeMCPSvc{}, trace.NewStore(db),
+		true, "", 1500*time.Millisecond)
+
+	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-unparsable", "那它呢")
+	if err != nil {
+		t.Fatalf("StreamMessage: %v", err)
+	}
+	got := drainEvents(t, events)
+	if got[len(got)-1].Type != EventDone {
+		t.Fatalf("rewrite unparsable output must not break the turn, events: %v", eventTypes(got))
+	}
+	if len(knowledgeSvc.queries) != 1 || knowledgeSvc.queries[0] != "那它呢" {
+		t.Fatalf("knowledge.Retrieve queries = %v, want exactly the original question", knowledgeSvc.queries)
+	}
+	attrs := queryRewriteSpanAttrs(t, db, "conv-rw-unparsable")
+	if degraded, _ := attrs["rag.rewrite.degraded"].(bool); !degraded {
+		t.Fatalf("query_rewrite span attrs = %+v, want rag.rewrite.degraded=true", attrs)
 	}
 }

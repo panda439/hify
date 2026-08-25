@@ -195,7 +195,52 @@ func (s *service) assembleContext(ctx context.Context, conversationID string, ag
 		// latestUserMessage itself still goes into the message sequence
 		// unmodified further down (the rewrite only ever affects what's
 		// searched for, never what's shown as the user's question).
+		rewriteSpanStart := time.Now()
 		rewrite := s.rewriteQuery(ctx, ag, model, older, latestUserMessage)
+		// T034 (data-model.md §5.1): a query_rewrite child span consuming
+		// rewriteOutcome's Skipped/Applied/Degraded/DurationMs — computed by
+		// rewriteQuery on every call but, before this, never recorded
+		// anywhere. Attrs are strictly the 5 keys the spec lists, nothing
+		// else: never the question text, the rewritten text, or history
+		// content (FR-017) — see AttrRewrite* doc comment in
+		// platform/trace/attrs.go for why these keys skip the usual
+		// "hify.rag." prefix.
+		//
+		// 只在改写**开启**时才落这条 span。关闭时 rewriteQuery 是一个直接
+		// 返回原问题的空操作，落下来的行永远是同一组常量
+		// (enabled=false, skipped=true, applied=false, degraded=false,
+		// duration≈0)，不携带任何信息——而 trace_spans 是 CLAUDE.md 点名
+		// 的"会长到百万行以上"的大表，每个 RAG 轮次都为一个关着的功能多写
+		// 一行，是纯粹的写放大和存储浪费。开启之后"走了快速路径没调 LLM"
+		// 反而是有信息量的（SC-006 的命中率就靠它统计），所以那种情况照记。
+		//
+		// 状态语义跟随本文件既有约定：下面的 retrieval span 在
+		// knowledge.Retrieve 失败时记 StatusError，改写降级同样是"这一步
+		// 的外部调用没成功、只是整轮被兜住了"，因此 Degraded 记
+		// StatusError。ErrorMessage 刻意留空：这里唯一能填的就是供应商返
+		// 回的错误文本，而它可能带出模型输出片段（US1 已经踩过一次，见
+		// queryrewrite.go 里 parseRewriteResult 失败时为什么不记 err），
+		// FR-017 的红线优先于错误详情。降级原因看 slog.Warn，那里有 err。
+		if s.rewriteEnabled {
+			rewriteSpanStatus := trace.StatusOK
+			if rewrite.Degraded {
+				rewriteSpanStatus = trace.StatusError
+			}
+			s.recordSpan(trace.Span{
+				ID: platform.NewID(), TraceID: traceID, ParentSpanID: traceID,
+				ConversationID: conversationID, Kind: trace.KindQueryRewrite, Name: "conversation.query_rewrite",
+				Status: rewriteSpanStatus,
+				Attrs: trace.Attrs(map[string]any{
+					trace.AttrRewriteEnabled:    s.rewriteEnabled,
+					trace.AttrRewriteSkipped:    rewrite.Skipped,
+					trace.AttrRewriteApplied:    rewrite.Applied,
+					trace.AttrRewriteDegraded:   rewrite.Degraded,
+					trace.AttrRewriteDurationMs: int(rewrite.DurationMs),
+				}),
+				StartedAt:  rewriteSpanStart,
+				FinishedAt: time.Now(),
+			})
+		}
 
 		spanStart := time.Now()
 		candidates, err := s.knowledgeSvc.Retrieve(ctx, ag.KnowledgeBaseIDs, rewrite.SearchQuery, retrievalTopK)

@@ -116,12 +116,12 @@ Go 模块化单体：`internal/<module>/`、`internal/db/migrations/`、`cmd/hif
 
 **Independent Test**: 强制外部调用失败/超时，断言本轮仍正常完成且出现降级标记
 
-- [ ] T032 [P] [US3] 在 `internal/conversation/integration_test.go` 写降级失败测试：改写 LLM 返回 error / 超时 / 返回不可解析文本 → `Retrieve` 收到原问题、本轮正常完成、`rewriteOutcome.Degraded=true`
-- [ ] T033 [P] [US3] 在 `internal/knowledge/integration_test.go` 写降级失败测试：rerank 返回 error / 超时 / 返回重复 index → 结果顺序与关闭重排时**逐字一致**（整体丢弃，禁止部分采用）
-- [ ] T034 [US3] 在 `internal/conversation/context.go` 增加 `query_rewrite` 子 span，attrs 严格限定为 [data-model.md](./data-model.md) §5.1 的 5 个 key；常量按既有惯例定义（参照 `internal/platform/trace/attrs.go` 的命名风格）
-- [ ] T035 [US3] 在 `internal/knowledge/service.go` 扩展既有 `"knowledge: retrieval candidate admission and dedup"` slog 行，补 `rerank_enabled`/`rerank_applied`/`rerank_degraded`/`rerank_input_count`/`rerank_duration_ms`，并把触发条件放宽为"发生拒绝/去重/邻接去重 **或** 重排被应用/降级"
-- [ ] T036 [US3] 写隐私断言测试：捕获 slog 输出与 span attrs，断言其中**不含**问题原文、片段正文、逐条分数（FR-017）——放在 `internal/knowledge/rerank_test.go` 与 `internal/conversation/queryrewrite_test.go`
-- [ ] T037 [US3] 写确定性测试（SC-007）：用固定打分假 client 重复执行同一 `Retrieve` 20 次，断言 chunk ID 序列 100% 一致，放在 `internal/knowledge/integration_test.go`
+- [x] T032 [P] [US3] 在 `internal/conversation/integration_test.go` 写降级失败测试：改写 LLM 返回 error / 超时 / 返回不可解析文本 → `Retrieve` 收到原问题、本轮正常完成、`rewriteOutcome.Degraded=true`
+- [x] T033 [P] [US3] 在 `internal/knowledge/integration_test.go` 写降级失败测试：rerank 返回 error / 超时 / 返回重复 index → 结果顺序与关闭重排时**逐字一致**（整体丢弃，禁止部分采用）
+- [x] T034 [US3] 在 `internal/conversation/context.go` 增加 `query_rewrite` 子 span，attrs 严格限定为 [data-model.md](./data-model.md) §5.1 的 5 个 key；常量按既有惯例定义（参照 `internal/platform/trace/attrs.go` 的命名风格）
+- [x] T035 [US3] 在 `internal/knowledge/service.go` 扩展既有 `"knowledge: retrieval candidate admission and dedup"` slog 行，补 `rerank_enabled`/`rerank_applied`/`rerank_degraded`/`rerank_input_count`/`rerank_duration_ms`，并把触发条件放宽为"发生拒绝/去重/邻接去重 **或** 重排被应用/降级"
+- [x] T036 [US3] 写隐私断言测试：捕获 slog 输出与 span attrs，断言其中**不含**问题原文、片段正文、逐条分数（FR-017）——放在 `internal/knowledge/rerank_test.go` 与 `internal/conversation/queryrewrite_test.go`
+- [x] T037 [US3] 写确定性测试（SC-007）：用固定打分假 client 重复执行同一 `Retrieve` 20 次，断言 chunk ID 序列 100% 一致，放在 `internal/knowledge/integration_test.go`
 
 **Checkpoint**: 三个故事全部独立可用，降级矩阵逐条有测试
 

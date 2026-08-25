@@ -25,7 +25,18 @@ ALTER TABLE provider_models
 字段类型（`VARCHAR(16)`）、索引 `idx_provider_models_provider_capability` 均不变，
 无需重新生成 sqlc（列定义未变）——但仍按宪法第 IV 条在 migration 之后跑一次 `make sqlc` 确认无 diff。
 
-**其余表零变更**：chunk 表（PostgreSQL）、`message_citations`、`trace_spans` 结构全部不动。
+### 1.2 `trace_spans.kind`（MySQL，migration `000013`）
+
+**这条是实现阶段补的，规格初稿漏了**：`000008_trace_spans.up.sql` 给 `kind` 建了
+`chk_trace_spans_kind CHECK (kind IN ('turn','retrieval','llm_call','tool_call'))`。
+§5.1 新增的 `query_rewrite` span 如果不先扩这个约束，插入会被 MySQL 直接拒绝。
+做法与 `000012` 同构：DROP CHECK 后重建，回退时收紧（回退前需确认无 `kind='query_rewrite'` 的行）。
+
+**教训**：往一个带 CHECK 约束的枚举列里加新取值，是"新增一种类型"这件事的隐性数据层成本。
+规划阶段只看了 `provider_models.capability`，没顺着 span 那条线查到 `trace_spans.kind`——
+以后凡是设计里出现"新增一种 kind / type / status"，都要先 grep 一遍对应表的 CHECK 约束。
+
+**其余表零变更**：chunk 表（PostgreSQL）、`message_citations` 结构全部不动。
 
 ## 2. 领域类型变更
 
@@ -128,7 +139,16 @@ type rewriteResponse struct {
 
 ### 5.1 新增 trace span（conversation）
 
-`kind = "query_rewrite"`，`parent_span_id` 指向本轮根 span，attrs：
+`kind = "query_rewrite"`（需要 migration `000013` 放行，见 §1.2），`parent_span_id` 指向本轮根 span。
+
+**只在改写开启时才落这条 span**（review 修正）：关闭时 attrs 恒为同一组常量，不携带任何信息，
+而 `trace_spans` 是 CLAUDE.md 点名的百万行级增长表，为一个关着的功能每轮多写一行是纯写放大。
+开启后走快速路径仍然记录——"这轮没调 LLM"本身是 SC-006 命中率的统计来源。
+
+`Status` 在降级时记 `StatusError`（跟随本文件既有的 retrieval span 约定），
+但 `ErrorMessage` 刻意留空：唯一能填的供应商错误文本可能带出模型输出片段，FR-017 优先。
+
+attrs：
 
 | key | 类型 | 说明 |
 |---|---|---|

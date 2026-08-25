@@ -1,8 +1,14 @@
 package knowledge
 
 import (
+	"bytes"
+	"context"
+	"errors"
+	"log/slog"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"hify/internal/provider"
 )
@@ -169,5 +175,103 @@ func TestApplyRerankDeterministicAcrossRepeatedCalls(t *testing.T) {
 		if !reflect.DeepEqual(idsOf(got), firstIDs) {
 			t.Fatalf("run %d: order changed across repeated calls: got %v, want %v", i, idsOf(got), firstIDs)
 		}
+	}
+}
+
+// --- 001-rag-query-rerank US3：T036，隐私断言（FR-017）---
+//
+// applyRerankStep（service.go）在两条降级路径上都会 slog.Warn 一行——
+// "rerank call failed" 和 "rerank response failed validation"。两个用例都
+// 真的用 slog.NewJSONHandler 接管 slog.Default() 捕获实际写出的日志，显式
+// strings.Contains 找 query 原文和候选正文的敏感标记串，找到就判失败——不
+// 是弱化成"字段数量对不对"。applyRerankStep 本身零 DB 依赖（rerankScoreFn
+// 是可替换的方法值字段），所以这里直接 &service{...} 构造，不需要
+// setupIntegration。
+
+func captureSlogOutput(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
+}
+
+func TestApplyRerankStepPrivacyCallErrorNeverLogsQueryOrChunkContent(t *testing.T) {
+	const sensitiveQuery = "SECRET_QUERY_call_error_不该出现在日志里_123"
+	const sensitiveContent1 = "SECRET_CHUNK_CONTENT_片段正文一_不该出现在日志里_456"
+	const sensitiveContent2 = "SECRET_CHUNK_CONTENT_片段正文二_不该出现在日志里_789"
+
+	buf := captureSlogOutput(t)
+
+	svc := &service{
+		rerankEnabled: true,
+		rerankModelID: "rerank-model",
+		rerankTimeout: 1500 * time.Millisecond,
+		rerankScoreFn: func(ctx context.Context, query string, documents []string) (provider.RerankResult, error) {
+			return provider.RerankResult{}, errors.New("simulated rerank provider failure")
+		},
+	}
+	candidates := []RetrievedChunk{
+		rcContent("c1", 0.9, sensitiveContent1),
+		rcContent("c2", 0.8, sensitiveContent2),
+	}
+
+	_, stats := svc.applyRerankStep(context.Background(), sensitiveQuery, candidates)
+	if !stats.Degraded {
+		t.Fatalf("expected Degraded=true for a rerank call error, got %+v", stats)
+	}
+
+	logged := buf.String()
+	if strings.Contains(logged, sensitiveQuery) {
+		t.Fatalf("rerank privacy log leaked the query text:\n%s", logged)
+	}
+	if strings.Contains(logged, sensitiveContent1) || strings.Contains(logged, sensitiveContent2) {
+		t.Fatalf("rerank privacy log leaked chunk content:\n%s", logged)
+	}
+	if !strings.Contains(logged, "input_count") {
+		t.Fatalf("expected the structural input_count field in log output, got:\n%s", logged)
+	}
+}
+
+func TestApplyRerankStepPrivacyResponseValidationFailureNeverLogsQueryOrChunkContent(t *testing.T) {
+	const sensitiveQuery = "SECRET_QUERY_validation_失败_不该出现在日志里_321"
+	const sensitiveContent1 = "SECRET_CHUNK_CONTENT_片段正文三_不该出现在日志里_654"
+	const sensitiveContent2 = "SECRET_CHUNK_CONTENT_片段正文四_不该出现在日志里_987"
+
+	buf := captureSlogOutput(t)
+
+	svc := &service{
+		rerankEnabled: true,
+		rerankModelID: "rerank-model",
+		rerankTimeout: 1500 * time.Millisecond,
+		rerankScoreFn: func(ctx context.Context, query string, documents []string) (provider.RerankResult, error) {
+			// 两条候选的分数都打在 index 0 上——重复且未覆盖 index
+			// 1，applyRerank 的响应校验会拒绝（见 rerank.go）。
+			return provider.RerankResult{Scores: []provider.RerankScore{
+				{Index: 0, Score: 0.9},
+				{Index: 0, Score: 0.1},
+			}}, nil
+		},
+	}
+	candidates := []RetrievedChunk{
+		rcContent("c1", 0.9, sensitiveContent1),
+		rcContent("c2", 0.8, sensitiveContent2),
+	}
+
+	_, stats := svc.applyRerankStep(context.Background(), sensitiveQuery, candidates)
+	if !stats.Degraded {
+		t.Fatalf("expected Degraded=true for a rerank response validation failure, got %+v", stats)
+	}
+
+	logged := buf.String()
+	if strings.Contains(logged, sensitiveQuery) {
+		t.Fatalf("rerank privacy log leaked the query text:\n%s", logged)
+	}
+	if strings.Contains(logged, sensitiveContent1) || strings.Contains(logged, sensitiveContent2) {
+		t.Fatalf("rerank privacy log leaked chunk content:\n%s", logged)
+	}
+	if !strings.Contains(logged, "input_count") {
+		t.Fatalf("expected the structural input_count field in log output, got:\n%s", logged)
 	}
 }

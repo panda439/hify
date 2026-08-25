@@ -1,6 +1,20 @@
 package conversation
 
-import "testing"
+import (
+	"bytes"
+	"context"
+	"errors"
+	"log/slog"
+	"strings"
+	"testing"
+	"time"
+
+	"hify/internal/agent"
+	"hify/internal/knowledge"
+	"hify/internal/platform/trace"
+	"hify/internal/provider"
+	"hify/internal/testutil"
+)
 
 // 001-rag-query-rerank US1 的纯函数单测：shouldSkipRewrite/parseRewriteResult/
 // validateRewrite 全部零依赖（不碰网络、不碰数据库），对应宪法第 V 条"判定
@@ -227,5 +241,226 @@ func TestSharesRelevanceSignal(t *testing.T) {
 				t.Errorf("sharesRelevanceSignal(%q, %q) = %v, want %v", tc.original, tc.candidate, got, tc.want)
 			}
 		})
+	}
+}
+
+// --- 001-rag-query-rerank US3：T036，隐私断言（FR-017）---
+//
+// 三个用例都真的用 slog.NewJSONHandler 接管 slog.Default() 捕获 rewriteQuery
+// 在三条降级路径上实际写出的日志，断言里面不含问题原文、改写结果原文——不
+// 是"字段数量对不对"这种弱断言，而是显式 strings.Contains 找敏感标记串，
+// 找到就直接判失败。三个用例共用的 fake（rewriteAwareChatClient/
+// fakeProviderSvc）是 integration_test.go 里已经定义好的，同包内直接复用。
+//
+// captureSlogOutput 临时把 slog.Default() 换成写向 buf 的 JSON handler，
+// defer 里换回去——package 级全局状态，这些用例都不调用 t.Parallel()，同
+// 一个 `go test` 进程内没有其他测试会在这段时间并发写 slog.Default()。
+func captureSlogOutput(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
+}
+
+// TestRewriteQueryPrivacyUnparsableOutputNeverLogsRawContent 覆盖
+// queryrewrite.go parseRewriteResult 失败分支的既有设计意图——它的文档注
+// 释已经写明"Deliberately NOT logging err itself (FR-017)"，这里把它变成一
+// 条会真的跑起来验证的测试，而不是只靠注释自证。
+func TestRewriteQueryPrivacyUnparsableOutputNeverLogsRawContent(t *testing.T) {
+	const sensitiveQuestion = "SECRET_QUESTION_不是JSON会漏出来吗_ABC123"
+	const sensitiveRawOutput = "SECRET_MODEL_RAW_OUTPUT_XYZ789"
+
+	buf := captureSlogOutput(t)
+
+	chat := &rewriteAwareChatClient{
+		// 模型没有按格式要求输出 JSON，直接把敏感标记串写进了自由文本
+		// 回答里——parseRewriteResult 的 json.Unmarshal 报错信息里可能会
+		// 引用被解析文本里的字符片段（例如 encoding/json 的语法错误会
+		// 引出触发失败的那个字符），这正是 queryrewrite.go 里"故意不记
+		// err 本身"要防的泄漏面。
+		chatResponse: provider.Message{Content: sensitiveRawOutput + "，这不是合法JSON，模型直接开始回答了"},
+	}
+	svc := &service{
+		rewriteEnabled: true,
+		rewriteTimeout: 1500 * time.Millisecond,
+		providerSvc:    &fakeProviderSvc{client: chat},
+	}
+	ag := agent.Agent{ID: "ag-privacy-unparsable", ModelID: "m1"}
+	model := provider.Model{ID: "m1", ProviderID: "p1", ModelName: "chat-model"}
+	// 非空历史强制 shouldSkipRewrite 不走快速路径——这个测试要验证的是
+	// "真的调用了 LLM 之后降级路径不泄漏"，快速路径根本不碰 LLM，没有可
+	// 测的日志泄漏面。
+	history := []Message{{Role: "user", Content: "上一轮的问题"}}
+
+	outcome := svc.rewriteQuery(context.Background(), ag, model, history, sensitiveQuestion)
+	if !outcome.Degraded {
+		t.Fatalf("expected Degraded=true for unparsable rewrite output, got %+v", outcome)
+	}
+
+	logged := buf.String()
+	if strings.Contains(logged, sensitiveQuestion) {
+		t.Fatalf("rewrite privacy log leaked the original question:\n%s", logged)
+	}
+	if strings.Contains(logged, sensitiveRawOutput) {
+		t.Fatalf("rewrite privacy log leaked the model's raw (unparsable) output:\n%s", logged)
+	}
+	if !strings.Contains(logged, "invalid_json") {
+		t.Fatalf("expected the structural reason=invalid_json marker in log output, got:\n%s", logged)
+	}
+}
+
+// TestRewriteQueryPrivacyValidationFailureNeverLogsRawContent 覆盖
+// validateRewrite 拒绝分支（比如改写结果和原问题完全跑题）——这条路径记
+// 的是 "duration_ms" 而不是候选文本本身。
+func TestRewriteQueryPrivacyValidationFailureNeverLogsRawContent(t *testing.T) {
+	// 两个标记刻意不共享任何 ASCII 词或 CJK 双字——sharesRelevanceSignal
+	// 在原问题有实词信号时才会拒绝跑题的改写，共享前缀（比如都用
+	// "SECRET_"）会意外触发 fail-open 分支，掩盖了本测试真正要覆盖的
+	// "校验拒绝、且不泄漏"路径（之前踩过这个坑：两个标记都带 SECRET_ 前
+	// 缀，被当成"共享信号"而被判定为合法改写，Applied=true 而不是期望的
+	// Degraded=true）。
+	const sensitiveQuestion = "校验失败也不该漏QALPHA406"
+	const sensitiveRewrite = "跑题内容RBETA321"
+
+	buf := captureSlogOutput(t)
+
+	chat := &rewriteAwareChatClient{
+		// ambiguous=false 但改写结果和原问题没有任何共享信号——命中
+		// validateRewrite 的 sharesRelevanceSignal 拒绝分支。
+		chatResponse: provider.Message{Content: `{"standalone_question":"` + sensitiveRewrite + `","ambiguous":false}`},
+	}
+	svc := &service{
+		rewriteEnabled: true,
+		rewriteTimeout: 1500 * time.Millisecond,
+		providerSvc:    &fakeProviderSvc{client: chat},
+	}
+	ag := agent.Agent{ID: "ag-privacy-validation", ModelID: "m1"}
+	model := provider.Model{ID: "m1", ProviderID: "p1", ModelName: "chat-model"}
+	history := []Message{{Role: "user", Content: "上一轮的问题"}}
+
+	outcome := svc.rewriteQuery(context.Background(), ag, model, history, sensitiveQuestion)
+	if !outcome.Degraded {
+		t.Fatalf("expected Degraded=true for a rewrite that fails validation, got %+v", outcome)
+	}
+
+	logged := buf.String()
+	if strings.Contains(logged, sensitiveQuestion) {
+		t.Fatalf("rewrite privacy log leaked the original question:\n%s", logged)
+	}
+	if strings.Contains(logged, sensitiveRewrite) {
+		t.Fatalf("rewrite privacy log leaked the rejected rewrite candidate:\n%s", logged)
+	}
+	if !strings.Contains(logged, "duration_ms") {
+		t.Fatalf("expected the structural duration_ms field in log output, got:\n%s", logged)
+	}
+}
+
+// TestRewriteQueryPrivacyLLMCallErrorNeverLogsQuestionContent 覆盖
+// client.Chat 直接失败（限流/网络错误）分支——这条路径确实记了 err 本身
+// （"err", err），但 err 来自 provider 层，不应该携带问题原文；这里验证的
+// 是"即便 err 里意外夹带了敏感串，我们也至少能发现它"这条安全网真的能跑起
+// 来，而不是形同虚设。
+func TestRewriteQueryPrivacyLLMCallErrorNeverLogsQuestionContent(t *testing.T) {
+	const sensitiveQuestion = "SECRET_QUESTION_LLM调用失败也不该漏_GHI789"
+
+	buf := captureSlogOutput(t)
+
+	chat := &rewriteAwareChatClient{
+		chatErr: errors.New("simulated rewrite provider failure (rate limited)"),
+	}
+	svc := &service{
+		rewriteEnabled: true,
+		rewriteTimeout: 1500 * time.Millisecond,
+		providerSvc:    &fakeProviderSvc{client: chat},
+	}
+	ag := agent.Agent{ID: "ag-privacy-llm-err", ModelID: "m1"}
+	model := provider.Model{ID: "m1", ProviderID: "p1", ModelName: "chat-model"}
+	history := []Message{{Role: "user", Content: "上一轮的问题"}}
+
+	outcome := svc.rewriteQuery(context.Background(), ag, model, history, sensitiveQuestion)
+	if !outcome.Degraded {
+		t.Fatalf("expected Degraded=true for a failed rewrite LLM call, got %+v", outcome)
+	}
+
+	logged := buf.String()
+	if strings.Contains(logged, sensitiveQuestion) {
+		t.Fatalf("rewrite privacy log leaked the original question:\n%s", logged)
+	}
+}
+
+// TestIntegrationQueryRewriteSpanNeverStoresQuestionOrRewriteContent 是
+// T034 新增的 query_rewrite span 本身的隐私断言——跑一轮真的改写成功
+// （Applied=true，走完整 StreamMessage）之后去 trace_spans 里查那条
+// kind=query_rewrite 的 span，断言它的 Attrs 里既没有用户原问题，也没有
+// LLM 改写出来的独立问题原文，即便这一轮两者都确确实实存在于其他表
+// （messages）里。和 TestIntegrationTraceSpansNeverStoreFullPrivateContent
+// 是同一个思路，但那条用例 rewriteEnabled=false，从未真正产出过一个
+// Applied=true 的改写结果——这里专门覆盖"改写真的发生了"这个更贴近生产
+// 的分支。
+func TestIntegrationQueryRewriteSpanNeverStoresQuestionOrRewriteContent(t *testing.T) {
+	const sensitiveQuestion = "那SECRET_SPAN_ORIGINAL_QUESTION_原问题标记_111的限制呢"
+	const sensitiveRewrite = "SECRET_SPAN_REWRITTEN_QUESTION_改写后问题标记_222"
+
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	seedConversation(t, repo, "conv-rw-span-privacy", "ag-rw-span-privacy", "u1")
+	seedPriorTurn(t, repo, "conv-rw-span-privacy")
+
+	chat := &rewriteAwareChatClient{
+		scriptedChatClient: scriptedChatClient{scripts: [][]provider.ChatChunk{{
+			{DeltaContent: "回答内容"},
+			{FinishReason: "stop"},
+		}}},
+		chatResponse: provider.Message{Content: `{"standalone_question":"` + sensitiveRewrite + `","ambiguous":false}`},
+	}
+	knowledgeSvc := &fakeKnowledgeSvc{chunks: []knowledge.RetrievedChunk{{
+		Chunk: knowledge.Chunk{KnowledgeBaseID: "kb-1", DocumentID: "doc-1", Content: "无关内容"},
+		Score: 0.9,
+	}}}
+	svc := NewService(repo,
+		&fakeAgentSvc{ag: agent.Agent{ID: "ag-rw-span-privacy", ModelID: "m1", KnowledgeBaseIDs: []string{"kb-1"}}},
+		&fakeProviderSvc{client: chat},
+		knowledgeSvc, &fakeMCPSvc{}, trace.NewStore(db),
+		true, "", 1500*time.Millisecond)
+
+	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-span-privacy", sensitiveQuestion)
+	if err != nil {
+		t.Fatalf("StreamMessage: %v", err)
+	}
+	got := drainEvents(t, events)
+	if got[len(got)-1].Type != EventDone {
+		t.Fatalf("turn must complete normally: %v", eventTypes(got))
+	}
+
+	if len(knowledgeSvc.queries) != 1 || knowledgeSvc.queries[0] != sensitiveRewrite {
+		t.Fatalf("knowledge.Retrieve queries = %v, want exactly the rewritten question (sanity check that this test actually exercised the Applied=true path)", knowledgeSvc.queries)
+	}
+
+	spans, err := trace.NewStore(db).ListByConversation(ctx, "conv-rw-span-privacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundSpan := false
+	for _, sp := range spans {
+		if sp.Kind != trace.KindQueryRewrite {
+			continue
+		}
+		foundSpan = true
+		if strings.Contains(sp.Input, sensitiveQuestion) || strings.Contains(sp.Output, sensitiveQuestion) || strings.Contains(string(sp.Attrs), sensitiveQuestion) {
+			t.Fatalf("query_rewrite span leaked the original question: Input=%q Output=%q Attrs=%s", sp.Input, sp.Output, sp.Attrs)
+		}
+		if strings.Contains(sp.Input, sensitiveRewrite) || strings.Contains(sp.Output, sensitiveRewrite) || strings.Contains(string(sp.Attrs), sensitiveRewrite) {
+			t.Fatalf("query_rewrite span leaked the rewritten question: Input=%q Output=%q Attrs=%s", sp.Input, sp.Output, sp.Attrs)
+		}
+		if !strings.Contains(string(sp.Attrs), "rag.rewrite.applied") {
+			t.Fatalf("query_rewrite span attrs missing rag.rewrite.applied: %s", sp.Attrs)
+		}
+	}
+	if !foundSpan {
+		t.Fatal("no query_rewrite span recorded")
 	}
 }

@@ -3634,3 +3634,178 @@ func TestIntegrationRetrieveRerankPromotesLowRankedCandidateIntoTopKAndSkipsNeig
 		t.Fatalf("got %v, want c6-real-neighbor present (c6 was promoted into topK by rerank, its neighbor lookup must have run)", ids(got))
 	}
 }
+
+// --- 001-rag-query-rerank US3：T033，rerank 降级——三种触发条件都必须让最终
+// 结果与"整个关闭重排"逐字一致（FR-011：整体丢弃，禁止部分采用）。三个用例
+// 共用同一套种子数据（三个候选、向量相似度严格递减、内容互不重叠），跑法都
+// 一样：先用 rerankEnabled=false 的 baseline service 跑一次拿到 want，再用
+// rerankEnabled=true 但会触发某种降级路径的 service 跑一次拿到 got，
+// reflect.DeepEqual 逐字段比较整个 []RetrievedChunk（不只是 ID 序列）——真的
+// 跑两次比对，而不是只断言"没报错"。
+
+// seedRerankDegradeFixture 的种子块 ID 按 kb 名字加前缀——三个 T033 用例共
+// 用同一个（每个测试包缓存一份、跨用例共享的）hify_test_knowledge 库，块 ID
+// 是全局主键，重名会撞 chunks_pkey，所以不能像 T031 那样三处都写死
+// "d1/d2/d3"。
+func seedRerankDegradeFixture(t *testing.T, repo *Repository, kb string) {
+	t.Helper()
+	seedKB(t, repo, kb, "m3", "u1", true)
+	seedChunkWithContent(t, repo, kb, "doc-"+kb+"-1", kb+"-1", cosineVec(0.90), "内容与关键词完全无关的填充文本一一")
+	seedChunkWithContent(t, repo, kb, "doc-"+kb+"-2", kb+"-2", cosineVec(0.85), "内容与关键词完全无关的填充文本一二")
+	seedChunkWithContent(t, repo, kb, "doc-"+kb+"-3", kb+"-3", cosineVec(0.80), "内容与关键词完全无关的填充文本一三")
+}
+
+// T033 场景 1：rerank 调用返回 error（限流/供应商故障等）。
+func TestIntegrationRetrieveRerankDegradesOnCallErrorMatchesDisabledOrderVerbatim(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	ctx := context.Background()
+
+	const kb = "kb-rerank-degrade-err"
+	seedRerankDegradeFixture(t, repo, kb)
+
+	baseline := newTestService(repo, fp, t.TempDir())
+	want, err := baseline.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3)
+	if err != nil {
+		t.Fatalf("baseline (rerank disabled) Retrieve: %v", err)
+	}
+
+	errScoreFn := func(ctx context.Context, query string, documents []string) (provider.RerankResult, error) {
+		return provider.RerankResult{}, errors.New("simulated rerank provider failure")
+	}
+	degraded := newTestServiceWithRerank(repo, fp, t.TempDir(), errScoreFn)
+	got, err := degraded.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3)
+	if err != nil {
+		t.Fatalf("degraded (rerank call error) Retrieve: %v", err)
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("rerank call error must degrade to fused order verbatim (FR-011):\n got  = %+v\n want = %+v", got, want)
+	}
+}
+
+// T033 场景 2：rerank 调用超时。用极小的 rerankTimeout 配合一个真正尊重
+// ctx.Done() 才返回的假实现来触发——不用 time.Sleep 硬等真实超时（慢且脆），
+// 而是让 applyRerankStep 自己的 context.WithTimeout(ctx, s.rerankTimeout)
+// 在到期那一刻主动取消 ctx，scoreFn 阻塞在 <-ctx.Done() 上收到取消信号后再
+// 返回 ctx.Err()（= context.DeadlineExceeded）。这样测的是"超时配置真的生
+// 效"这条生产路径本身，而不是我们自己伪造一个 DeadlineExceeded 错误值。
+func TestIntegrationRetrieveRerankDegradesOnTimeoutMatchesDisabledOrderVerbatim(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	ctx := context.Background()
+
+	const kb = "kb-rerank-degrade-timeout"
+	seedRerankDegradeFixture(t, repo, kb)
+
+	baseline := newTestService(repo, fp, t.TempDir())
+	want, err := baseline.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3)
+	if err != nil {
+		t.Fatalf("baseline (rerank disabled) Retrieve: %v", err)
+	}
+
+	blockingScoreFn := func(ctx context.Context, query string, documents []string) (provider.RerankResult, error) {
+		<-ctx.Done()
+		return provider.RerankResult{}, ctx.Err()
+	}
+	svc := NewService(repo, fp, nil, t.TempDir(), true, "rerank-model", 10*time.Millisecond).(*service)
+	svc.rerankScoreFn = blockingScoreFn
+
+	got, err := svc.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3)
+	if err != nil {
+		t.Fatalf("degraded (rerank timeout) Retrieve: %v", err)
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("rerank timeout must degrade to fused order verbatim (FR-011):\n got  = %+v\n want = %+v", got, want)
+	}
+}
+
+// T033 场景 3：rerank 响应含重复 index——不可信，contracts/rerank-http-api.md
+// 的响应校验第 3 条。整体丢弃，不是"保留没冲突的那部分"。
+func TestIntegrationRetrieveRerankDegradesOnDuplicateIndexMatchesDisabledOrderVerbatim(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	ctx := context.Background()
+
+	const kb = "kb-rerank-degrade-dup"
+	seedRerankDegradeFixture(t, repo, kb)
+
+	baseline := newTestService(repo, fp, t.TempDir())
+	want, err := baseline.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3)
+	if err != nil {
+		t.Fatalf("baseline (rerank disabled) Retrieve: %v", err)
+	}
+
+	dupScoreFn := func(ctx context.Context, query string, documents []string) (provider.RerankResult, error) {
+		out := make([]provider.RerankScore, len(documents))
+		for i := range documents {
+			// 每条候选都打在 index 0 上——重复且未覆盖其余 index，
+			// applyRerank 的第 2/4 条校验会拒绝它。
+			out[i] = provider.RerankScore{Index: 0, Score: float64(i)}
+		}
+		return provider.RerankResult{Scores: out}, nil
+	}
+	degraded := newTestServiceWithRerank(repo, fp, t.TempDir(), dupScoreFn)
+	got, err := degraded.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3)
+	if err != nil {
+		t.Fatalf("degraded (rerank duplicate index) Retrieve: %v", err)
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("rerank duplicate-index response must degrade to fused order verbatim (FR-011):\n got  = %+v\n want = %+v", got, want)
+	}
+}
+
+// --- 001-rag-query-rerank US3：T037，确定性（SC-007）---
+
+// TestIntegrationRetrieveDeterministicAcross20RunsWithFixedRerankScores 用
+// 固定打分的假 rerank client 对同一份种子数据重复跑 20 次 Retrieve，断言每
+// 次返回的 chunk ID 序列完全一致。两个候选（e2/e3）故意打相同分数，逼出
+// applyRerank 的确定性 tie-break 分支（按 originalIndex 升序），不是只测
+// "分数互不相同"这种更容易巧合过关的情况。
+func TestIntegrationRetrieveDeterministicAcross20RunsWithFixedRerankScores(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	ctx := context.Background()
+
+	const kb = "kb-rerank-determinism"
+	seedKB(t, repo, kb, "m3", "u1", true)
+	seedChunkWithContent(t, repo, kb, "doc-e1", "e1", cosineVec(0.90), "内容与关键词完全无关的填充文本二一")
+	seedChunkWithContent(t, repo, kb, "doc-e2", "e2", cosineVec(0.85), "内容与关键词完全无关的填充文本二二")
+	seedChunkWithContent(t, repo, kb, "doc-e3", "e3", cosineVec(0.80), "内容与关键词完全无关的填充文本二三")
+	seedChunkWithContent(t, repo, kb, "doc-e4", "e4", cosineVec(0.75), "内容与关键词完全无关的填充文本二四")
+
+	scoreFn := func(ctx context.Context, query string, documents []string) (provider.RerankResult, error) {
+		scoresByMarker := map[string]float64{"二一": 0.5, "二二": 0.9, "二三": 0.9, "二四": 0.1}
+		out := make([]provider.RerankScore, len(documents))
+		for i, doc := range documents {
+			var score float64
+			for marker, s := range scoresByMarker {
+				if strings.Contains(doc, marker) {
+					score = s
+					break
+				}
+			}
+			out[i] = provider.RerankScore{Index: i, Score: score}
+		}
+		return provider.RerankResult{Scores: out}, nil
+	}
+	svc := newTestServiceWithRerank(repo, fp, t.TempDir(), scoreFn)
+
+	var first []string
+	for i := 0; i < 20; i++ {
+		got, err := svc.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 4)
+		if err != nil {
+			t.Fatalf("run %d Retrieve: %v", i, err)
+		}
+		gotIDs := ids(got)
+		if i == 0 {
+			first = gotIDs
+			continue
+		}
+		if !reflect.DeepEqual(gotIDs, first) {
+			t.Fatalf("run %d chunk ID sequence = %v, want %v (SC-007: must be 100%% identical across repeated runs)", i, gotIDs, first)
+		}
+	}
+}

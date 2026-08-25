@@ -12,10 +12,15 @@ import (
 )
 
 const (
-	KindTurn      = "turn"
-	KindRetrieval = "retrieval"
-	KindLLMCall   = "llm_call"
-	KindToolCall  = "tool_call"
+	KindTurn        = "turn"
+	KindRetrieval   = "retrieval"
+	KindLLMCall     = "llm_call"
+	KindToolCall    = "tool_call"
+	// KindQueryRewrite is 001-rag-query-rerank's US3/T034 addition — one
+	// child span per turn's query-rewrite step (see conversation/
+	// context.go's assembleContext), sibling to KindRetrieval under the
+	// same root KindTurn span.
+	KindQueryRewrite = "query_rewrite"
 
 	StatusOK    = "ok"
 	StatusError = "error"

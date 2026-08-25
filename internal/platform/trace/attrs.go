@@ -42,6 +42,19 @@ const (
 	AttrMessageCount = "hify.request.message_count"
 	AttrInputLength  = "hify.request.input_length"
 	AttrOutputLength = "hify.response.output_length"
+
+	// AttrRewriteEnabled/Skipped/Applied/Degraded/DurationMs back the
+	// KindQueryRewrite span (001-rag-query-rerank US3/T034) — key names
+	// copied verbatim from specs/001-rag-query-rerank/data-model.md §5.1,
+	// deliberately NOT under the "hify.rag." prefix used above (that's
+	// what the spec's table literally says; not a typo). Never carries the
+	// question text, the rewritten question text, history content, or a
+	// fingerprint of any of them — only the four booleans and a duration.
+	AttrRewriteEnabled    = "rag.rewrite.enabled"
+	AttrRewriteSkipped    = "rag.rewrite.skipped"
+	AttrRewriteApplied    = "rag.rewrite.applied"
+	AttrRewriteDegraded   = "rag.rewrite.degraded"
+	AttrRewriteDurationMs = "rag.rewrite.duration_ms"
 )
 
 // Attrs builds a Span.Attrs value from a set of key/value pairs, omitting
