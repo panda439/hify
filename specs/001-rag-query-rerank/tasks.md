@@ -157,7 +157,7 @@ Go 模块化单体：`internal/<module>/`、`internal/db/migrations/`、`cmd/hif
 - [ ] T041 [P] 更新 `README.md` 与 `docs/critical-paths.md`：新的检索链路顺序、6 个配置项、rerank 模型注册方式（前端暂无入口）
 - [ ] T042 [P] 写 `docs/eval-phase9-query-rerank-report.md`，沿用 Phase 1-8 报告结构，含未用真实 rerank 服务验证的项的如实说明
 - [x] T043 **（2026-08-25 完成）** 按 [quickstart.md](./quickstart.md) 逐条走验收清单——冒烟测试抓到 T023 的第三处白名单遗漏（见上），修复并补测试后重跑通过；配置校验在真实启动路径上按设计降级（`HIFY_RAG_RERANK_ENABLED=true` 但未配模型 ID 时打 Warn 并关闭，不让进程启动失败）。原清单项：`make migrate-up`/`make sqlc`/`make check-deps`/`go test ./... -race -count=1`（无 skip）/`go vet ./...`/`/smoke-test`
-- [ ] T044 在 `.claude/CODEX_CLAUDE_HANDOFF.md` 更新"Claude 实施结果"：修改文件、关键实现、真实测试输出、未验证项；**不执行 git commit/push**（宪法第 VIII 条）
+- [x] T044 ~~更新 `.claude/CODEX_CLAUDE_HANDOFF.md`~~ —— **作废（2026-08-25）**：所有者已停用 Codex，该交接文件已删除，宪法第 VIII 条同步改写为「提交时机由所有者决定」（v1.2.0）。本阶段的实施结果、真实测试输出与未验证项改为落在 `docs/eval-phase9-query-rerank-report.md`，不再需要单独的交接文件
 
 ---
 
