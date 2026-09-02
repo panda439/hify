@@ -186,9 +186,14 @@ export function useRetrievalProbe(kbId: string) {
 // useDocumentsByKnowledgeBase 并行拉取多个知识库各自的文档，供 Agent 表单
 // 按知识库分组展示可勾选的文档。
 //
-// 只返回 status === "ready" 的文档：其余状态在库里没有已发布的分片，
-// 勾上它等于加了一个必然匹配不到的条件（后端会照 002 的 FR-010 当作无匹配），
-// 用户却会以为自己限定到了那份文档。
+// 返回**全部状态**的文档，不在这里按 status 过滤。调用方需要区分三种情况，
+// 它们的处理方式完全不同：
+//   - ready：可以勾选；
+//   - pending/processing/failed：文档还在，只是当前没有已发布的分片。
+//     勾了它检索不到东西，但它**不该**被当成"已删除"移除掉——重新处理完就好了；
+//   - 完全查不到这个 id：文档已被删除。这才是需要提示用户清理的情况。
+// 早期版本在这里就把非 ready 的滤掉了，导致调用方无法区分后两种，
+// 会把一份正在处理的文档误判成已删除。
 export function useDocumentsByKnowledgeBase(kbIds: string[]) {
   const results = useQueries({
     queries: kbIds.map((kbId) => ({
@@ -198,12 +203,23 @@ export function useDocumentsByKnowledgeBase(kbIds: string[]) {
   });
 
   const byKnowledgeBase: Record<string, KnowledgeDocument[]> = {};
+  const knownIds = new Set<string>();
   kbIds.forEach((kbId, i) => {
-    byKnowledgeBase[kbId] = (results[i]?.data?.items ?? []).filter((d) => d.status === "ready");
+    const items = results[i]?.data?.items ?? [];
+    byKnowledgeBase[kbId] = items;
+    items.forEach((d) => knownIds.add(d.id));
   });
+
+  const isLoading = results.some((r) => r.isLoading);
 
   return {
     byKnowledgeBase,
-    isLoading: results.some((r) => r.isLoading),
+    // knownIds 是这些知识库下**当前存在**的全部文档 id（不分状态）。
+    // 调用方用它判断某个已保存的范围 id 是不是已经失效。
+    knownIds,
+    isLoading,
+    // 加载未完成时 knownIds 还不完整，此时任何"这个 id 不存在"的判断都不成立。
+    // 单独暴露这个标志，避免调用方在加载过程中闪一下错误的"已删除"提示。
+    canDetectMissing: !isLoading && kbIds.length > 0,
   };
 }
