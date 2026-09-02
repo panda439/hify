@@ -1,14 +1,17 @@
 package knowledge
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -101,11 +104,18 @@ func newFakeProvider() *fakeProviderService {
 	}
 }
 
+// newTestServiceWithFilter 与 newTestService 唯一的区别是打开
+// 002-metadata-filter 的开关。单独一个构造器而不是给 newTestService 加参数，
+// 是为了让既有几十个用例保持一字未改——它们全部传空过滤器，开关对其无影响。
+func newTestServiceWithFilter(repo *Repository, fp *fakeProviderService, storageDir string) Service {
+	return NewService(repo, fp, nil, storageDir, false, "", 1500*time.Millisecond, true)
+}
+
 func newTestService(repo *Repository, fp *fakeProviderService, storageDir string) Service {
 	// asynq client 传 nil：这些用例不走 UploadDocument/RetryDocument 的入队
 	// 路径——真正需要入队（比如验证 RetryDocument 重新排队）的用例改用
 	// newTestAsynqClient 构造一个连真实 Redis 的 client。
-	return NewService(repo, fp, nil, storageDir, false, "", 1500*time.Millisecond)
+	return NewService(repo, fp, nil, storageDir, false, "", 1500*time.Millisecond, false)
 }
 
 // newTestAsynqClient connects to the docker-compose Redis instance —
@@ -199,7 +209,7 @@ func TestIntegrationSearchVectorChunksOrderingAndDimensionFilter(t *testing.T) {
 	seedChunk(t, repo, kb, "doc-s", "c-ortho", []float32{0, 1, 0}) // cos = 0
 	seedChunk(t, repo, kb, "doc-s", "c-2d", []float32{1, 0})       // 异维度，必须被过滤
 
-	got, err := repo.searchVectorChunks(ctx, []string{kb}, []float32{1, 0, 0}, 10)
+	got, err := repo.searchVectorChunks(ctx, []string{kb}, []float32{1, 0, 0}, 10, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchChunks: %v", err)
 	}
@@ -218,13 +228,13 @@ func TestIntegrationSearchVectorChunksOrderingAndDimensionFilter(t *testing.T) {
 	}
 
 	// topK 下推：LIMIT 生效且取的是最相似的。
-	top1, err := repo.searchVectorChunks(ctx, []string{kb}, []float32{1, 0, 0}, 1)
+	top1, err := repo.searchVectorChunks(ctx, []string{kb}, []float32{1, 0, 0}, 1, RetrieveFilter{})
 	if err != nil || len(top1) != 1 || top1[0].ID != "c-exact" {
 		t.Fatalf("topK=1 = %v (err %v), want [c-exact]", ids(top1), err)
 	}
 
 	// knowledge_base_id 过滤：别的 KB 查不到这些 chunk。
-	other, err := repo.searchVectorChunks(ctx, []string{"kb-nonexistent"}, []float32{1, 0, 0}, 10)
+	other, err := repo.searchVectorChunks(ctx, []string{"kb-nonexistent"}, []float32{1, 0, 0}, 10, RetrieveFilter{})
 	if err != nil || len(other) != 0 {
 		t.Fatalf("other-KB search = %v (err %v), want empty", ids(other), err)
 	}
@@ -252,7 +262,7 @@ func TestIntegrationRetrieveMergesAcrossModelsAndSkipsInactive(t *testing.T) {
 	seedChunk(t, repo, "kb-r2", "doc-r", "r2-hit", []float32{1, 0})
 	seedChunk(t, repo, "kb-off", "doc-r", "off-hit", []float32{1, 0, 0})
 
-	got, err := svc.Retrieve(ctx, []string{"kb-r3", "kb-r2", "kb-off", "kb-ghost"}, "查询", 3)
+	got, err := svc.Retrieve(ctx, []string{"kb-r3", "kb-r2", "kb-off", "kb-ghost"}, "查询", 3, RetrieveOptions{})
 	if err != nil {
 		t.Fatalf("Retrieve: %v", err)
 	}
@@ -274,10 +284,10 @@ func TestIntegrationRetrieveMergesAcrossModelsAndSkipsInactive(t *testing.T) {
 	}
 
 	// 空入参与空查询：直接返回空，不打 DB。
-	if r, err := svc.Retrieve(ctx, nil, "q", 5); err != nil || r != nil {
+	if r, err := svc.Retrieve(ctx, nil, "q", 5, RetrieveOptions{}); err != nil || r != nil {
 		t.Fatalf("Retrieve(nil kbs) = %v, %v; want nil, nil", r, err)
 	}
-	if r, err := svc.Retrieve(ctx, []string{"kb-r3"}, "", 5); err != nil || r != nil {
+	if r, err := svc.Retrieve(ctx, []string{"kb-r3"}, "", 5, RetrieveOptions{}); err != nil || r != nil {
 		t.Fatalf("Retrieve(empty query) = %v, %v; want nil, nil", r, err)
 	}
 }
@@ -312,7 +322,7 @@ func TestIntegrationRetrieveDedupsExactDuplicateContentEndToEnd(t *testing.T) {
 	seedChunkWithContent(t, repo, "kb-dedup-e2e", "doc-dedup-e2e", "dup-low", []float32{1, 0.1, 0}, dupContent) // cos < 1.0, same content
 	seedChunkWithContent(t, repo, "kb-dedup-e2e", "doc-dedup-e2e", "unique", []float32{1, 0.2, 0}, "内容不同的第三条候选")
 
-	got, err := svc.Retrieve(ctx, []string{"kb-dedup-e2e"}, "查询", 2)
+	got, err := svc.Retrieve(ctx, []string{"kb-dedup-e2e"}, "查询", 2, RetrieveOptions{})
 	if err != nil {
 		t.Fatalf("Retrieve: %v", err)
 	}
@@ -354,7 +364,7 @@ func TestIntegrationRetrieveNeighborDedupPrefersCoreOverDuplicateNeighborContent
 		{ID: "core2", ChunkIndex: 0, Content: sharedContent, Vec: []float32{1, 0, 0}},
 	}, true)
 
-	got, err := svc.Retrieve(ctx, []string{"kb-dedup-nb-e2e"}, "查询", 2)
+	got, err := svc.Retrieve(ctx, []string{"kb-dedup-nb-e2e"}, "查询", 2, RetrieveOptions{})
 	if err != nil {
 		t.Fatalf("Retrieve: %v", err)
 	}
@@ -516,7 +526,7 @@ func TestIntegrationDeleteDocumentCrossStore(t *testing.T) {
 		t.Fatalf("file still on disk after delete: %v", err)
 	}
 	// 删除后立即检索：不再返回该文档的任何 chunk（链路 4 的终点标准）。
-	got, err := svc.Retrieve(ctx, []string{"kb-del"}, "查询", 10)
+	got, err := svc.Retrieve(ctx, []string{"kb-del"}, "查询", 10, RetrieveOptions{})
 	if err != nil || len(got) != 0 {
 		t.Fatalf("retrieval after delete = %v (err %v), want empty", ids(got), err)
 	}
@@ -682,7 +692,7 @@ func TestIntegrationDeleteDuringProcessingLeavesNoSearchableOrphan(t *testing.T)
 	}
 
 	// 即使 chunk 物理写入了，因为从未发布，检索永远看不到它。
-	got, err := repo.searchVectorChunks(ctx, []string{"kb-race"}, []float32{1, 0, 0}, 10)
+	got, err := repo.searchVectorChunks(ctx, []string{"kb-race"}, []float32{1, 0, 0}, 10, RetrieveFilter{})
 	if err != nil || len(got) != 0 {
 		t.Fatalf("searchChunks = %v (err %v), want empty (unpublished chunk must not be searchable)", ids(got), err)
 	}
@@ -789,7 +799,7 @@ func TestIntegrationRetrieveClampsExcessiveTopK(t *testing.T) {
 		seedChunk(t, repo, "kb-topk", "doc-topk", fmt.Sprintf("c-%d", i), []float32{1, 0, 0})
 	}
 
-	got, err := svc.Retrieve(ctx, []string{"kb-topk"}, "查询", 999999)
+	got, err := svc.Retrieve(ctx, []string{"kb-topk"}, "查询", 999999, RetrieveOptions{})
 	if err != nil {
 		t.Fatalf("Retrieve: %v", err)
 	}
@@ -844,7 +854,7 @@ func TestIntegrationRetryDocumentOnlyAllowedFromPendingOrFailed(t *testing.T) {
 	repo := setupIntegration(t)
 	// RetryDocument's success path enqueues a task, unlike everything else
 	// in this file — needs a real asynq client, not newTestService's nil.
-	svc := NewService(repo, newFakeProvider(), newTestAsynqClient(t), t.TempDir(), false, "", 1500*time.Millisecond)
+	svc := NewService(repo, newFakeProvider(), newTestAsynqClient(t), t.TempDir(), false, "", 1500*time.Millisecond, false)
 	ctx := context.Background()
 
 	seedKB(t, repo, "kb-retry", "m3", "owner-4", true)
@@ -974,7 +984,7 @@ func TestIntegrationReconcileRecoversPublishNeverAttempted(t *testing.T) {
 	}
 
 	// 此时文档处于 publishing，chunks 未发布，检索不到。
-	if got, err := repo.searchVectorChunks(ctx, []string{"kb-pubfail"}, []float32{1, 0, 0}, 10); err != nil || len(got) != 0 {
+	if got, err := repo.searchVectorChunks(ctx, []string{"kb-pubfail"}, []float32{1, 0, 0}, 10, RetrieveFilter{}); err != nil || len(got) != 0 {
 		t.Fatalf("pre-recovery searchChunks = %v (err %v), want empty", ids(got), err)
 	}
 
@@ -994,7 +1004,7 @@ func TestIntegrationReconcileRecoversPublishNeverAttempted(t *testing.T) {
 		t.Fatalf("doc status=%s chunkCount=%d, want ready/2", got.Status, got.ChunkCount)
 	}
 
-	found, err := repo.searchVectorChunks(ctx, []string{"kb-pubfail"}, []float32{1, 0, 0}, 10)
+	found, err := repo.searchVectorChunks(ctx, []string{"kb-pubfail"}, []float32{1, 0, 0}, 10, RetrieveFilter{})
 	if err != nil || len(found) != 2 {
 		t.Fatalf("post-recovery searchChunks = %v (err %v), want 2 chunks", ids(found), err)
 	}
@@ -1032,7 +1042,7 @@ func TestIntegrationReconcileRecoversPublishSucceededBeforeReadyCrash(t *testing
 	if err := repo.publishDocumentVersion(ctx, "doc-pubcrash", 1); err != nil {
 		t.Fatalf("simulate pre-crash publish: %v", err)
 	}
-	if got, err := repo.searchVectorChunks(ctx, []string{"kb-pubcrash"}, []float32{1, 0, 0}, 10); err != nil || len(got) != 1 {
+	if got, err := repo.searchVectorChunks(ctx, []string{"kb-pubcrash"}, []float32{1, 0, 0}, 10, RetrieveFilter{}); err != nil || len(got) != 1 {
 		t.Fatalf("chunk should already be published: %v (err %v)", ids(got), err)
 	}
 
@@ -1154,7 +1164,7 @@ func TestIntegrationReconcileOnlyRecoversPublishingAfterLeaseExpires(t *testing.
 	if got.Status != StatusReady || got.ChunkCount != 1 {
 		t.Fatalf("doc status=%s chunkCount=%d, want ready/1", got.Status, got.ChunkCount)
 	}
-	if found, err := repo.searchVectorChunks(ctx, []string{"kb-publease"}, []float32{1, 0, 0}, 10); err != nil || len(found) != 1 {
+	if found, err := repo.searchVectorChunks(ctx, []string{"kb-publease"}, []float32{1, 0, 0}, 10, RetrieveFilter{}); err != nil || len(found) != 1 {
 		t.Fatalf("searchChunks after recovery = %v (err %v), want 1", ids(found), err)
 	}
 }
@@ -1240,7 +1250,7 @@ func TestIntegrationExpiredLeaseReclaimedAndStaleWorkerStops(t *testing.T) {
 	fp := newFakeProvider()
 	fp.embed = embedFn
 	dir := t.TempDir()
-	svc := NewService(repo, fp, newTestAsynqClient(t), dir, false, "", 1500*time.Millisecond) // reconciliation 的回收要真的入队
+	svc := NewService(repo, fp, newTestAsynqClient(t), dir, false, "", 1500*time.Millisecond, false) // reconciliation 的回收要真的入队
 	ctx := context.Background()
 
 	seedKB(t, repo, "kb-expire", "m3", "u1", true)
@@ -1460,7 +1470,7 @@ func TestIntegrationClaimPublishingRecoveryRejectsRenewedLeaseUsingStaleScanSnap
 	if got.LeaseExpiresAt == nil || !got.LeaseExpiresAt.Equal(newLease) {
 		t.Fatalf("lease = %v, want unchanged at the worker's renewed value %v", got.LeaseExpiresAt, newLease)
 	}
-	if found, err := repo.searchVectorChunks(ctx, []string{"kb-toctou-pub"}, []float32{1, 0, 0}, 10); err != nil || len(found) != 0 {
+	if found, err := repo.searchVectorChunks(ctx, []string{"kb-toctou-pub"}, []float32{1, 0, 0}, 10, RetrieveFilter{}); err != nil || len(found) != 0 {
 		t.Fatalf("searchChunks = %v (err %v), want empty (must not have been published)", ids(found), err)
 	}
 }
@@ -1535,7 +1545,7 @@ func TestIntegrationClaimPublishingRecoveryConcurrentOnlyOneWinsThenPublishes(t 
 	if n := countAllChunksForDocument(t, repo, "doc-toctou-pub2"); n != 1 {
 		t.Fatalf("total chunk rows = %d, want 1 (no duplicates)", n)
 	}
-	found, err := repo.searchVectorChunks(ctx, []string{"kb-toctou-pub2"}, []float32{1, 0, 0}, 10)
+	found, err := repo.searchVectorChunks(ctx, []string{"kb-toctou-pub2"}, []float32{1, 0, 0}, 10, RetrieveFilter{})
 	if err != nil || len(found) != 1 {
 		t.Fatalf("searchChunks = %v (err %v), want 1 result (published and searchable)", ids(found), err)
 	}
@@ -1696,7 +1706,7 @@ func TestIntegrationProcessDocumentWritesDocumentNameSnapshot(t *testing.T) {
 		t.Fatalf("ProcessDocument: %v", err)
 	}
 
-	got, err := repo.searchVectorChunks(ctx, []string{"kb-docname"}, []float32{1, 0, 0}, 10)
+	got, err := repo.searchVectorChunks(ctx, []string{"kb-docname"}, []float32{1, 0, 0}, 10, RetrieveFilter{})
 	if err != nil || len(got) != 1 {
 		t.Fatalf("searchChunks = %v (err %v), want 1 chunk", ids(got), err)
 	}
@@ -1749,7 +1759,7 @@ func TestIntegrationProcessDocumentPDFPageNumbers(t *testing.T) {
 		t.Fatalf("doc status=%s chunkCount=%d, want ready with >0 chunks (err=%q)", got.Status, got.ChunkCount, got.ErrorMessage)
 	}
 
-	chunks, err := repo.searchVectorChunks(ctx, []string{"kb-pdfpage"}, []float32{1, 0, 0}, 100)
+	chunks, err := repo.searchVectorChunks(ctx, []string{"kb-pdfpage"}, []float32{1, 0, 0}, 100, RetrieveFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1806,7 +1816,7 @@ func TestIntegrationProcessDocumentMarkdownSectionTitleAndBreadcrumb(t *testing.
 	if err := svc.ProcessDocument(ctx, "doc-mdsection", 1); err != nil {
 		t.Fatalf("ProcessDocument: %v", err)
 	}
-	chunks, err := repo.searchVectorChunks(ctx, []string{"kb-mdsection"}, []float32{1, 0, 0}, 100)
+	chunks, err := repo.searchVectorChunks(ctx, []string{"kb-mdsection"}, []float32{1, 0, 0}, 100, RetrieveFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1868,7 +1878,7 @@ func TestIntegrationSearchChunksHistoricalEmptyMetadataStillRetrievable(t *testi
 	seedKB(t, repo, "kb-legacy", "m3", "u1", true)
 	seedChunk(t, repo, "kb-legacy", "doc-legacy", "legacy-c1", []float32{1, 0, 0})
 
-	got, err := repo.searchVectorChunks(ctx, []string{"kb-legacy"}, []float32{1, 0, 0}, 10)
+	got, err := repo.searchVectorChunks(ctx, []string{"kb-legacy"}, []float32{1, 0, 0}, 10, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchChunks must not fail on empty source metadata: %v", err)
 	}
@@ -1964,7 +1974,7 @@ func TestIntegrationSearchKeywordChunksFindsExactChineseKeyword(t *testing.T) {
 	seedChunkWithContent(t, repo, kb, "doc-kw-zh", "c-hit", []float32{1, 0, 0}, "本章介绍深度学习模型的训练与调参方法")
 	seedChunkWithContent(t, repo, kb, "doc-kw-zh", "c-miss", []float32{1, 0, 0}, "今天天气不错，适合出门散步和摄影")
 
-	got, err := repo.searchKeywordChunks(ctx, []string{kb}, "深度学习模型", 10)
+	got, err := repo.searchKeywordChunks(ctx, []string{kb}, "深度学习模型", 10, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchKeywordChunks: %v", err)
 	}
@@ -1985,7 +1995,7 @@ func TestIntegrationSearchKeywordChunksFindsExactEnglishKeyword(t *testing.T) {
 	seedChunkWithContent(t, repo, kb, "doc-kw-en", "c-hit-en", []float32{1, 0, 0}, "PostgreSQL vector search is powered by the pgvector extension")
 	seedChunkWithContent(t, repo, kb, "doc-kw-en", "c-miss-en", []float32{1, 0, 0}, "The quick brown fox jumps over the lazy dog")
 
-	got, err := repo.searchKeywordChunks(ctx, []string{kb}, "pgvector extension", 10)
+	got, err := repo.searchKeywordChunks(ctx, []string{kb}, "pgvector extension", 10, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchKeywordChunks: %v", err)
 	}
@@ -2002,7 +2012,7 @@ func TestIntegrationSearchKeywordChunksExcludesUnpublished(t *testing.T) {
 	kb := "kb-kw-unpub"
 	seedUnpublishedChunkWithContent(t, repo, kb, "doc-kw-unpub", "c-draft", []float32{1, 0, 0}, "机密项目Zeta的详细技术方案说明")
 
-	got, err := repo.searchKeywordChunks(ctx, []string{kb}, "机密项目Zeta", 10)
+	got, err := repo.searchKeywordChunks(ctx, []string{kb}, "机密项目Zeta", 10, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchKeywordChunks: %v", err)
 	}
@@ -2019,7 +2029,7 @@ func TestIntegrationSearchKeywordChunksScopedToKnowledgeBase(t *testing.T) {
 	seedChunkWithContent(t, repo, "kb-kw-a", "doc-kw-a", "c-a", []float32{1, 0, 0}, "跨知识库隔离测试关键词CROSSKBTOKEN")
 	seedChunkWithContent(t, repo, "kb-kw-b", "doc-kw-b", "c-b", []float32{1, 0, 0}, "另一个完全无关的知识库内容")
 
-	got, err := repo.searchKeywordChunks(ctx, []string{"kb-kw-b"}, "跨知识库隔离测试关键词CROSSKBTOKEN", 10)
+	got, err := repo.searchKeywordChunks(ctx, []string{"kb-kw-b"}, "跨知识库隔离测试关键词CROSSKBTOKEN", 10, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchKeywordChunks: %v", err)
 	}
@@ -2029,7 +2039,7 @@ func TestIntegrationSearchKeywordChunksScopedToKnowledgeBase(t *testing.T) {
 
 	// Sanity check the positive case too, so a bug that made the filter a
 	// no-op wouldn't be masked by both sides returning empty.
-	gotOwn, err := repo.searchKeywordChunks(ctx, []string{"kb-kw-a"}, "跨知识库隔离测试关键词CROSSKBTOKEN", 10)
+	gotOwn, err := repo.searchKeywordChunks(ctx, []string{"kb-kw-a"}, "跨知识库隔离测试关键词CROSSKBTOKEN", 10, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchKeywordChunks: %v", err)
 	}
@@ -2047,7 +2057,7 @@ func TestIntegrationSearchKeywordChunksIgnoresEmbeddingDimension(t *testing.T) {
 	seedChunkWithContent(t, repo, kb, "doc-kw-dim", "c-3d", []float32{1, 0, 0}, "维度隔离验证关键词DIMTOKEN三维版本")
 	seedChunkWithContent(t, repo, kb, "doc-kw-dim", "c-2d", []float32{1, 0}, "维度隔离验证关键词DIMTOKEN二维版本")
 
-	got, err := repo.searchKeywordChunks(ctx, []string{kb}, "维度隔离验证关键词DIMTOKEN", 10)
+	got, err := repo.searchKeywordChunks(ctx, []string{kb}, "维度隔离验证关键词DIMTOKEN", 10, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchKeywordChunks: %v", err)
 	}
@@ -2075,7 +2085,7 @@ func TestIntegrationSearchVectorChunksOrderingAndDimensionFilterPGOnly(t *testin
 	seedChunk(t, repo, kb, "doc-vec-pgonly", "c-ortho-pgonly", []float32{0, 1, 0})
 	seedChunk(t, repo, kb, "doc-vec-pgonly", "c-2d-pgonly", []float32{1, 0}) // 异维度，必须被过滤
 
-	got, err := repo.searchVectorChunks(ctx, []string{kb}, []float32{1, 0, 0}, 10)
+	got, err := repo.searchVectorChunks(ctx, []string{kb}, []float32{1, 0, 0}, 10, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchVectorChunks: %v", err)
 	}
@@ -2112,7 +2122,7 @@ func TestIntegrationSearchVectorChunksTiedScoreSortsStablyByID(t *testing.T) {
 	seedChunk(t, repo, kb, "doc-vec-tie", "tie-d", vec)
 	seedChunk(t, repo, kb, "doc-vec-tie", "tie-b", vec)
 
-	got, err := repo.searchVectorChunks(ctx, []string{kb}, vec, 10)
+	got, err := repo.searchVectorChunks(ctx, []string{kb}, vec, 10, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchVectorChunks: %v", err)
 	}
@@ -2157,11 +2167,11 @@ func TestIntegrationHybridSearchPromotesStrongKeywordMatchIntoTopK(t *testing.T)
 	const topK = 4
 	cK := candidateK(topK)
 
-	vectorChunks, err := repo.searchVectorChunks(ctx, []string{kb}, queryVec, cK)
+	vectorChunks, err := repo.searchVectorChunks(ctx, []string{kb}, queryVec, cK, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchVectorChunks: %v", err)
 	}
-	keywordChunks, err := repo.searchKeywordChunks(ctx, []string{kb}, queryText, cK)
+	keywordChunks, err := repo.searchKeywordChunks(ctx, []string{kb}, queryText, cK, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchKeywordChunks: %v", err)
 	}
@@ -2216,11 +2226,11 @@ func TestIntegrationHybridSearchDeduplicatesChunkHitByBothPaths(t *testing.T) {
 	seedChunkWithContent(t, repo, kb, "doc-hybrid-dedup", "other", []float32{1, 0.5, 0}, "无关内容，仅用于填充候选集")
 
 	cK := candidateK(5)
-	vectorChunks, err := repo.searchVectorChunks(ctx, []string{kb}, queryVec, cK)
+	vectorChunks, err := repo.searchVectorChunks(ctx, []string{kb}, queryVec, cK, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchVectorChunks: %v", err)
 	}
-	keywordChunks, err := repo.searchKeywordChunks(ctx, []string{kb}, queryText, cK)
+	keywordChunks, err := repo.searchKeywordChunks(ctx, []string{kb}, queryText, cK, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchKeywordChunks: %v", err)
 	}
@@ -2263,7 +2273,7 @@ func TestIntegrationHybridSearchPreservesCitationMetadata(t *testing.T) {
 	seedChunkWithContentSourceMeta(t, repo, kb, "doc-hybrid-citation", "c-cited", []float32{1, 0, 0},
 		"引用元数据验证关键词CITETOKEN退款政策说明", "policy-handbook.pdf", &page, &section)
 
-	vectorChunks, err := repo.searchVectorChunks(ctx, []string{kb}, []float32{1, 0, 0}, 10)
+	vectorChunks, err := repo.searchVectorChunks(ctx, []string{kb}, []float32{1, 0, 0}, 10, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchVectorChunks: %v", err)
 	}
@@ -2273,7 +2283,7 @@ func TestIntegrationHybridSearchPreservesCitationMetadata(t *testing.T) {
 		t.Fatalf("vector path lost Citation metadata: %+v", vectorChunks)
 	}
 
-	keywordChunks, err := repo.searchKeywordChunks(ctx, []string{kb}, "引用元数据验证关键词CITETOKEN", 10)
+	keywordChunks, err := repo.searchKeywordChunks(ctx, []string{kb}, "引用元数据验证关键词CITETOKEN", 10, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchKeywordChunks: %v", err)
 	}
@@ -2319,7 +2329,7 @@ func TestIntegrationRRFFuseDedupsExactDuplicateCoreContentAgainstRealPostgres(t 
 
 	const topK = 2
 	cK := candidateK(topK)
-	vectorChunks, err := repo.searchVectorChunks(ctx, []string{kb}, queryVec, cK)
+	vectorChunks, err := repo.searchVectorChunks(ctx, []string{kb}, queryVec, cK, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchVectorChunks: %v", err)
 	}
@@ -2361,7 +2371,7 @@ func TestIntegrationExpandWithNeighborWindowNeverQueriesNeighborsOfDedupedCoreCh
 
 	const topK = 1
 	cK := candidateK(topK)
-	vectorChunks, err := repo.searchVectorChunks(ctx, []string{kb}, queryVec, cK)
+	vectorChunks, err := repo.searchVectorChunks(ctx, []string{kb}, queryVec, cK, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchVectorChunks: %v", err)
 	}
@@ -2489,7 +2499,7 @@ func TestIntegrationRealVectorSearchDrivenAnchorSelectionPrefersCoreOverDuplicat
 
 	const topK = 2
 	cK := candidateK(topK)
-	vectorChunks, err := repo.searchVectorChunks(ctx, []string{kb}, queryVec, cK)
+	vectorChunks, err := repo.searchVectorChunks(ctx, []string{kb}, queryVec, cK, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchVectorChunks: %v", err)
 	}
@@ -2557,13 +2567,13 @@ func TestIntegrationSearchKeywordChunksEmptyQueryOrKBsReturnsEmpty(t *testing.T)
 	kb := "kb-kw-empty"
 	seedChunkWithContent(t, repo, kb, "doc-kw-empty", "c1", []float32{1, 0, 0}, "任意内容用于确认过滤条件生效ANYTOKEN")
 
-	if got, err := repo.searchKeywordChunks(ctx, []string{kb}, "", 10); err != nil || got != nil {
+	if got, err := repo.searchKeywordChunks(ctx, []string{kb}, "", 10, RetrieveFilter{}); err != nil || got != nil {
 		t.Fatalf("searchKeywordChunks(empty query) = %v, %v; want nil, nil", got, err)
 	}
-	if got, err := repo.searchKeywordChunks(ctx, nil, "ANYTOKEN", 10); err != nil || got != nil {
+	if got, err := repo.searchKeywordChunks(ctx, nil, "ANYTOKEN", 10, RetrieveFilter{}); err != nil || got != nil {
 		t.Fatalf("searchKeywordChunks(nil kbIDs) = %v, %v; want nil, nil", got, err)
 	}
-	if got, err := repo.searchKeywordChunks(ctx, []string{}, "ANYTOKEN", 10); err != nil || got != nil {
+	if got, err := repo.searchKeywordChunks(ctx, []string{}, "ANYTOKEN", 10, RetrieveFilter{}); err != nil || got != nil {
 		t.Fatalf("searchKeywordChunks(empty kbIDs) = %v, %v; want nil, nil", got, err)
 	}
 }
@@ -2842,7 +2852,7 @@ func TestIntegrationSearchVectorAndKeywordChunksReturnDocumentVersion(t *testing
 		{ID: "vt-1", ChunkIndex: 0, Content: "版本标记验证关键词VERSIONTAG", Vec: []float32{1, 0, 0}},
 	}, true)
 
-	vecGot, err := repo.searchVectorChunks(ctx, []string{kbID}, []float32{1, 0, 0}, 10)
+	vecGot, err := repo.searchVectorChunks(ctx, []string{kbID}, []float32{1, 0, 0}, 10, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchVectorChunks: %v", err)
 	}
@@ -2850,7 +2860,7 @@ func TestIntegrationSearchVectorAndKeywordChunksReturnDocumentVersion(t *testing
 		t.Fatalf("searchVectorChunks DocumentVersion = %+v, want DocumentVersion=7", vecGot)
 	}
 
-	kwGot, err := repo.searchKeywordChunks(ctx, []string{kbID}, "版本标记验证关键词VERSIONTAG", 10)
+	kwGot, err := repo.searchKeywordChunks(ctx, []string{kbID}, "版本标记验证关键词VERSIONTAG", 10, RetrieveFilter{})
 	if err != nil {
 		t.Fatalf("searchKeywordChunks: %v", err)
 	}
@@ -3225,7 +3235,7 @@ func TestIntegrationRetrieveAdmissionReturnsEmptyForIrrelevantQueryAgainstNonEmp
 	seedChunkWithContent(t, repo, "kb-admission-irrelevant", "doc-irrelevant", "irrelevant-1",
 		[]float32{0, 1, 0}, "内容与关键词完全无关的填充文本零一")
 
-	got, err := svc.Retrieve(ctx, []string{"kb-admission-irrelevant"}, "BACKFILLTOKENXYZ", 5)
+	got, err := svc.Retrieve(ctx, []string{"kb-admission-irrelevant"}, "BACKFILLTOKENXYZ", 5, RetrieveOptions{})
 	if err != nil {
 		t.Fatalf("Retrieve: %v", err)
 	}
@@ -3257,7 +3267,7 @@ func TestIntegrationRetrieveAdmissionVectorThresholdBoundaryAgainstRealPgvector(
 	seedChunkWithContent(t, repo, "kb-admission-vec-boundary", "doc-above", "vec-above",
 		cosineVec(0.36), "内容与关键词完全无关的填充文本零三")
 
-	got, err := svc.Retrieve(ctx, []string{"kb-admission-vec-boundary"}, "BACKFILLTOKENXYZ", 5)
+	got, err := svc.Retrieve(ctx, []string{"kb-admission-vec-boundary"}, "BACKFILLTOKENXYZ", 5, RetrieveOptions{})
 	if err != nil {
 		t.Fatalf("Retrieve: %v", err)
 	}
@@ -3288,7 +3298,7 @@ func TestIntegrationRetrieveAdmissionKeywordThresholdBoundaryAgainstRealPgTrgm(t
 	seedChunkWithContent(t, repo, "kb-admission-kw-boundary", "doc-kw-above", "kw-above",
 		[]float32{0, 1, 0}, "xx abcde yy")
 
-	got, err := svc.Retrieve(ctx, []string{"kb-admission-kw-boundary"}, "abcdefghij", 5)
+	got, err := svc.Retrieve(ctx, []string{"kb-admission-kw-boundary"}, "abcdefghij", 5, RetrieveOptions{})
 	if err != nil {
 		t.Fatalf("Retrieve: %v", err)
 	}
@@ -3317,7 +3327,7 @@ func TestIntegrationRetrieveAdmissionEitherStrongPathAdmitsBothWeakRejects(t *te
 	seedChunkWithContent(t, repo, "kb-admission-either-path", "doc-strong-kw", "strong-kw",
 		[]float32{0, 1, 0}, "zz STRONGKWTOKEN yy pure keyword strong hit content")
 
-	got, err := svc.Retrieve(ctx, []string{"kb-admission-either-path"}, "STRONGKWTOKEN", 5)
+	got, err := svc.Retrieve(ctx, []string{"kb-admission-either-path"}, "STRONGKWTOKEN", 5, RetrieveOptions{})
 	if err != nil {
 		t.Fatalf("Retrieve: %v", err)
 	}
@@ -3369,7 +3379,7 @@ func TestIntegrationRetrieveAdmissionRejectedTopCandidateLetsLowerRankedAdmitted
 	seedChunkWithContent(t, repo, kb, "doc-kw-2nd", "kw-2nd",
 		cosineVec(0.01), "zz DUPTOKENQWER yy second ranked admitted duplicate content padding")
 
-	got, err := svc.Retrieve(ctx, []string{kb}, "DUPTOKENQWERTY", 2)
+	got, err := svc.Retrieve(ctx, []string{kb}, "DUPTOKENQWERTY", 2, RetrieveOptions{})
 	if err != nil {
 		t.Fatalf("Retrieve: %v", err)
 	}
@@ -3419,7 +3429,7 @@ func TestIntegrationRetrieveAdmissionRejectedCandidateDoesNotInterfereWithDuplic
 	seedChunkWithContent(t, repo, kb, "doc-dup-a", "dup-a", cosineVec(0.01), dupContent) // keyword rank 1 (score 1.0)
 	seedChunkWithContent(t, repo, kb, "doc-dup-b", "dup-b", cosineVec(0.01), dupContent) // same content, tied keyword score
 
-	got, err := svc.Retrieve(ctx, []string{kb}, "DUPTOKENQWERTY", 5)
+	got, err := svc.Retrieve(ctx, []string{kb}, "DUPTOKENQWERTY", 5, RetrieveOptions{})
 	if err != nil {
 		t.Fatalf("Retrieve: %v", err)
 	}
@@ -3463,7 +3473,7 @@ func TestIntegrationRetrieveAdmissionRejectedCandidateNeverTriggersNeighborLooku
 	seedChunkWithContent(t, repo, kb, "doc-admitted-anchor", "admitted-anchor",
 		cosineVec(0.90), "内容与关键词完全无关的填充文本零七")
 
-	got, err := svc.Retrieve(ctx, []string{kb}, "BACKFILLTOKENXYZ", 5)
+	got, err := svc.Retrieve(ctx, []string{kb}, "BACKFILLTOKENXYZ", 5, RetrieveOptions{})
 	if err != nil {
 		t.Fatalf("Retrieve: %v", err)
 	}
@@ -3509,7 +3519,7 @@ func TestIntegrationRetrieveAdmissionCorrectAcrossKnowledgeBasesAndEmbeddingMode
 	seedChunkWithContent(t, repo, "kb-cross-b", "doc-cross-b-rejected", "cross-b-rejected",
 		[]float32{0.2, float32(math.Sqrt(1 - 0.2*0.2))}, "内容与关键词完全无关的填充文本一零")
 
-	got, err := svc.Retrieve(ctx, []string{"kb-cross-a", "kb-cross-b"}, "CROSSKBTOKEN", 5)
+	got, err := svc.Retrieve(ctx, []string{"kb-cross-a", "kb-cross-b"}, "CROSSKBTOKEN", 5, RetrieveOptions{})
 	if err != nil {
 		t.Fatalf("Retrieve: %v", err)
 	}
@@ -3535,7 +3545,7 @@ func TestIntegrationRetrieveAdmissionCorrectAcrossKnowledgeBasesAndEmbeddingMode
 // 断言的是"重排结果如何影响 Retrieve 对真实数据库发出的查询"，不是纯函数
 // 本身（applyRerank 的纯函数覆盖见 rerank_test.go）。
 func newTestServiceWithRerank(repo *Repository, fp *fakeProviderService, storageDir string, scoreFn func(ctx context.Context, query string, documents []string) (provider.RerankResult, error)) *service {
-	svc := NewService(repo, fp, nil, storageDir, true, "rerank-model", 1500*time.Millisecond).(*service)
+	svc := NewService(repo, fp, nil, storageDir, true, "rerank-model", 1500*time.Millisecond, false).(*service)
 	svc.rerankScoreFn = scoreFn
 	return svc
 }
@@ -3597,7 +3607,7 @@ func TestIntegrationRetrieveRerankPromotesLowRankedCandidateIntoTopKAndSkipsNeig
 	}
 	svc := newTestServiceWithRerank(repo, fp, t.TempDir(), scoreFn)
 
-	got, err := svc.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3)
+	got, err := svc.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3, RetrieveOptions{})
 	if err != nil {
 		t.Fatalf("Retrieve: %v", err)
 	}
@@ -3665,7 +3675,7 @@ func TestIntegrationRetrieveRerankDegradesOnCallErrorMatchesDisabledOrderVerbati
 	seedRerankDegradeFixture(t, repo, kb)
 
 	baseline := newTestService(repo, fp, t.TempDir())
-	want, err := baseline.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3)
+	want, err := baseline.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3, RetrieveOptions{})
 	if err != nil {
 		t.Fatalf("baseline (rerank disabled) Retrieve: %v", err)
 	}
@@ -3674,7 +3684,7 @@ func TestIntegrationRetrieveRerankDegradesOnCallErrorMatchesDisabledOrderVerbati
 		return provider.RerankResult{}, errors.New("simulated rerank provider failure")
 	}
 	degraded := newTestServiceWithRerank(repo, fp, t.TempDir(), errScoreFn)
-	got, err := degraded.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3)
+	got, err := degraded.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3, RetrieveOptions{})
 	if err != nil {
 		t.Fatalf("degraded (rerank call error) Retrieve: %v", err)
 	}
@@ -3699,7 +3709,7 @@ func TestIntegrationRetrieveRerankDegradesOnTimeoutMatchesDisabledOrderVerbatim(
 	seedRerankDegradeFixture(t, repo, kb)
 
 	baseline := newTestService(repo, fp, t.TempDir())
-	want, err := baseline.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3)
+	want, err := baseline.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3, RetrieveOptions{})
 	if err != nil {
 		t.Fatalf("baseline (rerank disabled) Retrieve: %v", err)
 	}
@@ -3708,10 +3718,10 @@ func TestIntegrationRetrieveRerankDegradesOnTimeoutMatchesDisabledOrderVerbatim(
 		<-ctx.Done()
 		return provider.RerankResult{}, ctx.Err()
 	}
-	svc := NewService(repo, fp, nil, t.TempDir(), true, "rerank-model", 10*time.Millisecond).(*service)
+	svc := NewService(repo, fp, nil, t.TempDir(), true, "rerank-model", 10*time.Millisecond, false).(*service)
 	svc.rerankScoreFn = blockingScoreFn
 
-	got, err := svc.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3)
+	got, err := svc.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3, RetrieveOptions{})
 	if err != nil {
 		t.Fatalf("degraded (rerank timeout) Retrieve: %v", err)
 	}
@@ -3732,7 +3742,7 @@ func TestIntegrationRetrieveRerankDegradesOnDuplicateIndexMatchesDisabledOrderVe
 	seedRerankDegradeFixture(t, repo, kb)
 
 	baseline := newTestService(repo, fp, t.TempDir())
-	want, err := baseline.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3)
+	want, err := baseline.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3, RetrieveOptions{})
 	if err != nil {
 		t.Fatalf("baseline (rerank disabled) Retrieve: %v", err)
 	}
@@ -3747,7 +3757,7 @@ func TestIntegrationRetrieveRerankDegradesOnDuplicateIndexMatchesDisabledOrderVe
 		return provider.RerankResult{Scores: out}, nil
 	}
 	degraded := newTestServiceWithRerank(repo, fp, t.TempDir(), dupScoreFn)
-	got, err := degraded.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3)
+	got, err := degraded.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3, RetrieveOptions{})
 	if err != nil {
 		t.Fatalf("degraded (rerank duplicate index) Retrieve: %v", err)
 	}
@@ -3795,7 +3805,7 @@ func TestIntegrationRetrieveDeterministicAcross20RunsWithFixedRerankScores(t *te
 
 	var first []string
 	for i := 0; i < 20; i++ {
-		got, err := svc.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 4)
+		got, err := svc.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 4, RetrieveOptions{})
 		if err != nil {
 			t.Fatalf("run %d Retrieve: %v", i, err)
 		}
@@ -3806,6 +3816,493 @@ func TestIntegrationRetrieveDeterministicAcross20RunsWithFixedRerankScores(t *te
 		}
 		if !reflect.DeepEqual(gotIDs, first) {
 			t.Fatalf("run %d chunk ID sequence = %v, want %v (SC-007: must be 100%% identical across repeated runs)", i, gotIDs, first)
+		}
+	}
+}
+
+// --- 002-metadata-filter：检索元数据过滤（真实 PostgreSQL） ---
+//
+// 这一组用例验证的是纯逻辑单测覆盖不到的东西：过滤条件真的进了两路召回的
+// SQL，而不是在 Go 里把结果筛了一遍。判空/校验/开关的纯函数部分在
+// filter_test.go。
+
+// TestIntegrationRetrieveFilterByDocument —— US1 / SC-001。
+//
+// fb1（文档 B）刻意被设计成**向量路和关键词路都会命中**：它的正文含有查询
+// 词、向量也够近。因此"限定到 A 之后 fb1 消失"这一条同时证明了两路召回都
+// 施加了过滤——只在一路过滤会让另一路把 B 的片段重新带回候选池（FR-007）。
+func TestIntegrationRetrieveFilterByDocument(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	svc := newTestServiceWithFilter(repo, fp, t.TempDir())
+	ctx := context.Background()
+
+	kb := "kb-filter-doc"
+	seedKB(t, repo, kb, "m3", "u1", true)
+
+	// 查询词 FILTERTOKENALPHA 同时出现在 A、B 的正文里，C 没有。
+	seedNeighborChunkBatch(t, repo, kb, "doc-filter-a", 1, []neighborSeedChunk{
+		{ID: "fa1", ChunkIndex: 0, Content: "文档A的正文 FILTERTOKENALPHA 出现在这里", Vec: []float32{1, 0, 0}},
+		{ID: "fa2", ChunkIndex: 1, Content: "文档A的第二段正文，与查询词无关", Vec: []float32{1, 0.2, 0}},
+	}, true)
+	seedNeighborChunkBatch(t, repo, kb, "doc-filter-b", 1, []neighborSeedChunk{
+		{ID: "fb1", ChunkIndex: 0, Content: "文档B也包含 FILTERTOKENALPHA 这个词", Vec: []float32{1, 0.1, 0}},
+	}, true)
+	seedNeighborChunkBatch(t, repo, kb, "doc-filter-c", 1, []neighborSeedChunk{
+		{ID: "fc1", ChunkIndex: 0, Content: "文档C的正文，内容与前两份都不同", Vec: []float32{1, 0.3, 0}},
+	}, true)
+
+	// 1) 不带过滤：三份文档的片段都在。
+	unfiltered, err := svc.Retrieve(ctx, []string{kb}, "FILTERTOKENALPHA", 4, RetrieveOptions{})
+	if err != nil {
+		t.Fatalf("Retrieve（无过滤）: %v", err)
+	}
+	for _, want := range []string{"fa1", "fb1", "fc1"} {
+		if !containsChunkID(unfiltered, want) {
+			t.Fatalf("无过滤时应召回 %s，实际 %v", want, ids(unfiltered))
+		}
+	}
+
+	// 2) 限定到 A：B、C 的片段一条都不能出现。
+	filtered, err := svc.Retrieve(ctx, []string{kb}, "FILTERTOKENALPHA", 4, RetrieveOptions{
+		Filter: RetrieveFilter{DocumentIDs: []string{"doc-filter-a"}},
+	})
+	if err != nil {
+		t.Fatalf("Retrieve（限定到 A）: %v", err)
+	}
+	if len(filtered) == 0 {
+		t.Fatal("限定到 A 之后结果为空，A 里确实有匹配的片段")
+	}
+	for _, c := range filtered {
+		if c.DocumentID != "doc-filter-a" {
+			t.Fatalf("限定到 A 之后出现了 %s 的片段 %s（完整结果 %v）", c.DocumentID, c.ID, ids(filtered))
+		}
+	}
+
+	// 3) 过滤只做范围缩小，不改变打分与融合逻辑：A 的片段在 A 内部的相对
+	//    顺序，过滤前后必须一致（FR-012）。
+	if got, want := docOrder(filtered, "doc-filter-a"), docOrder(unfiltered, "doc-filter-a"); !equalStrings(got, want) {
+		t.Fatalf("A 内部相对顺序被过滤改变了：过滤后 %v，过滤前 %v", got, want)
+	}
+}
+
+// TestIntegrationRetrieveFilterUnknownDocument —— FR-010 / Edge Cases 第 1 条。
+// 引用了不存在的、或属于另一个知识库的 document_id：必须是"无匹配"，
+// 不是报错，也不是把这个条件悄悄丢掉当成无过滤。
+func TestIntegrationRetrieveFilterUnknownDocument(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	svc := newTestServiceWithFilter(repo, fp, t.TempDir())
+	ctx := context.Background()
+
+	seedKB(t, repo, "kb-filter-unknown", "m3", "u1", true)
+	seedKB(t, repo, "kb-filter-other", "m3", "u1", true)
+	seedChunkWithContent(t, repo, "kb-filter-unknown", "doc-known", "fu1", []float32{1, 0, 0}, "本知识库里的正文")
+	seedChunkWithContent(t, repo, "kb-filter-other", "doc-elsewhere", "fo1", []float32{1, 0, 0}, "另一个知识库里的正文")
+
+	for _, tc := range []struct {
+		name       string
+		documentID string
+	}{
+		{"完全不存在的文档", "doc-does-not-exist"},
+		{"存在但属于另一个知识库的文档", "doc-elsewhere"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := svc.Retrieve(ctx, []string{"kb-filter-unknown"}, "查询", 5, RetrieveOptions{
+				Filter: RetrieveFilter{DocumentIDs: []string{tc.documentID}},
+			})
+			if err != nil {
+				t.Fatalf("引用不存在的实体必须无匹配而不是报错，got err %v", err)
+			}
+			if len(got) != 0 {
+				t.Fatalf("want 空结果，got %v —— 该过滤条件被静默忽略了", ids(got))
+			}
+		})
+	}
+}
+
+// TestIntegrationRetrieveFilterNoAutoRelax —— FR-009 / Edge Cases 最后一条。
+// 过滤后候选数远低于 candidateK 时，绝不允许拿范围外的片段来补足名额。
+func TestIntegrationRetrieveFilterNoAutoRelax(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	svc := newTestServiceWithFilter(repo, fp, t.TempDir())
+	ctx := context.Background()
+
+	kb := "kb-filter-norelax"
+	seedKB(t, repo, kb, "m3", "u1", true)
+	seedChunkWithContent(t, repo, kb, "doc-narrow", "nr-only", []float32{1, 0.5, 0}, "范围内唯一的一条正文")
+	// 范围外有大量分数更高的片段，足以填满 topK——如果实现里有任何"候选不足
+	// 就放宽"的逻辑，它们就会冒出来。
+	for i := 0; i < 8; i++ {
+		seedChunkWithContent(t, repo, kb, "doc-wide", "nr-decoy-"+strconv.Itoa(i),
+			[]float32{1, 0, 0}, "范围外的诱饵正文，各不相同 "+strconv.Itoa(i))
+	}
+
+	got, err := svc.Retrieve(ctx, []string{kb}, "查询", 5, RetrieveOptions{
+		Filter: RetrieveFilter{DocumentIDs: []string{"doc-narrow"}},
+	})
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "nr-only" {
+		t.Fatalf("want 只有 nr-only 一条（宁可少也不放宽），got %v", ids(got))
+	}
+}
+
+// TestIntegrationRetrieveFilterByPageRange —— US2 / SC-002。
+func TestIntegrationRetrieveFilterByPageRange(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	svc := newTestServiceWithFilter(repo, fp, t.TempDir())
+	ctx := context.Background()
+
+	kb := "kb-filter-page"
+	seedKB(t, repo, kb, "m3", "u1", true)
+	p3, p12 := 3, 12
+	seedNeighborChunkBatch(t, repo, kb, "doc-paged", 1, []neighborSeedChunk{
+		{ID: "pg-early", ChunkIndex: 0, Content: "第 3 页上的正文", Vec: []float32{1, 0.2, 0}, PageNumber: &p3},
+		{ID: "pg-target", ChunkIndex: 9, Content: "第 12 页上的目标正文", Vec: []float32{1, 0, 0}, PageNumber: &p12},
+	}, true)
+
+	inRange, err := svc.Retrieve(ctx, []string{kb}, "查询", 5, RetrieveOptions{
+		Filter: RetrieveFilter{PageMin: intPtr(10), PageMax: intPtr(15)},
+	})
+	if err != nil {
+		t.Fatalf("Retrieve（[10,15]）: %v", err)
+	}
+	if !containsChunkID(inRange, "pg-target") {
+		t.Fatalf("页码范围 [10,15] 应召回第 12 页的 pg-target，got %v", ids(inRange))
+	}
+	// 第 3 页的片段不在范围内，也不该作为"命中"出现（它是 chunk_index=0，
+	// 与 chunk_index=9 不相邻，因此也不会以邻接块身份进来）。
+	if containsChunkID(inRange, "pg-early") {
+		t.Fatalf("页码范围 [10,15] 不该召回第 3 页的 pg-early，got %v", ids(inRange))
+	}
+
+	outOfRange, err := svc.Retrieve(ctx, []string{kb}, "查询", 5, RetrieveOptions{
+		Filter: RetrieveFilter{PageMin: intPtr(1), PageMax: intPtr(5)},
+	})
+	if err != nil {
+		t.Fatalf("Retrieve（[1,5]）: %v", err)
+	}
+	if containsChunkID(outOfRange, "pg-target") {
+		t.Fatalf("页码范围 [1,5] 不该召回第 12 页的 pg-target，got %v", ids(outOfRange))
+	}
+}
+
+// TestFilterPageRangeExcludesNullPageChunks —— SC-005 修订 / FR-014 修订 /
+// research.md R2。
+//
+// 无页码的 chunk（全部 txt/md、以及 000003 迁移之前入库的存量行）在页码过滤
+// 下必须**不匹配**，而不是"无元数据即通过"；同时在**无过滤**检索下必须照常
+// 可被命中——"没有这项数据"不等于"这条数据永久失效"。
+//
+// 这条用例同时锁定 chunks.sql 里那个隐式依赖：排除 NULL 靠的是 SQL 三值逻辑
+// （NULL >= 10 求值为 NULL，不是 TRUE，因此被 WHERE 排除）。任何把它改写成
+// COALESCE(page_number, 0) 的"修复"都会让这条用例失败——那等于给一个本来没有
+// 页码的 chunk 编造出第 0 页。
+func TestFilterPageRangeExcludesNullPageChunks(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	svc := newTestServiceWithFilter(repo, fp, t.TempDir())
+	ctx := context.Background()
+
+	kb := "kb-filter-nullpage"
+	seedKB(t, repo, kb, "m3", "u1", true)
+	p7 := 7
+	seedNeighborChunkBatch(t, repo, kb, "doc-nullpage", 1, []neighborSeedChunk{
+		// 有页码的对照组，确保过滤本身确实生效了（否则"什么都没召回"也能
+		// 让下面的断言通过）。
+		{ID: "np-paged", ChunkIndex: 0, Content: "有页码的正文", Vec: []float32{1, 0.1, 0}, PageNumber: &p7},
+		// PageNumber 为 nil：txt/md chunk 与存量行的真实形态。
+		{ID: "np-null", ChunkIndex: 5, Content: "没有页码的正文", Vec: []float32{1, 0, 0}},
+	}, true)
+
+	// 三种形态各测一遍：闭区间、只给下界、只给上界。**缺一不可**——变异测试
+	// 证实过：只用闭区间时，即使有人给 PageMin 那一侧错误地加上
+	// "OR page_number IS NULL"，未被改动的 PageMax 一侧仍会把 NULL 行挡下来，
+	// 用例照样通过，于是这条断言对"单侧回归"是瞎的。单端的两个子用例把每一侧
+	// 独立暴露出来。
+	for _, tc := range []struct {
+		name   string
+		filter RetrieveFilter
+	}{
+		{"闭区间 [1,100]", RetrieveFilter{PageMin: intPtr(1), PageMax: intPtr(100)}},
+		{"只给下界 >=1", RetrieveFilter{PageMin: intPtr(1)}},
+		{"只给上界 <=100", RetrieveFilter{PageMax: intPtr(100)}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withPageFilter, err := svc.Retrieve(ctx, []string{kb}, "查询", 5, RetrieveOptions{Filter: tc.filter})
+			if err != nil {
+				t.Fatalf("Retrieve（带页码过滤）: %v", err)
+			}
+			if containsChunkID(withPageFilter, "np-null") {
+				t.Fatalf("无页码的 chunk 在页码过滤下被当作通过了，got %v", ids(withPageFilter))
+			}
+			// 对照组：确认过滤本身确实生效了，否则"什么都没召回"也能让上面
+			// 那条断言通过。
+			if !containsChunkID(withPageFilter, "np-paged") {
+				t.Fatalf("对照组 np-paged（第 7 页）应被召回，got %v —— 过滤可能过严", ids(withPageFilter))
+			}
+		})
+	}
+
+	withoutFilter, err := svc.Retrieve(ctx, []string{kb}, "查询", 5, RetrieveOptions{})
+	if err != nil {
+		t.Fatalf("Retrieve（无过滤）: %v", err)
+	}
+	if !containsChunkID(withoutFilter, "np-null") {
+		t.Fatalf("无过滤时无页码的 chunk 必须照常可被命中，got %v", ids(withoutFilter))
+	}
+}
+
+// TestIntegrationRetrieveFilterPushedDownToRecall —— SC-004，本功能最关键的
+// 一条用例。
+//
+// 它是"过滤下推到召回 SQL"与"先召回 topK 再在应用层筛"唯一能被外部观察到的
+// 区别。构造方式：让目标文档的片段全部排在全库相似度榜的 candidateK 名之外。
+//   - 若过滤是应用层筛选：候选窗口里全是诱饵，筛完结果为**空**；
+//   - 若过滤真的进了 SQL：SQL 一开始就只看目标文档，照常返回它内部的 topK。
+func TestIntegrationRetrieveFilterPushedDownToRecall(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	svc := newTestServiceWithFilter(repo, fp, t.TempDir())
+	ctx := context.Background()
+
+	kb := "kb-filter-pushdown"
+	seedKB(t, repo, kb, "m3", "u1", true)
+
+	const topK = 3
+	// candidateK(3) = 12。诱饵放 15 条，且每条都比目标文档更接近查询向量，
+	// 于是不带过滤时候选窗口被诱饵占满，目标文档一条都进不去。
+	decoys := make([]neighborSeedChunk, 0, 15)
+	for i := 0; i < 15; i++ {
+		decoys = append(decoys, neighborSeedChunk{
+			ID:         "pd-decoy-" + strconv.Itoa(i),
+			ChunkIndex: i,
+			Content:    "诱饵文档的第 " + strconv.Itoa(i) + " 段正文，各不相同以避开内容去重",
+			Vec:        []float32{1, float32(i) * 0.001, 0}, // cos ≈ 1.0
+		})
+	}
+	seedNeighborChunkBatch(t, repo, kb, "doc-pushdown-decoy", 1, decoys, true)
+
+	targets := make([]neighborSeedChunk, 0, 3)
+	for i := 0; i < 3; i++ {
+		targets = append(targets, neighborSeedChunk{
+			ID:         "pd-target-" + strconv.Itoa(i),
+			ChunkIndex: i,
+			Content:    "目标文档的第 " + strconv.Itoa(i) + " 段正文，各不相同",
+			Vec:        []float32{1, 0.9, 0}, // cos ≈ 0.743：高于准入阈值，但远低于所有诱饵
+		})
+	}
+	seedNeighborChunkBatch(t, repo, kb, "doc-pushdown-target", 1, targets, true)
+
+	// 前提校验：不带过滤时目标文档确实一条都进不了结果。这一步不成立的话，
+	// 下面的断言就证明不了任何事情。
+	unfiltered, err := svc.Retrieve(ctx, []string{kb}, "PUSHDOWNTOKEN", topK, RetrieveOptions{})
+	if err != nil {
+		t.Fatalf("Retrieve（无过滤）: %v", err)
+	}
+	for _, c := range unfiltered {
+		if c.DocumentID == "doc-pushdown-target" {
+			t.Fatalf("用例前提不成立：不带过滤时目标文档就已经进入结果（%v），"+
+				"诱饵数量或分数需要调整", ids(unfiltered))
+		}
+	}
+
+	filtered, err := svc.Retrieve(ctx, []string{kb}, "PUSHDOWNTOKEN", topK, RetrieveOptions{
+		Filter: RetrieveFilter{DocumentIDs: []string{"doc-pushdown-target"}},
+	})
+	if err != nil {
+		t.Fatalf("Retrieve（限定到目标文档）: %v", err)
+	}
+	if len(filtered) == 0 {
+		t.Fatal("限定到目标文档后结果为空 —— 这正是「先召回 topK 再在应用层筛」的症状：" +
+			"过滤吃掉了召回名额，而不是重新定向了召回范围（FR-007 / SC-004）")
+	}
+	for _, c := range filtered {
+		if c.DocumentID != "doc-pushdown-target" {
+			t.Fatalf("结果里混入了 %s 的片段：%v", c.DocumentID, ids(filtered))
+		}
+	}
+	// 拿到的是目标文档**内部**的 topK，不是"全库 topK 里恰好属于它的那几条"。
+	if len(filtered) != topK {
+		t.Fatalf("want 目标文档内的 %d 条候选，got %d 条 %v", topK, len(filtered), ids(filtered))
+	}
+}
+
+// TestIntegrationRetrieveFilterExemptsNeighborsFromPageFilter —— FR-011。
+//
+// 邻接块是**上下文补全**而不是检索命中，一个页码范围不该把答案的后半句挡在
+// 外面，所以 chunk 级过滤对邻接块豁免；但跨文档取邻接在任何情况下都不成立，
+// 所以文档级过滤照旧生效。
+//
+// 实现上这两条都不需要给邻接查询加谓词：文档级是结构性满足的（邻接坐标全部
+// 取自已经通过过滤的 anchors），页码级的豁免就是"不加"。这条用例存在的意义
+// 正是防止将来有人"顺手统一一下"把过滤条件也加到邻接查询上。
+func TestIntegrationRetrieveFilterExemptsNeighborsFromPageFilter(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	svc := newTestServiceWithFilter(repo, fp, t.TempDir())
+	ctx := context.Background()
+
+	kb := "kb-filter-neighbor"
+	seedKB(t, repo, kb, "m3", "u1", true)
+	p1, p2, p3 := 1, 2, 3
+	seedNeighborChunkBatch(t, repo, kb, "doc-neighbor-main", 1, []neighborSeedChunk{
+		// 第 1 / 3 页：在页码过滤范围外，且向量分数很低（低于准入阈值），
+		// 因此不可能自己成为 anchor，只能通过邻接窗口进来。
+		{ID: "nb-prev", ChunkIndex: 0, Content: "第 1 页的正文，是答案的前半句", Vec: []float32{0, 1, 0}, PageNumber: &p1},
+		{ID: "nb-anchor", ChunkIndex: 1, Content: "第 2 页的正文，是命中的那一句", Vec: []float32{1, 0, 0}, PageNumber: &p2},
+		{ID: "nb-next", ChunkIndex: 2, Content: "第 3 页的正文，是答案的后半句", Vec: []float32{0, 1, 0}, PageNumber: &p3},
+	}, true)
+	// 另一份文档，也在第 2 页、分数也高——文档级过滤必须把它挡住，
+	// 而且它绝不能以任何身份（含邻接块）出现。
+	seedNeighborChunkBatch(t, repo, kb, "doc-neighbor-other", 1, []neighborSeedChunk{
+		{ID: "nb-other", ChunkIndex: 0, Content: "另一份文档第 2 页的正文", Vec: []float32{1, 0, 0}, PageNumber: &p2},
+	}, true)
+
+	got, err := svc.Retrieve(ctx, []string{kb}, "查询", 5, RetrieveOptions{
+		Filter: RetrieveFilter{
+			DocumentIDs: []string{"doc-neighbor-main"},
+			PageMin:     intPtr(2),
+			PageMax:     intPtr(2),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+
+	if !containsChunkID(got, "nb-anchor") {
+		t.Fatalf("第 2 页的 nb-anchor 应作为命中返回，got %v", ids(got))
+	}
+	// chunk 级（页码）豁免：范围外的邻接块必须还在。
+	for _, want := range []string{"nb-prev", "nb-next"} {
+		c := findChunk(got, want)
+		if c == nil {
+			t.Fatalf("邻接块 %s 落在页码范围外，但邻接块豁免 chunk 级过滤，必须仍然返回；got %v", want, ids(got))
+		}
+		if c.NeighborOf == "" {
+			t.Fatalf("%s 应当以邻接块身份出现（NeighborOf 非空），got 命中身份", want)
+		}
+	}
+	// 文档级过滤对邻接块照旧生效：另一份文档一条都不能进来。
+	for _, c := range got {
+		if c.DocumentID != "doc-neighbor-main" {
+			t.Fatalf("文档级过滤对邻接块必须继续生效，但结果里出现了 %s 的 %s：%v",
+				c.DocumentID, c.ID, ids(got))
+		}
+	}
+}
+
+// --- 002-metadata-filter 用例专用的小助手 ---
+
+func containsChunkID(chunks []RetrievedChunk, id string) bool {
+	return findChunk(chunks, id) != nil
+}
+
+func findChunk(chunks []RetrievedChunk, id string) *RetrievedChunk {
+	for i := range chunks {
+		if chunks[i].ID == id {
+			return &chunks[i]
+		}
+	}
+	return nil
+}
+
+// docOrder 返回结果中属于 documentID 的片段 ID，保持原有顺序——用于断言
+// "过滤只做范围缩小，不改变同一文档内部的相对排序"。
+func docOrder(chunks []RetrievedChunk, documentID string) []string {
+	var out []string
+	for _, c := range chunks {
+		if c.DocumentID == documentID {
+			out = append(out, c.ID)
+		}
+	}
+	return out
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestIntegrationRetrieveFilterDiagnosticsAreContentFree —— US4 / FR-017 / FR-018。
+//
+// 断言两件事：
+//   - 诊断日志确实记录了过滤是否施加、各路候选数、是否零候选（否则用户抱怨
+//     "我限定了文档怎么还是答不对"时无法排查）；
+//   - 但**不含任何取值**——document_id、页码数值、查询原文、片段正文一律不进
+//     日志。document_id 与页码都能反推出文件身份，这与 Phase 9 不记录逐条
+//     rerank 分数是同一个口径。
+func TestIntegrationRetrieveFilterDiagnosticsAreContentFree(t *testing.T) {
+	repo := setupIntegration(t)
+	fp := newFakeProvider()
+	svc := newTestServiceWithFilter(repo, fp, t.TempDir())
+	ctx := context.Background()
+
+	kb := "kb-filter-diag"
+	seedKB(t, repo, kb, "m3", "u1", true)
+	p42 := 42
+	seedNeighborChunkBatch(t, repo, kb, "doc-diag-secret-filename", 1, []neighborSeedChunk{
+		{ID: "dg1", ChunkIndex: 0, Content: "机密正文不得进入日志", Vec: []float32{1, 0, 0}, PageNumber: &p42},
+	}, true)
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	const secretQuery = "SECRETQUERYTEXT"
+	if _, err := svc.Retrieve(ctx, []string{kb}, secretQuery, 5, RetrieveOptions{
+		Filter: RetrieveFilter{
+			DocumentIDs: []string{"doc-diag-secret-filename"},
+			PageMin:     intPtr(40),
+			PageMax:     intPtr(45),
+		},
+	}); err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+
+	logged := buf.String()
+
+	// 施加了过滤就必须留下可排查的痕迹（FR-017）。
+	for _, want := range []string{
+		"filter_applied=true",
+		"filter_document_id_count=1",
+		"filter_page_range_set=true",
+		"vector_candidate_count=",
+		"keyword_candidate_count=",
+		"filter_zero_candidates=",
+	} {
+		if !strings.Contains(logged, want) {
+			t.Fatalf("诊断日志缺少 %q，无法回答 US4 要区分的两件事；实际日志：\n%s", want, logged)
+		}
+	}
+
+	// 但绝不能含取值（FR-018）。
+	for _, forbidden := range []struct {
+		what  string
+		value string
+	}{
+		{"document_id 取值", "doc-diag-secret-filename"},
+		{"片段正文", "机密正文不得进入日志"},
+		{"查询原文", secretQuery},
+		{"页码数值（下界）", "=40"},
+		{"页码数值（上界）", "=45"},
+		{"页码数值（chunk 自身）", "=42"},
+	} {
+		if strings.Contains(logged, forbidden.value) {
+			t.Fatalf("诊断日志泄漏了%s（%q）——FR-018 要求只记种类与数量；实际日志：\n%s",
+				forbidden.what, forbidden.value, logged)
 		}
 	}
 }

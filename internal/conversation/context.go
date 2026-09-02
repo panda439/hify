@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"hify/internal/agent"
+	"hify/internal/knowledge"
 	"hify/internal/platform"
 	"hify/internal/platform/trace"
 	"hify/internal/provider"
@@ -243,7 +244,7 @@ func (s *service) assembleContext(ctx context.Context, conversationID string, ag
 		}
 
 		spanStart := time.Now()
-		candidates, err := s.knowledgeSvc.Retrieve(ctx, ag.KnowledgeBaseIDs, rewrite.SearchQuery, retrievalTopK)
+		candidates, err := s.knowledgeSvc.Retrieve(ctx, ag.KnowledgeBaseIDs, rewrite.SearchQuery, retrievalTopK, knowledge.RetrieveOptions{})
 		status := trace.StatusOK
 		errMsg := ""
 		if err != nil {

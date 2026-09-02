@@ -14,6 +14,7 @@ import (
 
 	"github.com/expr-lang/expr"
 
+	"hify/internal/knowledge"
 	"hify/internal/platform"
 	"hify/internal/provider"
 )
@@ -351,7 +352,7 @@ func (s *service) runKnowledgeRetrieval(ctx context.Context, step Step, ec execC
 		topK = 5
 	}
 
-	chunks, err := s.knowledgeSvc.Retrieve(ctx, cfg.KnowledgeBaseIDs, query, topK)
+	chunks, err := s.knowledgeSvc.Retrieve(ctx, cfg.KnowledgeBaseIDs, query, topK, knowledge.RetrieveOptions{})
 	if err != nil {
 		return stepResult{Input: query}, fmt.Errorf("workflow: knowledge_retrieval: %w", err)
 	}

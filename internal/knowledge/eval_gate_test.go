@@ -135,8 +135,16 @@ func docSet(ids ...string) map[string]struct{} {
 // trusted the same code path it's supposed to be checking.
 func retrievalGateOutcome(t *testing.T, svc Service, kbIDs []string, query string, topK int, name string, expectedDocIDs map[string]struct{}) (retrieval.CaseOutcome, []retrieval.GateHit) {
 	t.Helper()
+	return retrievalGateOutcomeWithOptions(t, svc, kbIDs, query, topK, name, expectedDocIDs, RetrieveOptions{})
+}
+
+// retrievalGateOutcomeWithOptions 就是 retrievalGateOutcome 多带一个显式的
+// RetrieveOptions——002-metadata-filter 新增的两条门禁用例需要它。所有既有用例
+// 继续走上面那个传零值的包装函数，因此它们记录下来的结果与该功能上线前逐位相同。
+func retrievalGateOutcomeWithOptions(t *testing.T, svc Service, kbIDs []string, query string, topK int, name string, expectedDocIDs map[string]struct{}, opts RetrieveOptions) (retrieval.CaseOutcome, []retrieval.GateHit) {
+	t.Helper()
 	ctx := context.Background()
-	got, err := svc.Retrieve(ctx, kbIDs, query, topK)
+	got, err := svc.Retrieve(ctx, kbIDs, query, topK, opts)
 	if err != nil {
 		t.Fatalf("case %q: Retrieve: %v", name, err)
 	}
@@ -207,6 +215,9 @@ func TestRetrievalGatePhase6(t *testing.T) {
 	// 001-rag-query-rerank T038a：SC-001（查询改写）与 SC-002（重排）的受控用例。
 	seedKB(t, repo, "kb-gate-rewrite", "m3", "gate-user", true)
 	seedKB(t, repo, "kb-gate-rerank", "m3", "gate-user", true)
+	// 002-metadata-filter：SC-001（文档级过滤）与 SC-002（页码过滤）的受控用例。
+	seedKB(t, repo, "kb-gate-filter-doc", "m3", "gate-user", true)
+	seedKB(t, repo, "kb-gate-filter-page", "m3", "gate-user", true)
 
 	var (
 		outcomes []retrieval.CaseOutcome
@@ -508,7 +519,7 @@ func TestRetrievalGatePhase6(t *testing.T) {
 
 		// 先确认"不重排时它确实进不了 topK"——否则这个 case 就算通过也
 		// 什么都没证明（目标片段本来就在 topK 里的话，重排提不提升无从谈起）。
-		baseline, err := svc.Retrieve(context.Background(), []string{kb}, "GATERERANKTOKEN", 3)
+		baseline, err := svc.Retrieve(context.Background(), []string{kb}, "GATERERANKTOKEN", 3, RetrieveOptions{})
 		if err != nil {
 			t.Fatalf("baseline Retrieve: %v", err)
 		}
@@ -538,6 +549,78 @@ func TestRetrievalGatePhase6(t *testing.T) {
 		}
 		if hits[0].ChunkID != "grr-target" {
 			t.Fatalf("hits[0] = %s, want grr-target", hits[0].ChunkID)
+		}
+		record(o, hits)
+	})
+
+	// 13. SC-001（文档级过滤）的受控证据：同一个问题，不带过滤时两份文档的
+	// 片段都在候选里；限定到 A 之后 B 的片段一条都不能出现。
+	//
+	// 两条 chunk 的余弦分数刻意让**诱饵更高**（0.99 > 0.90），于是"限定到 A
+	// 之后 A 的片段排第一"不可能是碰巧——不带过滤时排第一的是 B。
+	t.Run("filter_scopes_to_document", func(t *testing.T) {
+		const kb = "kb-gate-filter-doc"
+		seedChunkWithContent(t, repo, kb, "doc-gate-filter-target", "gfd-target", cosineVec(0.90), "门禁文档过滤场景：目标文档的正文")
+		seedChunkWithContent(t, repo, kb, "doc-gate-filter-decoy", "gfd-decoy", cosineVec(0.99), "门禁文档过滤场景：诱饵文档的正文，分数更高")
+
+		// 前置条件：不带过滤时诱饵排第一，目标排第二。否则这个 case 证明不了
+		// "过滤真的缩小了范围"。
+		baseline, err := svc.Retrieve(context.Background(), []string{kb}, "门禁文档过滤场景", 3, RetrieveOptions{})
+		if err != nil {
+			t.Fatalf("baseline Retrieve: %v", err)
+		}
+		if len(baseline) != 2 || baseline[0].ID != "gfd-decoy" {
+			t.Fatalf("前置条件不成立：不带过滤时应为 [gfd-decoy gfd-target]，got %v", ids(baseline))
+		}
+
+		filterSvc := newTestServiceWithFilter(repo, fp, t.TempDir())
+		o, hits := retrievalGateOutcomeWithOptions(t, filterSvc, []string{kb}, "门禁文档过滤场景", 3,
+			"filter_scopes_to_document", docSet("doc-gate-filter-target"),
+			RetrieveOptions{Filter: RetrieveFilter{DocumentIDs: []string{"doc-gate-filter-target"}}})
+		if o.HitRank != 1 {
+			t.Fatalf("HitRank = %d, want 1 —— 限定到目标文档后它必须是第一条", o.HitRank)
+		}
+		if len(hits) != 1 || hits[0].ChunkID != "gfd-target" {
+			t.Fatalf("got %v, want 只有 [gfd-target]（诱饵文档的片段必须被过滤掉）", hits)
+		}
+		record(o, hits)
+	})
+
+	// 14. SC-002（页码过滤）的受控证据：目标片段在第 12 页，页码范围含 12 时
+	// 命中、不含时不命中。两条 chunk 的 chunk_index 刻意不相邻（0 与 9），
+	// 避免邻接窗口把范围外那条作为上下文补全带回来——那是正确行为
+	// （FR-011 的豁免），但会让这个 case 的断言失去针对性。
+	t.Run("filter_scopes_to_page_range", func(t *testing.T) {
+		const kb = "kb-gate-filter-page"
+		p2, p12 := 2, 12
+		seedNeighborChunkBatch(t, repo, kb, "doc-gate-filter-paged", 1, []neighborSeedChunk{
+			{ID: "gfp-early", ChunkIndex: 0, Content: "门禁页码过滤场景：第二页的正文", Vec: cosineVec(0.99), PageNumber: &p2},
+			{ID: "gfp-target", ChunkIndex: 9, Content: "门禁页码过滤场景：第十二页的正文", Vec: cosineVec(0.90), PageNumber: &p12},
+		}, true)
+
+		filterSvc := newTestServiceWithFilter(repo, fp, t.TempDir())
+
+		// 范围不含第 12 页：目标片段必须不出现。
+		outOfRange, err := filterSvc.Retrieve(context.Background(), []string{kb}, "门禁页码过滤场景", 3,
+			RetrieveOptions{Filter: RetrieveFilter{PageMin: intPtr(1), PageMax: intPtr(5)}})
+		if err != nil {
+			t.Fatalf("Retrieve（[1,5]）: %v", err)
+		}
+		for _, c := range outOfRange {
+			if c.ID == "gfp-target" {
+				t.Fatalf("页码范围 [1,5] 不该召回第 12 页的 gfp-target，got %v", ids(outOfRange))
+			}
+		}
+
+		// 范围含第 12 页：命中，且第 2 页那条被挡在外面。
+		o, hits := retrievalGateOutcomeWithOptions(t, filterSvc, []string{kb}, "门禁页码过滤场景", 3,
+			"filter_scopes_to_page_range", docSet("doc-gate-filter-paged"),
+			RetrieveOptions{Filter: RetrieveFilter{PageMin: intPtr(10), PageMax: intPtr(15)}})
+		if o.HitRank != 1 {
+			t.Fatalf("HitRank = %d, want 1", o.HitRank)
+		}
+		if len(hits) != 1 || hits[0].ChunkID != "gfp-target" {
+			t.Fatalf("got %v, want 只有 [gfp-target]（第 2 页那条必须被页码过滤挡住）", hits)
 		}
 		record(o, hits)
 	})

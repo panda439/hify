@@ -26,7 +26,7 @@ func NewRepository(db, pgdb *sql.DB) *Repository {
 // at Hify's current single-instance deployment scale). rerankEnabled/
 // rerankModelID/rerankTimeout are 001-rag-query-rerank's rerank config
 // (data-model.md §3).
-func NewService(repo *Repository, providerSvc provider.Service, asynqClient *asynq.Client, storageDir string, rerankEnabled bool, rerankModelID string, rerankTimeout time.Duration) Service {
+func NewService(repo *Repository, providerSvc provider.Service, asynqClient *asynq.Client, storageDir string, rerankEnabled bool, rerankModelID string, rerankTimeout time.Duration, metadataFilterEnabled bool) Service {
 	s := &service{
 		repo:        repo,
 		providerSvc: providerSvc,
@@ -39,6 +39,8 @@ func NewService(repo *Repository, providerSvc provider.Service, asynqClient *asy
 		rerankEnabled:     rerankEnabled,
 		rerankModelID:     rerankModelID,
 		rerankTimeout:     rerankTimeout,
+
+		metadataFilterEnabled: metadataFilterEnabled,
 	}
 	// rerankScoreFn defaults to s.resolveRerankScores (see the service
 	// struct's doc comment for why this is a replaceable method-value

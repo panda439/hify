@@ -97,7 +97,7 @@ type fakeKnowledgeSvc struct {
 	queries []string
 }
 
-func (f *fakeKnowledgeSvc) Retrieve(ctx context.Context, kbIDs []string, query string, topK int) ([]knowledge.RetrievedChunk, error) {
+func (f *fakeKnowledgeSvc) Retrieve(ctx context.Context, kbIDs []string, query string, topK int, _ knowledge.RetrieveOptions) ([]knowledge.RetrievedChunk, error) {
 	f.queries = append(f.queries, query)
 	return f.chunks, f.err
 }

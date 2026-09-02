@@ -155,7 +155,7 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 
 	// Layer 2
 	knowledgeRepo := knowledge.NewRepository(db, pgdb)
-	knowledgeSvc := knowledge.NewService(knowledgeRepo, providerSvc, asynqClient, cfg.KnowledgeStorageDir, cfg.RAGRerankEnabled, cfg.RAGRerankModelID, cfg.RAGRerankTimeout)
+	knowledgeSvc := knowledge.NewService(knowledgeRepo, providerSvc, asynqClient, cfg.KnowledgeStorageDir, cfg.RAGRerankEnabled, cfg.RAGRerankModelID, cfg.RAGRerankTimeout, cfg.RAGMetadataFilterEnabled)
 	knowledgeHandler := knowledge.NewHandler(knowledgeSvc)
 	knowledge.RegisterRoutes(v1, knowledgeHandler, cfg.JWTSecret)
 

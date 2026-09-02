@@ -18,8 +18,21 @@ type Querier interface {
 	// 新版本 chunks 一律以 is_published=false 写入——"新版本写入"这一步不改变
 	// 任何已发布的旧版本可见性，发布是 PublishChunkVersion 单独一步。
 	// document_name 是处理时刻的 Document.FileName 快照（Citation 用的来源
-	// 展示名，见 pgmigrations 000003）；page_number/section_title 当前解析器
-	// 不产出可靠值，调用方一律传 NULL，不允许伪造。
+	// 展示名，见 pgmigrations 000003）。
+	//
+	// page_number/section_title 由调用方按解析器**真实能产出**的信号传入，
+	// 拿不到才传 NULL，任何情况下不允许伪造：
+	//   * PDF 有 page_number（parse.go 的 pdfPage.Number 是 1-indexed 页码，
+	//     chunk.go 的 chunkPDFPages 严格按页切块，因此每个 chunk 的页码都是
+	//     确定且唯一的——这也是为什么不存在"跨页 chunk 该报哪一页"的问题），
+	//     没有 section_title；
+	//   * Markdown 有 section_title（chunkMarkdown 的标题栈），没有 page_number；
+	//   * txt 两者都没有。
+	// 002-metadata-filter 更正：本段原文写的是"当前解析器不产出可靠值，调用方
+	// 一律传 NULL"。那是 000003 时期的描述，Phase 4 结构感知切块落地后就已不
+	// 符实（page_number 一直在被真实写入并被 Citation V1 读取）。这条注释是
+	// 该功能"页码过滤有数据可过滤"这一前提的直接反证，留着会误导后来者，故一
+	// 并更正——只改注释文字，SQL 语义未动。
 	CreateChunk(ctx context.Context, arg CreateChunkParams) error
 	// 整份文档删除用（DeleteDocument）：不分版本、不看发布状态，全部清空。
 	DeleteChunksByDocument(ctx context.Context, documentID string) error
@@ -144,6 +157,16 @@ type Querier interface {
 	//
 	// Phase 4: document_version 同 SearchVectorChunks 的理由——关键词路径命中
 	// 的 chunk 同样可能被邻接扩展，必须知道它属于哪一次处理尝试。
+	//
+	// 002-metadata-filter：与 SearchVectorChunks 完全相同的三行可选过滤谓词，
+	// 完整论证（为什么恒真短路、为什么全 NULL 时逐字一致、NULL 页码为什么天然
+	// 被排除且禁止 COALESCE、邻接查询为什么故意不加）见 SearchVectorChunks 里
+	// 的对应段落，不在此重复。
+	//
+	// 关键词路特有的一点：这三个谓词是 GIN 索引（idx_chunks_content_trgm）已经
+	// 用 `<%` 筛出候选集之后的**残余谓词**，只在至多 candidate_k 数量级的行上
+	// 求值，因此不需要为它们单独建索引。两路都下推是 FR-007 的硬要求——只在
+	// 向量路过滤会让关键词路把范围外的片段重新带回候选池。
 	SearchKeywordChunks(ctx context.Context, arg SearchKeywordChunksParams) ([]SearchKeywordChunksRow, error)
 	// Phase 3 前叫 SearchChunks——引入 SearchKeywordChunks 之后改名以便和它
 	// 对称、消歧义，语义完全不变。<=> 是 pgvector 的余弦「距离」（0=同向
@@ -170,6 +193,38 @@ type Querier interface {
 	// Retrieve 命中时还是当前发布版本，返回给调用方之间可能被新版本替换）会
 	// 意外邻接到新版本的同 index chunk，两个版本的内容被拼接展示。这里只是
 	// 把已经存在的列读出来交给 Go 层，不改变检索排序或候选集本身。
+	//
+	// 002-metadata-filter：下面三行是**可选**的检索范围过滤（FR-007 要求过滤
+	// 必须在召回阶段下推，不允许"先召回 topK 再在 Go 里筛掉"——后者会让过滤
+	// 直接吃掉召回名额：被筛掉的行本来可以让位给范围内排名更后的行）。
+	//
+	// 为什么用"可空参数 + 恒真短路"而不是按过滤组合写多条 SQL、也不在 Go 里
+	// 拼 WHERE：拼字符串直接违反"SQL 文本不含任何调用方数据"这条既有约定
+	// （FR-016），而按组合分裂查询会让这条查询的 SELECT 列表、ORDER BY 和这一
+	// 大段注释被复制成四份必须逐字同步的副本。sqlc.narg 生成可空参数，未指定
+	// 该维度时传 NULL，`NULL IS NULL` 为 TRUE 使整个 OR 短路成恒真谓词，等价
+	// 于这一行不存在。
+	//
+	// 全部三个参数为 NULL 时（空过滤器 / 功能开关关闭），结果集合与本功能上线
+	// 前**逐字一致**：三条谓词都是常量 TRUE，不改变任何一行的去留。行序同样
+	// 不受影响——ORDER BY 以 id ASC 收尾（理由见上文关于 RRF rank 稳定性的说
+	// 明），最终顺序与 PostgreSQL 因多出常量谓词而可能选择的不同扫描方式无关。
+	//
+	// 页码过滤对 page_number IS NULL 的行（全部 txt/md chunk，以及 000003 迁移
+	// 之前写入的存量行）的行为，靠 SQL 三值逻辑天然正确，**不需要**也**没有**
+	// 显式的 IS NOT NULL：`NULL >= 10` 求值为 NULL 而不是 FALSE，此时另一侧
+	// `filter_page_min IS NULL` 为 FALSE，`FALSE OR NULL` = NULL，而 WHERE 只
+	// 接受 TRUE，该行被排除。这正是"无页码 MUST 视为不匹配，MUST NOT 当作无
+	// 元数据即通过"的要求。
+	// ⚠️ 禁止把它改写成 COALESCE(page_number, 0) 之类的写法：那等于给一个本来
+	// 没有页码的 chunk 编造出第 0 页，与"绝不伪造"的既有约定正面冲突。该行为
+	// 由 TestFilterPageRangeExcludesNullPageChunks 锁定。
+	//
+	// 邻接窗口查询（FindPublishedNeighborChunksBatch）**故意没有**这三行，
+	// 那不是遗漏：文档级约束对邻接块是结构性满足的（邻接坐标全部取自已经通过
+	// 过滤的 anchors，JOIN 又按 document_id 等值匹配），而 chunk 级的页码过滤
+	// 必须被豁免——邻接块是上下文补全而不是检索命中，一个页码范围不该把答案
+	// 的后半句挡在外面（FR-011）。
 	SearchVectorChunks(ctx context.Context, arg SearchVectorChunksParams) ([]SearchVectorChunksRow, error)
 }
 
