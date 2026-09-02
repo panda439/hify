@@ -21,7 +21,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ApiError } from "@/lib/api";
 import { useChatModels, useCreateAgent, useUpdateAgent, type Agent } from "@/lib/agents";
-import { useKnowledgeBases } from "@/lib/knowledge";
+import { useDocumentsByKnowledgeBase, useKnowledgeBases } from "@/lib/knowledge";
 import { useActiveMcpTools } from "@/lib/mcp";
 
 const formSchema = z.object({
@@ -33,6 +33,7 @@ const formSchema = z.object({
   max_tokens: z.number().optional(),
   top_p: z.number().optional(),
   knowledge_base_ids: z.array(z.string()),
+  document_ids: z.array(z.string()),
   mcp_tool_ids: z.array(z.string()),
   is_active: z.boolean(),
 });
@@ -85,6 +86,7 @@ export function AgentFormDialog({
       system_prompt: "",
       temperature: 0.7,
       knowledge_base_ids: [],
+      document_ids: [],
       mcp_tool_ids: [],
       is_active: true,
     },
@@ -92,6 +94,9 @@ export function AgentFormDialog({
 
   const modelId = watch("model_id");
   const selectedKnowledgeBaseIds = watch("knowledge_base_ids");
+  const selectedDocumentIds = watch("document_ids");
+  const { byKnowledgeBase: docsByKb, isLoading: docsLoading } =
+    useDocumentsByKnowledgeBase(selectedKnowledgeBaseIds);
   const selectedMcpToolIds = watch("mcp_tool_ids");
 
   const toggleKnowledgeBase = (kbId: string, checked: boolean) => {
@@ -99,6 +104,25 @@ export function AgentFormDialog({
     setValue(
       "knowledge_base_ids",
       checked ? [...current, kbId] : current.filter((id) => id !== kbId),
+    );
+    // 取消勾选某个知识库时，把它名下已选的文档一并移除。这是**可见的**移除
+    // ——文档列表当场变短，用户看得到范围变了。后端对"文档不属于已绑定知识库"
+    // 是直接拒绝而不是静默清理（agent/service.go 的 validateScopedDocuments），
+    // 这里不做的话，用户会在保存时撞上一个他不理解的错误。
+    if (!checked) {
+      const removed = new Set((docsByKb[kbId] ?? []).map((d) => d.id));
+      setValue(
+        "document_ids",
+        selectedDocumentIds.filter((id) => !removed.has(id)),
+      );
+    }
+  };
+
+  const toggleDocument = (docId: string, checked: boolean) => {
+    const current = selectedDocumentIds;
+    setValue(
+      "document_ids",
+      checked ? [...current, docId] : current.filter((id) => id !== docId),
     );
   };
 
@@ -123,6 +147,7 @@ export function AgentFormDialog({
               max_tokens: agent.max_tokens ?? undefined,
               top_p: agent.top_p ?? undefined,
               knowledge_base_ids: agent.knowledge_base_ids ?? [],
+              document_ids: agent.document_ids ?? [],
               mcp_tool_ids: agent.mcp_tool_ids ?? [],
               is_active: agent.is_active,
             }
@@ -133,6 +158,7 @@ export function AgentFormDialog({
               system_prompt: "",
               temperature: 0.7,
               knowledge_base_ids: [],
+              document_ids: [],
               mcp_tool_ids: [],
               is_active: true,
             },
@@ -154,6 +180,7 @@ export function AgentFormDialog({
             max_tokens: values.max_tokens,
             top_p: values.top_p,
             knowledge_base_ids: values.knowledge_base_ids,
+            document_ids: values.document_ids,
             mcp_tool_ids: values.mcp_tool_ids,
             is_active: values.is_active,
           },
@@ -169,6 +196,7 @@ export function AgentFormDialog({
           max_tokens: values.max_tokens,
           top_p: values.top_p,
           knowledge_base_ids: values.knowledge_base_ids,
+          document_ids: values.document_ids,
           mcp_tool_ids: values.mcp_tool_ids,
         });
         toast.success("Agent 已创建");
@@ -253,6 +281,53 @@ export function AgentFormDialog({
             )}
             <p className="text-xs text-muted-foreground">对话时会检索勾选的知识库，把相关内容作为参考资料注入上下文</p>
           </div>
+
+          {/* 004-agent-document-scope：把检索限定到知识库里的某几份文档。
+              只在勾了知识库之后才出现——没有知识库时它没有任何意义。 */}
+          {selectedKnowledgeBaseIds.length > 0 && (
+            <div className="grid gap-2">
+              <Label>限定检索文档（可选）</Label>
+              {docsLoading ? (
+                <p className="text-sm text-muted-foreground">加载文档中...</p>
+              ) : (
+                <div className="grid max-h-48 gap-3 overflow-y-auto rounded-md border p-2">
+                  {selectedKnowledgeBaseIds.map((kbId) => {
+                    const kb = knowledgeBases.find((k) => k.id === kbId);
+                    const docs = docsByKb[kbId] ?? [];
+                    return (
+                      <div key={kbId} className="grid gap-1">
+                        <p className="text-xs font-medium text-muted-foreground">
+                          {kb?.name ?? kbId}
+                        </p>
+                        {docs.length === 0 ? (
+                          <p className="pl-1 text-xs text-muted-foreground">
+                            这个知识库还没有已就绪的文档
+                          </p>
+                        ) : (
+                          docs.map((doc) => (
+                            <label key={doc.id} className="flex items-center gap-2 pl-1 text-sm">
+                              <Checkbox
+                                checked={selectedDocumentIds.includes(doc.id)}
+                                onCheckedChange={(checked) =>
+                                  toggleDocument(doc.id, checked === true)
+                                }
+                              />
+                              {doc.file_name}
+                            </label>
+                          ))
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                <strong>不勾选 = 不限定</strong>，检索覆盖上面勾选的知识库全部内容。
+                一旦勾选，这个 Agent 就<strong>只</strong>用选中的文档回答——
+                没有被选到文档的知识库不会参与检索。最多 50 份。
+              </p>
+            </div>
+          )}
 
           <div className="grid gap-2">
             <Label>关联 MCP 工具</Label>

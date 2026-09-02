@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { ChatModel } from "@/lib/agents";
 
@@ -179,4 +179,31 @@ export function useRetrievalProbe(kbId: string) {
     mutationFn: (input: RetrievalProbeInput) =>
       api.post<RetrievalProbeResult>(`/knowledge-bases/${kbId}/retrieve`, input),
   });
+}
+
+// --- 004-agent-document-scope ---
+
+// useDocumentsByKnowledgeBase 并行拉取多个知识库各自的文档，供 Agent 表单
+// 按知识库分组展示可勾选的文档。
+//
+// 只返回 status === "ready" 的文档：其余状态在库里没有已发布的分片，
+// 勾上它等于加了一个必然匹配不到的条件（后端会照 002 的 FR-010 当作无匹配），
+// 用户却会以为自己限定到了那份文档。
+export function useDocumentsByKnowledgeBase(kbIds: string[]) {
+  const results = useQueries({
+    queries: kbIds.map((kbId) => ({
+      queryKey: ["knowledge-bases", kbId, "documents"],
+      queryFn: () => api.get<DocumentListResponse>(`/knowledge-bases/${kbId}/documents?limit=100`),
+    })),
+  });
+
+  const byKnowledgeBase: Record<string, KnowledgeDocument[]> = {};
+  kbIds.forEach((kbId, i) => {
+    byKnowledgeBase[kbId] = (results[i]?.data?.items ?? []).filter((d) => d.status === "ready");
+  });
+
+  return {
+    byKnowledgeBase,
+    isLoading: results.some((r) => r.isLoading),
+  };
 }

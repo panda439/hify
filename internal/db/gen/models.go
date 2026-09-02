@@ -26,6 +26,12 @@ type Agent struct {
 	UpdatedAt    time.Time       `json:"updated_at"`
 }
 
+type AgentDocument struct {
+	AgentID    string    `json:"agent_id"`
+	DocumentID string    `json:"document_id"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 type AgentKnowledgeBase struct {
 	AgentID         string    `json:"agent_id"`
 	KnowledgeBaseID string    `json:"knowledge_base_id"`

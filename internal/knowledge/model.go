@@ -124,7 +124,13 @@ func clampTopK(topK int) int {
 // 调用方的文档列表，等于在不告诉他的情况下改变了他要求的范围，正是 FR-009
 // 禁止的那种"自动放宽已指定的过滤条件"。截断对一个"返回几条"的旋钮是安全的，
 // 对一个界定范围的谓词永远不安全。
-const maxFilterDocumentIDs = 50
+// 004-agent-document-scope 起导出：agent 模块保存 Agent 的文档范围时要执行
+// 同一个上限。导出而不是在 agent 里另写一个 50，是为了不让两个本该相等的
+// 常量各自漂移——它们表达的是同一条业务规则。
+const MaxFilterDocumentIDs = 50
+
+// maxFilterDocumentIDs 是包内沿用的别名，保持既有引用不变。
+const maxFilterDocumentIDs = MaxFilterDocumentIDs
 
 // RetrieveFilter 限定一次 Retrieve 调用可以从哪些 chunk 里取候选
 // （002-metadata-filter）。零值合法且是默认值，语义为"不限定"，

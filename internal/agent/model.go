@@ -33,6 +33,27 @@ type Agent struct {
 	// reasoning as KnowledgeBaseIDs, agent depends on mcp (layer 1) so it
 	// can validate tool IDs at create/update time.
 	MCPToolIDs []string
+
+	// DocumentIDs (004-agent-document-scope) narrows RAG retrieval to a
+	// subset of the documents inside KnowledgeBaseIDs. EMPTY MEANS NO
+	// RESTRICTION — retrieval then covers those knowledge bases in full,
+	// exactly as it did before this field existed.
+	//
+	// It is a flat, agent-wide list rather than a per-knowledge-base
+	// grouping: see the spec's Clarifications for why (grouping would
+	// require teaching 002's RetrieveFilter about grouped document lists
+	// and writing the recall SQL as several OR groups, and only pays off
+	// for an agent that binds several knowledge bases while wanting to
+	// restrict just some of them — a case that does not exist today).
+	// The consequence to keep in mind: if an agent binds two knowledge
+	// bases and this list only names documents from one, the other
+	// contributes nothing. The Agent form makes that visible by listing
+	// every selected document grouped by knowledge base.
+	//
+	// Feeds RetrieveOptions.Filter.DocumentIDs in conversation's context
+	// assembly — it is never applied anywhere else, and never re-filtered
+	// in Go after retrieval.
+	DocumentIDs []string
 }
 
 // CreateAgentInput and UpdateAgentInput share the same optional-field
@@ -50,6 +71,7 @@ type CreateAgentInput struct {
 	ExtraParams      map[string]any
 	KnowledgeBaseIDs []string
 	MCPToolIDs       []string
+	DocumentIDs      []string
 	CreatedBy        string
 }
 
@@ -64,5 +86,6 @@ type UpdateAgentInput struct {
 	ExtraParams      map[string]any
 	KnowledgeBaseIDs []string
 	MCPToolIDs       []string
+	DocumentIDs      []string
 	IsActive         bool
 }

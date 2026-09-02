@@ -48,6 +48,10 @@ type Querier interface {
 	CountWorkflowRunsByCreator(ctx context.Context, arg CountWorkflowRunsByCreatorParams) (int64, error)
 	CountWorkflows(ctx context.Context) (int64, error)
 	CreateAgent(ctx context.Context, arg CreateAgentParams) error
+	// 004-agent-document-scope：Agent 的检索文档范围。语义、以及"为什么不建外键、
+	// 不级联删除"的完整论证见 migrations/000014_agent_documents.up.sql 的注释。
+	// 写入沿用 agent_knowledge_bases 的 replace-all 语义（先全删再全插，同一事务内）。
+	CreateAgentDocument(ctx context.Context, arg CreateAgentDocumentParams) error
 	CreateAgentKnowledgeBase(ctx context.Context, arg CreateAgentKnowledgeBaseParams) error
 	CreateAgentMCPTool(ctx context.Context, arg CreateAgentMCPToolParams) error
 	CreateConversation(ctx context.Context, arg CreateConversationParams) error
@@ -69,6 +73,8 @@ type Querier interface {
 	// in for real by FinishWorkflowRun.
 	CreateWorkflowRun(ctx context.Context, arg CreateWorkflowRunParams) error
 	CreateWorkflowRunStep(ctx context.Context, arg CreateWorkflowRunStepParams) error
+	// 更新时先清空再整体重插——与 DeleteAgentKnowledgeBases 同一套 replace-all 语义。
+	DeleteAgentDocuments(ctx context.Context, agentID string) error
 	// Called before re-inserting the full set on update — see
 	// agent.Service's replace-all semantics for this association.
 	DeleteAgentKnowledgeBases(ctx context.Context, agentID string) error
@@ -109,6 +115,10 @@ type Querier interface {
 	// subquery return SQL NULL, and sqlc generates a plain non-nullable string
 	// field for it — scanning a real NULL into that panics at runtime.
 	ListConversationsByUser(ctx context.Context, arg ListConversationsByUserParams) ([]ListConversationsByUserRow, error)
+	// ORDER BY document_id 是确定性兜底：这个集合会变成 RetrieveFilter.DocumentIDs
+	// 进而成为召回 SQL 的 IN 条件。条件本身的顺序不影响匹配结果，但顺序稳定能让
+	// 日志、诊断和测试断言可复现，不依赖 MySQL 的返回顺序（宪法第 V 条）。
+	ListDocumentIDsByAgent(ctx context.Context, agentID string) ([]string, error)
 	ListDocumentsByKnowledgeBase(ctx context.Context, arg ListDocumentsByKnowledgeBaseParams) ([]Document, error)
 	ListKnowledgeBaseIDsByAgent(ctx context.Context, agentID string) ([]string, error)
 	ListKnowledgeBases(ctx context.Context, arg ListKnowledgeBasesParams) ([]KnowledgeBase, error)
