@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1512,5 +1513,181 @@ func TestIntegrationAgentWithoutDocumentScopeSendsEmptyFilter(t *testing.T) {
 	}
 	if !ks.optsSeen[0].Filter.IsEmpty() {
 		t.Fatalf("未配置范围的 Agent 必须传空过滤器，got %+v", ks.optsSeen[0].Filter)
+	}
+}
+
+// --- 005-tool-loop-guard：工具调用循环的第二、三层止损 ---
+
+// toolLoopScript 生成一个「每一轮都要求用相同参数调同一个工具」的脚本，
+// 也就是模型卡死转圈的样子。n 轮之后跟一个正常收尾（如果它还有机会说话）。
+func toolLoopScript(n int, toolName, args string) [][]provider.ChatChunk {
+	var out [][]provider.ChatChunk
+	for i := 0; i < n; i++ {
+		idx := 0
+		out = append(out, []provider.ChatChunk{{
+			DeltaToolCalls: []provider.ToolCall{{
+				Index: &idx, ID: "call-" + strconv.Itoa(i), Name: toolName,
+				Arguments: json.RawMessage(args),
+			}},
+			FinishReason: "tool_calls",
+		}})
+	}
+	return out
+}
+
+// TestIntegrationToolLoopBlocksThirdIdenticalCall —— SC-001。
+//
+// 模型连续用相同参数请求同一个工具：第 3 次必须被拦截、不真正执行，
+// 且该工具在后续迭代的请求里不再出现。
+func TestIntegrationToolLoopBlocksThirdIdenticalCall(t *testing.T) {
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	const args = `{"q":"same"}`
+	chat := &scriptedChatClient{scripts: toolLoopScript(maxToolCallIterations, "search", args)}
+	mcpSvc := &fakeMCPSvc{
+		tool:   mcp.Tool{ID: "tool-1", ToolName: "search", IsActive: true},
+		result: mcp.ToolCallResult{Content: "什么都没查到"},
+	}
+	svc := NewService(repo,
+		&fakeAgentSvc{ag: agent.Agent{ID: "ag-loop", ModelID: "m1", SystemPrompt: "你是助手",
+			MCPToolIDs: []string{"tool-1"}}},
+		&fakeProviderSvc{client: chat}, &fakeKnowledgeSvc{},
+		mcpSvc, trace.NewStore(db), false, "", 1500*time.Millisecond)
+
+	seedConversation(t, repo, "conv-loop", "ag-loop", "u1")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-loop", "查一下")
+	if err != nil {
+		t.Fatalf("StreamMessage: %v", err)
+	}
+	drainEvents(t, events)
+
+	// 前两次真的执行了（第 2 次是合法重试，必须放过），第 3 次起被拦截。
+	if len(mcpSvc.calls) != maxIdenticalToolCalls-1 {
+		t.Fatalf("工具实际执行次数 = %d, want %d —— 第 %d 次起必须被拦截、不再真正调用",
+			len(mcpSvc.calls), maxIdenticalToolCalls-1, maxIdenticalToolCalls)
+	}
+}
+
+// TestIntegrationToolLoopRemovesBlockedToolFromRequest —— FR-005。
+//
+// 只注入一条「别再调了」的消息是不够的：已知失败模式是模型道歉之后再调一次
+// 同样的。工具必须从后续请求的 tools 列表里真的消失。
+func TestIntegrationToolLoopRemovesBlockedToolFromRequest(t *testing.T) {
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	chat := &scriptedChatClient{scripts: toolLoopScript(maxToolCallIterations, "search", `{"q":"same"}`)}
+	mcpSvc := &fakeMCPSvc{
+		tool:   mcp.Tool{ID: "tool-1", ToolName: "search", IsActive: true},
+		result: mcp.ToolCallResult{Content: "空"},
+	}
+	svc := NewService(repo,
+		&fakeAgentSvc{ag: agent.Agent{ID: "ag-loop2", ModelID: "m1", SystemPrompt: "你是助手",
+			MCPToolIDs: []string{"tool-1"}}},
+		&fakeProviderSvc{client: chat}, &fakeKnowledgeSvc{},
+		mcpSvc, trace.NewStore(db), false, "", 1500*time.Millisecond)
+
+	seedConversation(t, repo, "conv-loop2", "ag-loop2", "u1")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-loop2", "查一下")
+	if err != nil {
+		t.Fatalf("StreamMessage: %v", err)
+	}
+	drainEvents(t, events)
+
+	// 最后一次请求里 search 必须已经不在工具列表中。
+	last := chat.requests[len(chat.requests)-1]
+	for _, tool := range last.Tools {
+		if tool.Name == "search" {
+			t.Fatalf("被拦截的工具仍出现在第 %d 次请求的 tools 里——只注入消息不够，"+
+				"模型会道歉之后再调一次同样的", len(chat.requests))
+		}
+	}
+
+	// 并且注入过一条给模型指出路的系统消息。
+	var found bool
+	for _, m := range last.Messages {
+		if m.Role == provider.RoleSystem && strings.Contains(m.Content, "已被停用") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("拦截后必须向消息序列注入一条说明，告诉模型换策略或直接说查不到")
+	}
+}
+
+// TestIntegrationToolLoopExhaustionEndsWithFinalNotError —— SC-002 / FR-006。
+//
+// 触顶不再发 EventError，而是补一条程序拼接的收尾消息并正常结束。
+// 中间过程本来就是逐轮落库的，缺的是这个收尾。
+func TestIntegrationToolLoopExhaustionEndsWithFinalNotError(t *testing.T) {
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	// 每轮换不同参数，绕开重复检测，专门把迭代次数耗尽。
+	var scripts [][]provider.ChatChunk
+	for i := 0; i < maxToolCallIterations; i++ {
+		idx := 0
+		scripts = append(scripts, []provider.ChatChunk{{
+			DeltaToolCalls: []provider.ToolCall{{
+				Index: &idx, ID: "c" + strconv.Itoa(i), Name: "search",
+				Arguments: json.RawMessage(`{"q":"` + strconv.Itoa(i) + `"}`),
+			}},
+			FinishReason: "tool_calls",
+		}})
+	}
+	chat := &scriptedChatClient{scripts: scripts}
+	mcpSvc := &fakeMCPSvc{
+		tool:   mcp.Tool{ID: "tool-1", ToolName: "search", IsActive: true},
+		result: mcp.ToolCallResult{Content: "部分结果"},
+	}
+	svc := NewService(repo,
+		&fakeAgentSvc{ag: agent.Agent{ID: "ag-exh", ModelID: "m1", SystemPrompt: "你是助手",
+			MCPToolIDs: []string{"tool-1"}}},
+		&fakeProviderSvc{client: chat}, &fakeKnowledgeSvc{},
+		mcpSvc, trace.NewStore(db), false, "", 1500*time.Millisecond)
+
+	seedConversation(t, repo, "conv-exh", "ag-exh", "u1")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-exh", "查一下")
+	if err != nil {
+		t.Fatalf("StreamMessage: %v", err)
+	}
+	got := drainEvents(t, events)
+
+	types := eventTypes(got)
+	for _, ty := range types {
+		if ty == EventError {
+			t.Fatalf("触顶不该再发 error 事件，实际事件序列：%v", types)
+		}
+	}
+	if types[len(types)-1] != EventDone || types[len(types)-2] != EventFinal {
+		t.Fatalf("触顶必须以 final + done 收尾，实际：%v", types)
+	}
+
+	final := got[len(got)-2]
+	if !strings.Contains(final.Content, "不完整") {
+		t.Fatalf("收尾消息必须声明信息可能不完整，实际：%q", final.Content)
+	}
+	// FR-008：这是一条程序文案，不是基于检索证据的回答，不得挂引用。
+	if len(final.Citations) != 0 {
+		t.Fatalf("收尾消息不得携带 Citation，实际 %d 条", len(final.Citations))
+	}
+
+	// 收尾消息必须落库——否则用户刷新页面又回到"戛然而止"。
+	msgs, err := repo.listRecentMessages(ctx, "conv-exh", 100)
+	if err != nil {
+		t.Fatalf("listRecentMessages: %v", err)
+	}
+	var persisted bool
+	for _, m := range msgs {
+		if strings.Contains(m.Content, "不完整") {
+			persisted = true
+		}
+	}
+	if !persisted {
+		t.Fatal("触顶收尾消息必须持久化")
 	}
 }
