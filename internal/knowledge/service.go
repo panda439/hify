@@ -99,7 +99,12 @@ type Service interface {
 	// exact dedup rules, and RetrievedChunk.NeighborOf for how a caller
 	// tells an anchor from a neighbor. Callers that assumed
 	// len(Retrieve(...)) <= topK before Phase 4 must not keep assuming it.
-	Retrieve(ctx context.Context, knowledgeBaseIDs []string, query string, topK int) ([]RetrievedChunk, error)
+	//
+	// opts（002-metadata-filter）承载单次检索的可选选项；零值表示"不限定"，
+	// 此时行为 MUST 与该功能上线前完全一致。过滤器的语义见 model.go 的
+	// RetrieveFilter，调用方可以依赖的完整契约见
+	// specs/002-metadata-filter/contracts/internal-contracts.md 的 C1。
+	Retrieve(ctx context.Context, knowledgeBaseIDs []string, query string, topK int, opts RetrieveOptions) ([]RetrievedChunk, error)
 }
 
 // service is constructed via NewService in wire.go. providerSvc is
@@ -144,6 +149,11 @@ type service struct {
 	// referential construction, see NewService) so production code
 	// reaches the database/provider exactly as before.
 	rerankScoreFn func(ctx context.Context, query string, documents []string) (provider.RerankResult, error)
+
+	// metadataFilterEnabled 是 002-metadata-filter 的开关，由 cmd/hify 的
+	// buildApp 从 config.Config.RAGMetadataFilterEnabled 透传进来。
+	// 关闭时为什么是"拒绝"而不是"静默降级"，见那个配置字段的文档注释。
+	metadataFilterEnabled bool
 }
 
 func (s *service) CreateKnowledgeBase(ctx context.Context, input CreateKnowledgeBaseInput) (KnowledgeBase, error) {
@@ -868,7 +878,25 @@ func classifyRetrieveErr(ctx context.Context, err error) error {
 // The one thing that is never treated as best-effort anywhere in this
 // call chain is the context itself being cancelled or timed out — see
 // classifyRetrieveErr.
-func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query string, topK int) ([]RetrievedChunk, error) {
+func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query string, topK int, opts RetrieveOptions) ([]RetrievedChunk, error) {
+	// 002-metadata-filter：过滤器闸门跑在**最前面**——在下面那个提前返回之前，
+	// 也在任何一次数据库调用之前。调用方要求了一个我们无法兑现的范围时，必须
+	// 明确告诉他，而不是把一个更宽范围的结果递给他。下面两个分支都是**拒绝**，
+	// 绝不是静默回退成无过滤检索（research.md R4 / FR-009）。
+	//
+	// **空**过滤器完全跳过这两个分支：它不受开关影响，也不可能产生错误——
+	// 这正是「空过滤器 == 上线前行为，逐字一致」（FR-006 / FR-013 / SC-003）
+	// 由代码结构本身保证、而不是靠人去逐处检查的原因。
+	filter := opts.Filter
+	if !filter.IsEmpty() {
+		if !s.metadataFilterEnabled {
+			return nil, ErrMetadataFilterDisabled
+		}
+		if err := filter.Validate(); err != nil {
+			return nil, err
+		}
+	}
+
 	if len(knowledgeBaseIDs) == 0 || query == "" {
 		return nil, nil
 	}
@@ -915,7 +943,7 @@ func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query
 		for _, kb := range kbs {
 			kbIDs = append(kbIDs, kb.ID)
 		}
-		chunks, err := s.repo.searchVectorChunks(ctx, kbIDs, queryVector, cK)
+		chunks, err := s.repo.searchVectorChunks(ctx, kbIDs, queryVector, cK, filter)
 		if err != nil {
 			if cerr := classifyRetrieveErr(ctx, err); cerr != nil {
 				return nil, cerr
@@ -945,7 +973,7 @@ func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query
 	// vector search failed or was skipped.
 	var keywordCandidates []RetrievedChunk
 	if len(activeKBIDs) > 0 {
-		kw, err := s.repo.searchKeywordChunks(ctx, activeKBIDs, query, cK)
+		kw, err := s.repo.searchKeywordChunks(ctx, activeKBIDs, query, cK, filter)
 		if err != nil {
 			if cerr := classifyRetrieveErr(ctx, err); cerr != nil {
 				return nil, cerr
@@ -1018,7 +1046,23 @@ func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query
 	// 过拒绝/去重/邻接去重 **或** 重排被应用/降级"（data-model.md §5.2），
 	// 二者任一为真就打这行；只含计数/耗时/布尔状态，不含 query 原文、片段
 	// 正文、逐条 rerank 分数（FR-017）。
-	if admission.AdmissionRejectedCount > 0 || admission.ContentDuplicateCount > 0 || neighborDuplicateCount > 0 || rStats.Applied || rStats.Degraded {
+	//
+	// 002-metadata-filter（US4/FR-017）：过滤相关的 6 个字段并进这同一行，
+	// 触发条件相应再放宽为"…… **或** 本轮施加了过滤"。用户抱怨"我限定了文
+	// 档怎么还是答不对"时，要能分清是过滤没生效、还是过滤生效了但那个范围里
+	// 确实没有答案——filter_applied 回答前者，filter_zero_candidates 回答后者。
+	//
+	// FR-018 脱敏口径（与 Phase 9 对逐条 rerank 分数的处理同一口径）：只记
+	// **种类与数量**，绝不记取值。document_id 与页码数值都能反推出文件身份，
+	// 因此这里记的是 filter_document_id_count（几个）和 filter_page_range_set
+	// （有没有），**不是** ID 本身或页码数字。
+	//
+	// 关于 FR-017 字面要求的"过滤**前**候选数量"：本期有意不记录。要拿到它
+	// 必须把两路召回各跑两遍（一遍带过滤、一遍不带），而那正是 FR-007 禁止
+	// 的"先召回再过滤"形态的一次数据库往返成本。已登记在 plan.md 的复杂度
+	// 追踪一节。
+	filterApplied := !filter.IsEmpty()
+	if admission.AdmissionRejectedCount > 0 || admission.ContentDuplicateCount > 0 || neighborDuplicateCount > 0 || rStats.Applied || rStats.Degraded || filterApplied {
 		slog.Debug("knowledge: retrieval candidate admission and dedup",
 			"candidate_count_before_admission", admission.CandidateCountBeforeAdmission,
 			"vector_below_admission_count", admission.VectorBelowAdmissionCount,
@@ -1032,7 +1076,13 @@ func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query
 			"rerank_applied", rStats.Applied,
 			"rerank_degraded", rStats.Degraded,
 			"rerank_input_count", rStats.InputCount,
-			"rerank_duration_ms", rStats.DurationMs)
+			"rerank_duration_ms", rStats.DurationMs,
+			"filter_applied", filterApplied,
+			"filter_document_id_count", len(filter.DocumentIDs),
+			"filter_page_range_set", filter.PageMin != nil || filter.PageMax != nil,
+			"vector_candidate_count", len(vectorCandidates),
+			"keyword_candidate_count", len(keywordCandidates),
+			"filter_zero_candidates", filterApplied && len(vectorCandidates) == 0 && len(keywordCandidates) == 0)
 	}
 	return expanded, nil
 }

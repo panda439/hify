@@ -115,6 +115,95 @@ func clampTopK(topK int) int {
 	return topK
 }
 
+// maxFilterDocumentIDs 限制一个 RetrieveFilter 最多能指定多少份文档
+// （002-metadata-filter，FR-015）。50 对齐上面的 maxTopK：一次检索指定超过
+// 50 份文档，语义上已经不是"缩小范围"了，而缩小范围正是这个过滤器存在的
+// 全部理由。
+//
+// 与 clampTopK 的"截断而不拒绝"惯例相反，超限在这里是**硬错误**：静默截断
+// 调用方的文档列表，等于在不告诉他的情况下改变了他要求的范围，正是 FR-009
+// 禁止的那种"自动放宽已指定的过滤条件"。截断对一个"返回几条"的旋钮是安全的，
+// 对一个界定范围的谓词永远不安全。
+// 004-agent-document-scope 起导出：agent 模块保存 Agent 的文档范围时要执行
+// 同一个上限。导出而不是在 agent 里另写一个 50，是为了不让两个本该相等的
+// 常量各自漂移——它们表达的是同一条业务规则。
+const MaxFilterDocumentIDs = 50
+
+// maxFilterDocumentIDs 是包内沿用的别名，保持既有引用不变。
+const maxFilterDocumentIDs = MaxFilterDocumentIDs
+
+// RetrieveFilter 限定一次 Retrieve 调用可以从哪些 chunk 里取候选
+// （002-metadata-filter）。零值合法且是默认值，语义为"不限定"，
+// 此时输出 MUST 与本功能上线前逐字一致（FR-006/FR-013，由确定性检索门禁断言）。
+//
+// 它**不是**知识库的隔离边界——knowledgeBaseIDs 仍然是 Retrieve 单独的、
+// 必传的参数，这里的任何过滤条件都不可能突破它向外扩大范围。
+//
+// 过滤刻意是布尔的，绝不参与打分：它只缩小候选来源。RetrievedChunk.Score
+// 的语义、RRF 融合、Phase 8 准入阈值、Phase 5 内容去重都不受它影响（FR-012）。
+// 这里的每一个条件都被下推进**两路**召回查询的 SQL（见 pgqueries/chunks.sql），
+// 而不是对它们的结果在 Go 里做筛选——召回之后再过滤会让过滤**吃掉**召回名额，
+// 而不是**重新定向**召回范围（FR-007）。
+//
+// 条件语义（FR-008）：**同一**条件的多个取值之间是「或」（document_id = ANY(...)），
+// **不同**条件之间是「与」。
+type RetrieveFilter struct {
+	// DocumentIDs 把候选限定在这几份文档内。空/nil 表示"不限文档"。
+	// 引用了不存在的、或属于另一个知识库的 ID，就是单纯匹配不到任何东西——
+	// 那是一个空结果，不是错误，也绝不是把这个条件悄悄丢掉（FR-010）。
+	DocumentIDs []string
+
+	// PageMin/PageMax 以**闭区间**约束 Chunk.PageNumber（1-indexed，就是
+	// parse.go 的 pdfPage.Number 已经在产出的那套编号）。任意一端可以为 nil，
+	// 表示那一侧不设限。
+	//
+	// PageNumber 为 NULL 的 chunk——全部 txt/md chunk，以及 000003 迁移之前
+	// 写入的存量行——只要设了任意一端，就**不匹配**。这一点由 SQL 的三值逻辑
+	// 保证，而不是靠显式的 IS NOT NULL 判断，详见 pgqueries/chunks.sql 里
+	// SearchVectorChunks 的注释。
+	// ⚠️ 绝不要用 COALESCE 给它加默认值来"修复"——那等于给一个本来没有页码的
+	// chunk 编造出一个页码。
+	PageMin *int
+	PageMax *int
+}
+
+// IsEmpty 报告这个过滤器是否什么都没限定。它是 FR-006「空过滤器等价于今天
+// 的无过滤行为」的判定入口：空过滤器绝不能产生错误、绝不受功能开关影响、
+// 也绝不改变 Retrieve 的返回结果。
+func (f RetrieveFilter) IsEmpty() bool {
+	return len(f.DocumentIDs) == 0 && f.PageMin == nil && f.PageMax == nil
+}
+
+// Validate 执行 FR-015 的上限校验。它**拒绝**而不**修补**：这里不会截断过长的
+// 文档列表，也不会把颠倒的页码范围调换过来——任何这类"修补"都等于悄悄塞给调用方
+// 一个他没有要求过的范围（见 maxFilterDocumentIDs）。
+//
+// 空过滤器永远合法——Retrieve 不能把"我什么都没限定"变成一个错误。
+func (f RetrieveFilter) Validate() error {
+	if len(f.DocumentIDs) > maxFilterDocumentIDs {
+		return ErrTooManyFilterDocuments
+	}
+	// 页码是 1-indexed（parse.go 的 pdfPage.Number 从 1 开始），因此 0 和负数
+	// 不是"不限"而是无意义的输入——真想表达"不限"的调用方，那个字段本来就是 nil。
+	if f.PageMin != nil && *f.PageMin < 1 {
+		return ErrInvalidPageRange
+	}
+	if f.PageMax != nil && *f.PageMax < 1 {
+		return ErrInvalidPageRange
+	}
+	if f.PageMin != nil && f.PageMax != nil && *f.PageMin > *f.PageMax {
+		return ErrInvalidPageRange
+	}
+	return nil
+}
+
+// RetrieveOptions 承载 Retrieve 的可选参数。做成结构体而不是再加一个裸参数，
+// 是为了让将来新增一个检索选项时不必再一次改动 Retrieve 的签名
+// （以及跟着它一起改的每一个调用方和测试替身）。零值就是今天的行为。
+type RetrieveOptions struct {
+	Filter RetrieveFilter
+}
+
 // KnowledgeBase is the domain type for a RAG knowledge base. EmbeddingModelID
 // /ChunkSize/ChunkOverlap are immutable after creation — see the "创建后不可
 // 修改" note in the plan: every chunk under a KB is embedded with the same

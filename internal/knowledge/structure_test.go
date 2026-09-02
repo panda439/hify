@@ -826,3 +826,60 @@ func writeTestPDF(t *testing.T, pages []string) string {
 	}
 	return path
 }
+
+// TestChunkPDFPagesTagsEveryPieceWithItsSourcePage 是 002-metadata-filter 的
+// FR-001 回归断言。它**不**测试新行为——页码标注从结构感知切块那一期起就一直
+// 正常工作。它存在的理由是：元数据过滤的整个页码维度都架在这条链路完好之上。
+// 如果将来某次改动在切块时把 PageNumber 弄丢了，页码过滤会**静默退化**成
+// "什么都匹配不到"（NULL 的 page_number 永远满足不了范围谓词），而不是响亮地
+// 失败；与此同时那些过滤用例还在自己 seed 的数据行上跑得好好的，一无所知。
+//
+// 同时断言两条性质，缺一不可：
+//   - 每一个产出的 piece 都带页码（PDF 场景下绝不为 nil）；
+//   - 这个页码就是正文真实来源的那一页（1-indexed，与 parse.go 的
+//     pdfPage.Number 一致）。
+//
+// 特意放了一个会被切成多块的页：chunkPlainText 把一页切成好几片时，
+// **每一片**都要打上标签，不能只有第一片有。
+func TestChunkPDFPagesTagsEveryPieceWithItsSourcePage(t *testing.T) {
+	// Page 7's text is long enough that a small size forces several
+	// pieces out of that single page.
+	long := strings.Repeat("这是第七页的正文。", 40)
+	pages := []pdfPage{
+		{Number: 3, Text: "第三页的正文"},
+		{Number: 7, Text: long},
+		{Number: 12, Text: "第十二页的正文"},
+	}
+
+	got := chunkPDFPages(pages, 60, 0)
+	if len(got) < 4 {
+		t.Fatalf("expected page 7 to split into multiple pieces, got %d pieces total", len(got))
+	}
+
+	seen := map[int]int{}
+	for i, piece := range got {
+		if piece.PageNumber == nil {
+			t.Fatalf("piece %d (%q) has no page number — the parse.go -> chunk.go page link is broken, "+
+				"which silently disables 002-metadata-filter's page filtering", i, piece.Content)
+		}
+		seen[*piece.PageNumber]++
+		// The tagged page must be one that actually exists in the input,
+		// never an index/off-by-one derivative of it.
+		if *piece.PageNumber != 3 && *piece.PageNumber != 7 && *piece.PageNumber != 12 {
+			t.Fatalf("piece %d tagged with page %d, which is not one of the source pages {3,7,12}", i, *piece.PageNumber)
+		}
+	}
+	for _, want := range []int{3, 7, 12} {
+		if seen[want] == 0 {
+			t.Fatalf("no piece carries page %d; distribution: %v", want, seen)
+		}
+	}
+	if seen[7] < 2 {
+		t.Fatalf("page 7 split into %d piece(s); every piece of a multi-chunk page must be tagged, not just the first", seen[7])
+	}
+	// Page numbers are 1-indexed, mirroring parse.go's pdfPage.Number — a
+	// 0 here would mean someone reintroduced a zero-based index.
+	if seen[0] != 0 {
+		t.Fatal("a piece was tagged with page 0; PDF page numbers are 1-indexed (parse.go's pdfPage.Number)")
+	}
+}

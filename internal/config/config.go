@@ -65,6 +65,28 @@ type Config struct {
 	RAGRerankEnabled bool
 	RAGRerankModelID string
 	RAGRerankTimeout time.Duration
+
+	// RAGMetadataFilterEnabled 是检索元数据过滤（002-metadata-filter）的开关。
+	//
+	// **默认值在 004-agent-document-scope 从 false 改成了 true。**
+	// 002 交付时默认关闭是对的——当时没有任何调用方会传非空过滤器。
+	// 004 让 Agent 能绑定文档范围之后，关闭它反而制造了一条静默降级路径：
+	// conversation 在 Retrieve 报错时的既有处理是"记 warn、candidates=nil、
+	// 继续这一轮"（context.go，对真正的检索故障是正确的降级），于是一个配了
+	// 文档范围的 Agent 会在开关关闭时**不带任何资料**去回答，用户看到的是
+	// Agent 凭空作答，而不是"我被限定在这几份文档里，里面没有"。
+	//
+	// 改成 true 是安全的：002 的 SC-003 已经证明「空过滤器 + 开关开启」时
+	// 检索输出与该功能上线前逐字一致（确定性门禁既有用例逐字段比对）。
+	// 对没有配置文档范围的 Agent，这个默认值变更不改变任何行为。
+	//
+	// 注意这个开关控制的是「**是否接受**过滤请求」，而不是「过滤是否生效」：
+	// 关闭时**空**过滤器行为与以前完全相同，**非空**过滤器则被直接拒绝
+	// （ErrMetadataFilterDisabled）。调用方明明要求了更窄的范围、系统却悄悄
+	// 拿范围外的资料去检索——这是本功能唯一绝对不能有的行为（见 research.md R4）。
+	// 这也是它与 RAGRerankEnabled 不同、没有"配错了就静默降级"这条路径的原因：
+	// 这里没有什么可配错的，而"降级"本身就是那个失败模式。
+	RAGMetadataFilterEnabled bool
 }
 
 func Load() (Config, error) {
@@ -144,6 +166,12 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: parse HIFY_RAG_RERANK_TIMEOUT: %w", err)
 	}
 	cfg.RAGRerankTimeout = rerankTimeout
+
+	metadataFilterEnabled, err := strconv.ParseBool(getEnv("HIFY_RAG_METADATA_FILTER_ENABLED", "true"))
+	if err != nil {
+		return Config{}, fmt.Errorf("config: parse HIFY_RAG_METADATA_FILTER_ENABLED: %w", err)
+	}
+	cfg.RAGMetadataFilterEnabled = metadataFilterEnabled
 
 	if cfg.MySQLDSN == "" {
 		return Config{}, fmt.Errorf("config: HIFY_MYSQL_DSN is required")

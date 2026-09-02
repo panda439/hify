@@ -95,10 +95,17 @@ type fakeKnowledgeSvc struct {
 	// queries 记录每次 Retrieve 实际收到的 query——001-rag-query-rerank
 	// 的 T015 用它断言查询改写是否真的把 SearchQuery 换成了改写后的问题。
 	queries []string
+
+	// optsSeen 记录每次 Retrieve 实际收到的 RetrieveOptions——
+	// 004-agent-document-scope 用它断言 Agent 配置的文档范围真的被下推给了
+	// 检索。这一环特别容易悄悄失效：范围没传下去时，检索照常返回结果、
+	// 对话照常完成，只是范围没生效，没有任何报错能暴露它。
+	optsSeen []knowledge.RetrieveOptions
 }
 
-func (f *fakeKnowledgeSvc) Retrieve(ctx context.Context, kbIDs []string, query string, topK int) ([]knowledge.RetrievedChunk, error) {
+func (f *fakeKnowledgeSvc) Retrieve(ctx context.Context, kbIDs []string, query string, topK int, opts knowledge.RetrieveOptions) ([]knowledge.RetrievedChunk, error) {
 	f.queries = append(f.queries, query)
+	f.optsSeen = append(f.optsSeen, opts)
 	return f.chunks, f.err
 }
 
@@ -1412,5 +1419,98 @@ func TestIntegrationQueryRewriteUnparsableOutputDegradesToOriginalQuestion(t *te
 	attrs := queryRewriteSpanAttrs(t, db, "conv-rw-unparsable")
 	if degraded, _ := attrs["rag.rewrite.degraded"].(bool); !degraded {
 		t.Fatalf("query_rewrite span attrs = %+v, want rag.rewrite.degraded=true", attrs)
+	}
+}
+
+// --- 004-agent-document-scope：Agent 文档范围下推到检索 ---
+
+// TestIntegrationAgentDocumentScopeIsPushedToRetrieve —— FR-003。
+//
+// 这一环是本期最容易悄悄失效的地方：如果范围没被传下去，检索照常返回结果、
+// 对话照常完成，只是范围没生效——没有任何报错、没有任何异常事件能暴露它。
+// 所以必须直接断言 Retrieve 收到的 RetrieveOptions 本身。
+func TestIntegrationAgentDocumentScopeIsPushedToRetrieve(t *testing.T) {
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	chat := &scriptedChatClient{scripts: [][]provider.ChatChunk{{
+		{DeltaContent: "答案[S1]。"},
+		{FinishReason: "stop"},
+	}}}
+	ks := &fakeKnowledgeSvc{chunks: []knowledge.RetrievedChunk{
+		{Chunk: knowledge.Chunk{ID: "c-scoped", KnowledgeBaseID: "kb-1", DocumentID: "doc-allowed",
+			DocumentName: "手册2026.pdf", Content: "范围内的内容"}, Score: 0.9},
+	}}
+	svc := NewService(repo,
+		&fakeAgentSvc{ag: agent.Agent{ID: "ag-scope", ModelID: "m1", SystemPrompt: "你是助手",
+			KnowledgeBaseIDs: []string{"kb-1"},
+			DocumentIDs:      []string{"doc-allowed", "doc-also-allowed"}}},
+		&fakeProviderSvc{client: chat}, ks,
+		&fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
+
+	seedConversation(t, repo, "conv-scope", "ag-scope", "u1")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-scope", "问题")
+	if err != nil {
+		t.Fatalf("StreamMessage: %v", err)
+	}
+	drainEvents(t, events)
+
+	if len(ks.optsSeen) != 1 {
+		t.Fatalf("Retrieve 调用次数 = %d, want 1", len(ks.optsSeen))
+	}
+	got := ks.optsSeen[0].Filter.DocumentIDs
+	want := []string{"doc-allowed", "doc-also-allowed"}
+	if len(got) != len(want) {
+		t.Fatalf("下推的文档范围 = %v, want %v —— Agent 的 DocumentIDs 没有传到 Retrieve", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("下推的文档范围 = %v, want %v", got, want)
+		}
+	}
+	// 页码范围不属于 Agent 配置（spec 的 Assumptions），必须保持为空。
+	if ks.optsSeen[0].Filter.PageMin != nil || ks.optsSeen[0].Filter.PageMax != nil {
+		t.Fatalf("Agent 配置不该产生页码过滤，got min=%v max=%v",
+			ks.optsSeen[0].Filter.PageMin, ks.optsSeen[0].Filter.PageMax)
+	}
+}
+
+// TestIntegrationAgentWithoutDocumentScopeSendsEmptyFilter —— FR-008。
+// 没配置范围的 Agent 必须传空过滤器，也就是 002 语义下"不限定"，
+// 行为与本期上线前逐字一致。这条断言防止将来有人给它塞一个"默认全选"
+// 之类的实现——那会把一个空过滤器变成一个 N 份文档的 IN 条件，
+// 行为可能相同，但一旦文档数超过 50 就会突然开始报错。
+func TestIntegrationAgentWithoutDocumentScopeSendsEmptyFilter(t *testing.T) {
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	chat := &scriptedChatClient{scripts: [][]provider.ChatChunk{{
+		{DeltaContent: "答案[S1]。"},
+		{FinishReason: "stop"},
+	}}}
+	ks := &fakeKnowledgeSvc{chunks: []knowledge.RetrievedChunk{
+		{Chunk: knowledge.Chunk{ID: "c-any", KnowledgeBaseID: "kb-1", DocumentID: "doc-any",
+			DocumentName: "任意.md", Content: "任意内容"}, Score: 0.9},
+	}}
+	svc := NewService(repo,
+		&fakeAgentSvc{ag: agent.Agent{ID: "ag-noscope", ModelID: "m1", SystemPrompt: "你是助手",
+			KnowledgeBaseIDs: []string{"kb-1"}}},
+		&fakeProviderSvc{client: chat}, ks,
+		&fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
+
+	seedConversation(t, repo, "conv-noscope", "ag-noscope", "u1")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-noscope", "问题")
+	if err != nil {
+		t.Fatalf("StreamMessage: %v", err)
+	}
+	drainEvents(t, events)
+
+	if len(ks.optsSeen) != 1 {
+		t.Fatalf("Retrieve 调用次数 = %d, want 1", len(ks.optsSeen))
+	}
+	if !ks.optsSeen[0].Filter.IsEmpty() {
+		t.Fatalf("未配置范围的 Agent 必须传空过滤器，got %+v", ks.optsSeen[0].Filter)
 	}
 }

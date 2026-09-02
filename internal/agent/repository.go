@@ -64,6 +64,11 @@ func (r *Repository) getAgent(ctx context.Context, id string) (Agent, error) {
 		return Agent{}, fmt.Errorf("agent: list mcp tool ids: %w", err)
 	}
 	a.MCPToolIDs = toolIDs
+	docIDs, err := r.queries.ListDocumentIDsByAgent(ctx, id)
+	if err != nil {
+		return Agent{}, fmt.Errorf("agent: list scoped document ids: %w", err)
+	}
+	a.DocumentIDs = docIDs
 	return a, nil
 }
 
@@ -97,6 +102,11 @@ func (r *Repository) listAgents(ctx context.Context, limit, offset int) ([]Agent
 			return nil, fmt.Errorf("agent: list mcp tool ids: %w", err)
 		}
 		a.MCPToolIDs = toolIDs
+		docIDs, err := r.queries.ListDocumentIDsByAgent(ctx, a.ID)
+		if err != nil {
+			return nil, fmt.Errorf("agent: list scoped document ids: %w", err)
+		}
+		a.DocumentIDs = docIDs
 		out = append(out, a)
 	}
 	return out, nil
@@ -117,6 +127,28 @@ func (r *Repository) setKnowledgeBases(ctx context.Context, agentID string, know
 				KnowledgeBaseID: kbID,
 			}); err != nil {
 				return fmt.Errorf("agent: associate knowledge base: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
+// setScopedDocuments replaces the full retrieval document scope for
+// agentID (004-agent-document-scope) — same replace-all semantics as
+// setKnowledgeBases. An empty slice clears the scope, which means "no
+// restriction", not "restrict to nothing".
+func (r *Repository) setScopedDocuments(ctx context.Context, agentID string, documentIDs []string) error {
+	return platform.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+		q := r.queries.WithTx(tx)
+		if err := q.DeleteAgentDocuments(ctx, agentID); err != nil {
+			return fmt.Errorf("agent: clear scoped document associations: %w", err)
+		}
+		for _, docID := range documentIDs {
+			if err := q.CreateAgentDocument(ctx, gen.CreateAgentDocumentParams{
+				AgentID:    agentID,
+				DocumentID: docID,
+			}); err != nil {
+				return fmt.Errorf("agent: associate scoped document: %w", err)
 			}
 		}
 		return nil

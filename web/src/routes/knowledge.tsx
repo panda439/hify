@@ -21,6 +21,7 @@ import { ApiError } from "@/lib/api";
 import { useKnowledgeBases, useUpdateKnowledgeBase, type KnowledgeBase } from "@/lib/knowledge";
 import { KnowledgeFormDialog } from "@/routes/knowledge-form-dialog";
 import { KnowledgeDocumentsDialog } from "@/routes/knowledge-documents-dialog";
+import { KnowledgeRetrievalDialog } from "@/routes/knowledge-retrieval-dialog";
 
 export function KnowledgePage() {
   const { data, isLoading } = useKnowledgeBases();
@@ -30,6 +31,8 @@ export function KnowledgePage() {
   const [documentsOpen, setDocumentsOpen] = useState(false);
   const [managingDocs, setManagingDocs] = useState<KnowledgeBase | null>(null);
   const [deleting, setDeleting] = useState<KnowledgeBase | null>(null);
+  const [retrievalOpen, setRetrievalOpen] = useState(false);
+  const [probing, setProbing] = useState<KnowledgeBase | null>(null);
 
   const knowledgeBases = data?.items ?? [];
 
@@ -46,6 +49,11 @@ export function KnowledgePage() {
   const openDocuments = (kb: KnowledgeBase) => {
     setManagingDocs(kb);
     setDocumentsOpen(true);
+  };
+
+  const openRetrieval = (kb: KnowledgeBase) => {
+    setProbing(kb);
+    setRetrievalOpen(true);
   };
 
   // Same soft-delete convention as providers/agents: no DELETE endpoint,
@@ -127,6 +135,9 @@ export function KnowledgePage() {
                     <Button variant="outline" size="sm" onClick={() => openDocuments(kb)}>
                       管理文档
                     </Button>
+                    <Button variant="outline" size="sm" onClick={() => openRetrieval(kb)}>
+                      试检索
+                    </Button>
                     <Button variant="outline" size="sm" onClick={() => openEdit(kb)}>
                       编辑
                     </Button>
@@ -143,6 +154,7 @@ export function KnowledgePage() {
 
       <KnowledgeFormDialog open={dialogOpen} onOpenChange={setDialogOpen} knowledgeBase={editing} />
       <KnowledgeDocumentsDialog open={documentsOpen} onOpenChange={setDocumentsOpen} knowledgeBase={managingDocs} />
+      <KnowledgeRetrievalDialog open={retrievalOpen} onOpenChange={setRetrievalOpen} knowledgeBase={probing} />
 
       <AlertDialog open={deleting !== null} onOpenChange={(open) => !open && setDeleting(null)}>
         <AlertDialogContent>

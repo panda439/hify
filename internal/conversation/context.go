@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"hify/internal/agent"
+	"hify/internal/knowledge"
 	"hify/internal/platform"
 	"hify/internal/platform/trace"
 	"hify/internal/provider"
@@ -243,7 +244,14 @@ func (s *service) assembleContext(ctx context.Context, conversationID string, ag
 		}
 
 		spanStart := time.Now()
-		candidates, err := s.knowledgeSvc.Retrieve(ctx, ag.KnowledgeBaseIDs, rewrite.SearchQuery, retrievalTopK)
+		candidates, err := s.knowledgeSvc.Retrieve(ctx, ag.KnowledgeBaseIDs, rewrite.SearchQuery, retrievalTopK,
+			// 004-agent-document-scope：把 Agent 配置的文档范围下推给检索。
+			// ag.DocumentIDs 为空即空过滤器，行为与该功能上线前逐字一致
+			// （002 的 FR-006/SC-003）；非空时检索只在这些文档里进行，
+			// 过滤在两路召回的 SQL 里生效，不是召回之后再筛。
+			knowledge.RetrieveOptions{
+				Filter: knowledge.RetrieveFilter{DocumentIDs: ag.DocumentIDs},
+			})
 		status := trace.StatusOK
 		errMsg := ""
 		if err != nil {

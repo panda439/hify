@@ -34,6 +34,9 @@ func (s *service) CreateAgent(ctx context.Context, input CreateAgentInput) (Agen
 	if err := s.validateModel(ctx, input.ModelID); err != nil {
 		return Agent{}, err
 	}
+	if err := s.validateScopedDocuments(ctx, input.KnowledgeBaseIDs, input.DocumentIDs); err != nil {
+		return Agent{}, err
+	}
 	if err := s.validateKnowledgeBases(ctx, input.KnowledgeBaseIDs); err != nil {
 		return Agent{}, err
 	}
@@ -58,6 +61,9 @@ func (s *service) CreateAgent(ctx context.Context, input CreateAgentInput) (Agen
 		return Agent{}, err
 	}
 	if err := s.repo.setKnowledgeBases(ctx, a.ID, input.KnowledgeBaseIDs); err != nil {
+		return Agent{}, err
+	}
+	if err := s.repo.setScopedDocuments(ctx, a.ID, input.DocumentIDs); err != nil {
 		return Agent{}, err
 	}
 	if err := s.repo.setMCPTools(ctx, a.ID, input.MCPToolIDs); err != nil {
@@ -101,6 +107,9 @@ func (s *service) UpdateAgent(ctx context.Context, id, userID, role string, inpu
 	if err := s.validateModel(ctx, input.ModelID); err != nil {
 		return Agent{}, err
 	}
+	if err := s.validateScopedDocuments(ctx, input.KnowledgeBaseIDs, input.DocumentIDs); err != nil {
+		return Agent{}, err
+	}
 	if err := s.validateKnowledgeBases(ctx, input.KnowledgeBaseIDs); err != nil {
 		return Agent{}, err
 	}
@@ -124,10 +133,56 @@ func (s *service) UpdateAgent(ctx context.Context, id, userID, role string, inpu
 	if err := s.repo.setKnowledgeBases(ctx, id, input.KnowledgeBaseIDs); err != nil {
 		return Agent{}, err
 	}
+	if err := s.repo.setScopedDocuments(ctx, id, input.DocumentIDs); err != nil {
+		return Agent{}, err
+	}
 	if err := s.repo.setMCPTools(ctx, id, input.MCPToolIDs); err != nil {
 		return Agent{}, err
 	}
 	return s.repo.getAgent(ctx, id)
+}
+
+// validateScopedDocuments enforces 004-agent-document-scope's two rules on
+// the retrieval document scope. The empty case is normal and means "no
+// restriction" — it is a no-op here, never an error.
+//
+// Rule 1 (FR-005): at most knowledge.MaxFilterDocumentIDs documents.
+// Rejected, never truncated: silently dropping documents past the cap
+// would hand the user a narrower scope than they configured without
+// telling them, the same failure mode 002's FR-009 forbids.
+//
+// Rule 2 (FR-004): every scoped document must live in one of the
+// knowledge bases this Agent binds. Such a mismatch would NOT break
+// retrieval — 002's FR-010 makes an unknown document id simply match
+// nothing — and that is exactly why it has to be rejected here instead:
+// the configuration would look accepted while silently restricting
+// retrieval to an empty set, and the user would only notice it as "the
+// Agent suddenly knows nothing".
+func (s *service) validateScopedDocuments(ctx context.Context, knowledgeBaseIDs, documentIDs []string) error {
+	if len(documentIDs) == 0 {
+		return nil
+	}
+	if len(documentIDs) > knowledge.MaxFilterDocumentIDs {
+		return ErrTooManyScopedDocuments
+	}
+	allowed := make(map[string]bool, len(knowledgeBaseIDs))
+	for _, id := range knowledgeBaseIDs {
+		allowed[id] = true
+	}
+	for _, docID := range documentIDs {
+		doc, err := s.knowledgeSvc.GetDocument(ctx, docID)
+		if err != nil {
+			// A document id that doesn't resolve at all is the same class
+			// of misconfiguration as one belonging to another knowledge
+			// base — report it as such rather than leaking knowledge's
+			// not-found error out of an Agent-validation path.
+			return ErrInvalidScopedDocument
+		}
+		if !allowed[doc.KnowledgeBaseID] {
+			return ErrInvalidScopedDocument
+		}
+	}
+	return nil
 }
 
 // validateKnowledgeBases enforces "every attached knowledge base must

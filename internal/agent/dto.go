@@ -14,7 +14,9 @@ type createAgentRequest struct {
 	TopP             *float64       `json:"top_p"`
 	ExtraParams      map[string]any `json:"extra_params"`
 	KnowledgeBaseIDs []string       `json:"knowledge_base_ids"`
-	MCPToolIDs       []string       `json:"mcp_tool_ids"`
+	// DocumentIDs (004)：检索文档范围，空 = 不限定。
+	DocumentIDs []string `json:"document_ids"`
+	MCPToolIDs  []string `json:"mcp_tool_ids"`
 }
 
 type updateAgentRequest struct {
@@ -27,8 +29,10 @@ type updateAgentRequest struct {
 	TopP             *float64       `json:"top_p"`
 	ExtraParams      map[string]any `json:"extra_params"`
 	KnowledgeBaseIDs []string       `json:"knowledge_base_ids"`
-	MCPToolIDs       []string       `json:"mcp_tool_ids"`
-	IsActive         bool           `json:"is_active"`
+	// DocumentIDs (004)：检索文档范围，空 = 不限定。
+	DocumentIDs []string `json:"document_ids"`
+	MCPToolIDs  []string `json:"mcp_tool_ids"`
+	IsActive    bool     `json:"is_active"`
 }
 
 type agentResponse struct {
@@ -42,11 +46,13 @@ type agentResponse struct {
 	TopP             *float64       `json:"top_p"`
 	ExtraParams      map[string]any `json:"extra_params"`
 	KnowledgeBaseIDs []string       `json:"knowledge_base_ids"`
-	MCPToolIDs       []string       `json:"mcp_tool_ids"`
-	IsActive         bool           `json:"is_active"`
-	CreatedBy        string         `json:"created_by"`
-	CreatedAt        time.Time      `json:"created_at"`
-	UpdatedAt        time.Time      `json:"updated_at"`
+	// DocumentIDs (004)：检索文档范围，空 = 不限定。
+	DocumentIDs []string  `json:"document_ids"`
+	MCPToolIDs  []string  `json:"mcp_tool_ids"`
+	IsActive    bool      `json:"is_active"`
+	CreatedBy   string    `json:"created_by"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func toAgentResponse(a Agent) agentResponse {
@@ -61,6 +67,7 @@ func toAgentResponse(a Agent) agentResponse {
 		TopP:             a.TopP,
 		ExtraParams:      a.ExtraParams,
 		KnowledgeBaseIDs: a.KnowledgeBaseIDs,
+		DocumentIDs:      a.DocumentIDs,
 		MCPToolIDs:       a.MCPToolIDs,
 		IsActive:         a.IsActive,
 		CreatedBy:        a.CreatedBy,

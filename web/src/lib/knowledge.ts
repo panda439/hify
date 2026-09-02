@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { ChatModel } from "@/lib/agents";
 
@@ -140,4 +140,86 @@ export function useDeleteDocument(kbId: string) {
       qc.invalidateQueries({ queryKey: knowledgeBasesKey });
     },
   });
+}
+
+// --- 003-retrieval-playground: 试检索 ---
+
+export interface RetrievalProbeInput {
+  query: string;
+  top_k?: number;
+  document_ids?: string[];
+  page_min?: number;
+  page_max?: number;
+}
+
+export interface RetrievedChunkResult {
+  id: string;
+  document_id: string;
+  document_name: string;
+  // null 表示这个片段没有页码——txt/md 本来就没有，绝不是 0。界面显示为「—」。
+  page_number: number | null;
+  content: string;
+  score: number;
+  // 邻接块：豁免页码过滤（见后端 002 的 FR-011），所以限定页码范围时
+  // 仍然可能出现范围外的片段。界面必须把它和命中区分开，否则看起来像 bug。
+  is_neighbor: boolean;
+  neighbor_of: string;
+}
+
+export interface RetrievalProbeResult {
+  chunks: RetrievedChunkResult[];
+  hit_count: number;
+  neighbor_count: number;
+  filter_applied: boolean;
+}
+
+// 试检索是一次性查询，不产生任何持久化状态，因此不 invalidate 任何缓存。
+export function useRetrievalProbe(kbId: string) {
+  return useMutation({
+    mutationFn: (input: RetrievalProbeInput) =>
+      api.post<RetrievalProbeResult>(`/knowledge-bases/${kbId}/retrieve`, input),
+  });
+}
+
+// --- 004-agent-document-scope ---
+
+// useDocumentsByKnowledgeBase 并行拉取多个知识库各自的文档，供 Agent 表单
+// 按知识库分组展示可勾选的文档。
+//
+// 返回**全部状态**的文档，不在这里按 status 过滤。调用方需要区分三种情况，
+// 它们的处理方式完全不同：
+//   - ready：可以勾选；
+//   - pending/processing/failed：文档还在，只是当前没有已发布的分片。
+//     勾了它检索不到东西，但它**不该**被当成"已删除"移除掉——重新处理完就好了；
+//   - 完全查不到这个 id：文档已被删除。这才是需要提示用户清理的情况。
+// 早期版本在这里就把非 ready 的滤掉了，导致调用方无法区分后两种，
+// 会把一份正在处理的文档误判成已删除。
+export function useDocumentsByKnowledgeBase(kbIds: string[]) {
+  const results = useQueries({
+    queries: kbIds.map((kbId) => ({
+      queryKey: ["knowledge-bases", kbId, "documents"],
+      queryFn: () => api.get<DocumentListResponse>(`/knowledge-bases/${kbId}/documents?limit=100`),
+    })),
+  });
+
+  const byKnowledgeBase: Record<string, KnowledgeDocument[]> = {};
+  const knownIds = new Set<string>();
+  kbIds.forEach((kbId, i) => {
+    const items = results[i]?.data?.items ?? [];
+    byKnowledgeBase[kbId] = items;
+    items.forEach((d) => knownIds.add(d.id));
+  });
+
+  const isLoading = results.some((r) => r.isLoading);
+
+  return {
+    byKnowledgeBase,
+    // knownIds 是这些知识库下**当前存在**的全部文档 id（不分状态）。
+    // 调用方用它判断某个已保存的范围 id 是不是已经失效。
+    knownIds,
+    isLoading,
+    // 加载未完成时 knownIds 还不完整，此时任何"这个 id 不存在"的判断都不成立。
+    // 单独暴露这个标志，避免调用方在加载过程中闪一下错误的"已删除"提示。
+    canDetectMissing: !isLoading && kbIds.length > 0,
+  };
 }

@@ -12,6 +12,8 @@ export interface Agent {
   top_p: number | null;
   extra_params: Record<string, unknown> | null;
   knowledge_base_ids: string[] | null;
+  // 004：检索文档范围，空/null = 不限定
+  document_ids: string[] | null;
   mcp_tool_ids: string[] | null;
   is_active: boolean;
   created_by: string;
@@ -38,6 +40,7 @@ export interface CreateAgentInput {
   max_tokens?: number;
   top_p?: number;
   knowledge_base_ids?: string[];
+  document_ids?: string[];
   mcp_tool_ids?: string[];
 }
 
@@ -52,6 +55,7 @@ export interface UpdateAgentInput {
   max_tokens?: number;
   top_p?: number;
   knowledge_base_ids?: string[];
+  document_ids?: string[];
   mcp_tool_ids?: string[];
   is_active: boolean;
 }

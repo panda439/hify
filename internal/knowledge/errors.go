@@ -28,5 +28,22 @@ var (
 	// ErrDocumentNotRetryable guards RetryDocument's CAS — only
 	// pending/failed documents can be retried, matching the legal state
 	// transitions in the Document doc comment.
+	// 002-metadata-filter：检索范围过滤的三个入参错误。它们都发生在任何
+	// 数据库调用之前（service.Retrieve 的入口校验），因此不经过
+	// classifyRetrieveErr——那个函数处理的是"检索过程中的数据库/上游故障"
+	// 并带降级语义，把入参错误混进去会让一个明确的用户输入问题被当成可降级
+	// 的基础设施抖动。
+	//
+	// ErrTooManyFilterDocuments 不截断而是报错：静默截断会悄悄改变调用方
+	// 指定的范围，正是 FR-009 要防的事（见 model.go 的 maxFilterDocumentIDs）。
+	ErrTooManyFilterDocuments = apperr.InvalidInput("knowledge.too_many_filter_documents", "指定的文档数量超出上限（最多 50 份），请缩小范围")
+	ErrInvalidPageRange       = apperr.InvalidInput("knowledge.invalid_page_range", "页码范围不正确：页码必须为正整数，且起始页不得大于结束页")
+
+	// ErrMetadataFilterDisabled：开关关闭时收到非空过滤器。这里明确报错而
+	// 不是忽略过滤器照常检索——"我限定了范围，但系统用了范围外的资料回答"
+	// 比"没找到"严重得多（spec Clarifications / research.md R4）。开关关闭
+	// 时**空**过滤器不受影响，走的仍然是本功能上线前的那条路径。
+	ErrMetadataFilterDisabled = apperr.InvalidInput("knowledge.metadata_filter_disabled", "检索元数据过滤未启用，无法按指定范围检索")
+
 	ErrDocumentNotRetryable = apperr.Conflict("knowledge.document_not_retryable", "文档当前状态不支持重试，仅 pending/failed 状态可重试")
 )

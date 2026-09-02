@@ -446,11 +446,38 @@ func (r *Repository) deleteChunksByDocumentVersion(ctx context.Context, document
 // final topK, left for rrfFuse to re-rank and truncate — but the method
 // itself doesn't know or care which caller it is; it just returns the top
 // n rows by cosine similarity.
-func (r *Repository) searchVectorChunks(ctx context.Context, kbIDs []string, queryVec []float32, n int) ([]RetrievedChunk, error) {
+// filterToPGParams 把领域层的 RetrieveFilter 翻译成 sqlc 的三个可空参数
+// （002-metadata-filter）。这里只做翻译，不做任何校验——校验是 service 层
+// Retrieve 入口的职责（repository 只做 CRUD，不含业务判断）。
+//
+// ⚠️ documentIDs 在"不限定"时必须返回 nil 切片，不能返回长度为 0 的非 nil
+// 切片：sqlc 生成的代码用 pq.Array 传参，nil 切片 Value() 出来是 SQL NULL
+// （谓词恒真短路，等于不过滤），而空的非 nil 切片会变成 '{}' 这个**空数组**，
+// 于是 document_id = ANY('{}') 恒为 FALSE，把所有候选都挡光。两者在 Go 里
+// 都满足 len()==0，差别只在这一层显现，所以统一在这里归一化，不指望每个
+// 调用方自己记得区分。
+func filterToPGParams(f RetrieveFilter) (documentIDs []string, pageMin, pageMax sql.NullInt32) {
+	if len(f.DocumentIDs) > 0 {
+		documentIDs = f.DocumentIDs
+	}
+	if f.PageMin != nil {
+		pageMin = sql.NullInt32{Int32: int32(*f.PageMin), Valid: true}
+	}
+	if f.PageMax != nil {
+		pageMax = sql.NullInt32{Int32: int32(*f.PageMax), Valid: true}
+	}
+	return documentIDs, pageMin, pageMax
+}
+
+func (r *Repository) searchVectorChunks(ctx context.Context, kbIDs []string, queryVec []float32, n int, filter RetrieveFilter) ([]RetrievedChunk, error) {
+	filterDocumentIDs, filterPageMin, filterPageMax := filterToPGParams(filter)
 	rows, err := r.pgQueries.SearchVectorChunks(ctx, pggen.SearchVectorChunksParams{
 		QueryEmbedding:     pgvector.NewVector(queryVec),
 		KnowledgeBaseIds:   kbIDs,
 		EmbeddingDimension: int32(len(queryVec)),
+		FilterDocumentIds:  filterDocumentIDs,
+		FilterPageMin:      filterPageMin,
+		FilterPageMax:      filterPageMax,
 		TopK:               int32(n),
 	})
 	if err != nil {
@@ -494,14 +521,18 @@ func (r *Repository) searchVectorChunks(ctx context.Context, kbIDs []string, que
 // (nil, nil) without a round trip — SQL also guards this (query_text <> ”),
 // but short-circuiting here means a caller sees literally zero DB cost for
 // the case Retrieve already treats as "nothing to search".
-func (r *Repository) searchKeywordChunks(ctx context.Context, kbIDs []string, query string, n int) ([]RetrievedChunk, error) {
+func (r *Repository) searchKeywordChunks(ctx context.Context, kbIDs []string, query string, n int, filter RetrieveFilter) ([]RetrievedChunk, error) {
 	if query == "" || len(kbIDs) == 0 {
 		return nil, nil
 	}
+	filterDocumentIDs, filterPageMin, filterPageMax := filterToPGParams(filter)
 	rows, err := r.pgQueries.SearchKeywordChunks(ctx, pggen.SearchKeywordChunksParams{
-		QueryText:        query,
-		KnowledgeBaseIds: kbIDs,
-		CandidateK:       int32(n),
+		QueryText:         query,
+		KnowledgeBaseIds:  kbIDs,
+		FilterDocumentIds: filterDocumentIDs,
+		FilterPageMin:     filterPageMin,
+		FilterPageMax:     filterPageMax,
+		CandidateK:        int32(n),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("knowledge: search keyword chunks: %w", err)

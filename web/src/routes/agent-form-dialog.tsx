@@ -21,7 +21,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ApiError } from "@/lib/api";
 import { useChatModels, useCreateAgent, useUpdateAgent, type Agent } from "@/lib/agents";
-import { useKnowledgeBases } from "@/lib/knowledge";
+import { useDocumentsByKnowledgeBase, useKnowledgeBases } from "@/lib/knowledge";
 import { useActiveMcpTools } from "@/lib/mcp";
 
 const formSchema = z.object({
@@ -33,6 +33,7 @@ const formSchema = z.object({
   max_tokens: z.number().optional(),
   top_p: z.number().optional(),
   knowledge_base_ids: z.array(z.string()),
+  document_ids: z.array(z.string()),
   mcp_tool_ids: z.array(z.string()),
   is_active: z.boolean(),
 });
@@ -85,6 +86,7 @@ export function AgentFormDialog({
       system_prompt: "",
       temperature: 0.7,
       knowledge_base_ids: [],
+      document_ids: [],
       mcp_tool_ids: [],
       is_active: true,
     },
@@ -92,6 +94,29 @@ export function AgentFormDialog({
 
   const modelId = watch("model_id");
   const selectedKnowledgeBaseIds = watch("knowledge_base_ids");
+  const selectedDocumentIds = watch("document_ids");
+  const {
+    byKnowledgeBase: docsByKb,
+    knownIds: knownDocumentIds,
+    isLoading: docsLoading,
+    canDetectMissing,
+  } = useDocumentsByKnowledgeBase(selectedKnowledgeBaseIds);
+
+  // 已保存的范围里，有哪些文档 id 在这些知识库下已经查不到了——也就是被删除了。
+  // 这种记录是**故意**保留在后端的（agent_documents 不级联删除，否则范围被删空
+  // 后系统会退回成"不限定"，让 Agent 悄悄用起范围外的资料）。代价是用户看到的
+  // 现象只是"这个 Agent 突然什么都不知道了"，完全不知道为什么——所以必须在这里
+  // 显式告诉他。
+  const missingDocumentIds = canDetectMissing
+    ? selectedDocumentIds.filter((id) => !knownDocumentIds.has(id))
+    : [];
+
+  const removeMissingDocuments = () => {
+    setValue(
+      "document_ids",
+      selectedDocumentIds.filter((id) => knownDocumentIds.has(id)),
+    );
+  };
   const selectedMcpToolIds = watch("mcp_tool_ids");
 
   const toggleKnowledgeBase = (kbId: string, checked: boolean) => {
@@ -99,6 +124,25 @@ export function AgentFormDialog({
     setValue(
       "knowledge_base_ids",
       checked ? [...current, kbId] : current.filter((id) => id !== kbId),
+    );
+    // 取消勾选某个知识库时，把它名下已选的文档一并移除。这是**可见的**移除
+    // ——文档列表当场变短，用户看得到范围变了。后端对"文档不属于已绑定知识库"
+    // 是直接拒绝而不是静默清理（agent/service.go 的 validateScopedDocuments），
+    // 这里不做的话，用户会在保存时撞上一个他不理解的错误。
+    if (!checked) {
+      const removed = new Set((docsByKb[kbId] ?? []).map((d) => d.id));
+      setValue(
+        "document_ids",
+        selectedDocumentIds.filter((id) => !removed.has(id)),
+      );
+    }
+  };
+
+  const toggleDocument = (docId: string, checked: boolean) => {
+    const current = selectedDocumentIds;
+    setValue(
+      "document_ids",
+      checked ? [...current, docId] : current.filter((id) => id !== docId),
     );
   };
 
@@ -123,6 +167,7 @@ export function AgentFormDialog({
               max_tokens: agent.max_tokens ?? undefined,
               top_p: agent.top_p ?? undefined,
               knowledge_base_ids: agent.knowledge_base_ids ?? [],
+              document_ids: agent.document_ids ?? [],
               mcp_tool_ids: agent.mcp_tool_ids ?? [],
               is_active: agent.is_active,
             }
@@ -133,6 +178,7 @@ export function AgentFormDialog({
               system_prompt: "",
               temperature: 0.7,
               knowledge_base_ids: [],
+              document_ids: [],
               mcp_tool_ids: [],
               is_active: true,
             },
@@ -154,6 +200,7 @@ export function AgentFormDialog({
             max_tokens: values.max_tokens,
             top_p: values.top_p,
             knowledge_base_ids: values.knowledge_base_ids,
+            document_ids: values.document_ids,
             mcp_tool_ids: values.mcp_tool_ids,
             is_active: values.is_active,
           },
@@ -169,6 +216,7 @@ export function AgentFormDialog({
           max_tokens: values.max_tokens,
           top_p: values.top_p,
           knowledge_base_ids: values.knowledge_base_ids,
+          document_ids: values.document_ids,
           mcp_tool_ids: values.mcp_tool_ids,
         });
         toast.success("Agent 已创建");
@@ -253,6 +301,97 @@ export function AgentFormDialog({
             )}
             <p className="text-xs text-muted-foreground">对话时会检索勾选的知识库，把相关内容作为参考资料注入上下文</p>
           </div>
+
+          {/* 004-agent-document-scope：把检索限定到知识库里的某几份文档。
+              只在勾了知识库之后才出现——没有知识库时它没有任何意义。 */}
+          {selectedKnowledgeBaseIds.length > 0 && (
+            <div className="grid gap-2">
+              <Label>限定检索文档（可选）</Label>
+              {docsLoading ? (
+                <p className="text-sm text-muted-foreground">加载文档中...</p>
+              ) : (
+                <div className="grid max-h-48 gap-3 overflow-y-auto rounded-md border p-2">
+                  {selectedKnowledgeBaseIds.map((kbId) => {
+                    const kb = knowledgeBases.find((k) => k.id === kbId);
+                    const docs = docsByKb[kbId] ?? [];
+                    return (
+                      <div key={kbId} className="grid gap-1">
+                        <p className="text-xs font-medium text-muted-foreground">
+                          {kb?.name ?? kbId}
+                        </p>
+                        {docs.length === 0 ? (
+                          <p className="pl-1 text-xs text-muted-foreground">
+                            这个知识库还没有已就绪的文档
+                          </p>
+                        ) : (
+                          docs.map((doc) => {
+                            // 非 ready 的文档在库里没有已发布的分片，勾了也检索不到，
+                            // 所以禁用；但仍然列出来——它存在，只是还没处理好，
+                            // 直接隐藏会让用户以为文档丢了。
+                            const selectable = doc.status === "ready";
+                            return (
+                              <label
+                                key={doc.id}
+                                className={
+                                  selectable
+                                    ? "flex items-center gap-2 pl-1 text-sm"
+                                    : "flex items-center gap-2 pl-1 text-sm text-muted-foreground"
+                                }
+                              >
+                                <Checkbox
+                                  checked={selectedDocumentIds.includes(doc.id)}
+                                  disabled={!selectable}
+                                  onCheckedChange={(checked) =>
+                                    toggleDocument(doc.id, checked === true)
+                                  }
+                                />
+                                {doc.file_name}
+                                {!selectable && (
+                                  <span className="text-xs">
+                                    （{doc.status === "failed" ? "处理失败" : "处理中"}，暂不可选）
+                                  </span>
+                                )}
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {missingDocumentIds.length > 0 && (
+                <div className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm">
+                  <p className="font-medium text-destructive">
+                    范围内有 {missingDocumentIds.length} 份文档已不存在
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    这些文档很可能已被删除。它们仍然留在这个 Agent 的检索范围里，
+                    但匹配不到任何内容——如果范围内<strong>只剩</strong>这些失效文档，
+                    这个 Agent 会检索不到任何资料。
+                    <br />
+                    留着它们是安全的（不会让 Agent 用到范围外的资料），
+                    但如果你希望范围回到其余文档上，可以在这里清理掉。
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    onClick={removeMissingDocuments}
+                  >
+                    移除这 {missingDocumentIds.length} 份失效文档
+                  </Button>
+                </div>
+              )}
+
+              <p className="text-xs text-muted-foreground">
+                <strong>不勾选 = 不限定</strong>，检索覆盖上面勾选的知识库全部内容。
+                一旦勾选，这个 Agent 就<strong>只</strong>用选中的文档回答——
+                没有被选到文档的知识库不会参与检索。最多 50 份。
+              </p>
+            </div>
+          )}
 
           <div className="grid gap-2">
             <Label>关联 MCP 工具</Label>

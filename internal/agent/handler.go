@@ -31,6 +31,7 @@ func (h *Handler) Create(c *gin.Context) error {
 		TopP:             req.TopP,
 		ExtraParams:      req.ExtraParams,
 		KnowledgeBaseIDs: req.KnowledgeBaseIDs,
+		DocumentIDs:      req.DocumentIDs,
 		MCPToolIDs:       req.MCPToolIDs,
 		CreatedBy:        middleware.UserIDFrom(c),
 	})
@@ -101,6 +102,7 @@ func (h *Handler) Update(c *gin.Context) error {
 			TopP:             req.TopP,
 			ExtraParams:      req.ExtraParams,
 			KnowledgeBaseIDs: req.KnowledgeBaseIDs,
+			DocumentIDs:      req.DocumentIDs,
 			MCPToolIDs:       req.MCPToolIDs,
 			IsActive:         req.IsActive,
 		},
