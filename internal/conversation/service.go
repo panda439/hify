@@ -298,8 +298,24 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 
 	// 005-tool-loop-guard：第二层止损的状态机，只在这一轮内有效（见 toolloop.go）。
 	loopGuard := newToolLoopDetector()
+	// 第一层的另外两半：累计 token 与墙钟。stopReason 记录最终是哪一项触顶，
+	// 只在真的提前收尾时才被读取。
+	stopReason := stopByIterations
+	usedTokens := 0
 
 	for iteration := 0; iteration < maxToolCallIterations; iteration++ {
+		// 预算检查放在**每轮开始**而不是结束：这样"已经超了"就不会再多打一次
+		// 模型调用。第 0 轮也检查——如果这一轮开始前就已经超时（前置的检索/
+		// 改写耗时过长），不该再往下走。
+		if reason, over := exceededBudget(time.Since(turnStart), usedTokens); over {
+			stopReason = reason
+			slog.Info("conversation: turn budget exceeded, stopping tool loop",
+				"conversation_id", conversationID, "trace_id", traceID,
+				"reason", reason, "iteration", iteration,
+				"elapsed_ms", time.Since(turnStart).Milliseconds(), "used_tokens", usedTokens)
+			break
+		}
+
 		req.Messages = messages
 		// 被拦截的工具在本轮后续迭代里必须真的消失，而不只是"注入一条消息劝它别调"
 		// ——已知失败模式是模型道歉之后再调一次同样的。
@@ -346,6 +362,11 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 				usage = chunk.Usage
 			}
 		}
+
+		// 累加**这次调用**的用量：工具循环每轮都会把完整历史重发，prompt token
+		// 是反复计费的，所以按调用累加才等于真实成本。usage 是 best-effort，
+		// 供应商不返回时为零值，此时 token 预算不会触发（见 exceededBudget）。
+		usedTokens += usage.TotalTokens
 
 		if streamErr != nil {
 			turnErr = streamErr
@@ -442,8 +463,8 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 	//
 	// 不挂任何 Citation：这是一条程序文案，不是基于检索证据生成的回答，
 	// 给它挂引用会让它看起来像有出处。
-	turnErr = errTooManyToolIterations
-	exhausted := toolLoopExhaustedMessage()
+	turnErr = stopReasonError(stopReason)
+	exhausted := toolLoopExhaustedMessage(stopReason)
 	s.persistAssistantTurn(conversationID, exhausted, nil)
 	if !trySend(ctx, events, StreamEvent{Type: EventFinal, TraceID: traceID, Content: exhausted}) {
 		slog.Warn("conversation: tool-loop exhaustion notice not delivered (client disconnected), content already persisted",
@@ -476,7 +497,23 @@ func availableTools(tools []provider.ToolDefinition, guard *toolLoopDetector) []
 var (
 	errClientDisconnected    = errors.New("client disconnected mid-stream")
 	errTooManyToolIterations = errors.New("max tool-call iterations reached")
+	errTurnDurationExceeded  = errors.New("max turn duration exceeded")
+	errTurnTokenBudgetSpent  = errors.New("max turn token budget exceeded")
 )
+
+// stopReasonError 把提前收尾的原因映射成 trace 里记录的内部错误。
+// 三者都只进 trace_spans.error_message（内部排查字段），给用户的说明由
+// toolLoopExhaustedMessage 单独生成。
+func stopReasonError(reason turnStopReason) error {
+	switch reason {
+	case stopByDuration:
+		return errTurnDurationExceeded
+	case stopByTokens:
+		return errTurnTokenBudgetSpent
+	default:
+		return errTooManyToolIterations
+	}
+}
 
 // recordLLMCallSpan records one ChatStream call (one loop iteration) as a
 // kind=llm_call span. Input/Output deliberately stay empty — messages can

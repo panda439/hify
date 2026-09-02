@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 // 005-tool-loop-guard：工具调用循环的第二层止损——重复调用检测。
@@ -24,6 +25,58 @@ import (
 // 之后模型用相同参数再试一次是完全合理的行为，把它判成死循环会误杀。
 // 连续第 3 次拿相同参数调同一个工具，几乎不可能是有意的。
 const maxIdenticalToolCalls = 3
+
+// 第一层止损的另外两半（005 补完）：轮次上限之外的墙钟与 token 预算。
+//
+// **为什么只有轮次不够**：轮次封的是"跑了几趟"，不是"花了多少"。单趟可能就很贵——
+// 一个塞满了检索结果和长工具返回值的调用，成本能顶十趟普通调用。反过来五趟
+// 快速失败的调用几乎不花钱却照样触顶。轮次、时间、成本是三个正交的维度，
+// 任何一个失控都该停下来。
+const (
+	// maxTurnDuration 是一轮对话（含全部工具迭代）的墙钟上限。
+	//
+	// 它防的是"每一步都不算慢、但加起来慢得离谱"——单次调用慢是 provider 层
+	// 的事（resilience.go 有自己的超时与熔断），这里管的是累计。
+	//
+	// 2 分钟：留得下 5 轮各自十几秒的模型调用加工具往返，又不至于让用户对着
+	// 一个转圈的界面等到怀疑系统挂了。
+	maxTurnDuration = 2 * time.Minute
+
+	// maxTurnTokens 是一轮对话累计消耗的 token 上限。
+	//
+	// 累加的是每次调用**各自**的 TotalTokens，也就是真实被计费的量——
+	// 工具调用循环每轮都会把完整历史重发一遍，prompt token 是**反复计费**的，
+	// 这正是"单轮可能很贵"的来源，所以按调用累加而不是按最终上下文长度算。
+	//
+	// 60000：正常 5 轮带 RAG 上下文大约在 2 万以内，留了充分余量；
+	// 真正会触发它的是异常情况——比如某个工具返回了一整个文件。
+	maxTurnTokens = 60000
+)
+
+// turnStopReason 说明一轮对话为什么提前收尾。三个原因共用同一条收尾路径
+// （见 service.go 触顶处），只是给用户的说明不同。
+type turnStopReason int
+
+const (
+	stopByIterations turnStopReason = iota
+	stopByDuration
+	stopByTokens
+)
+
+// exceededBudget 报告本轮是否已经超出墙钟或 token 预算，以及超的是哪一项。
+//
+// usedTokens 为 0 时 token 预算**永远不会触发**——provider.Usage 是 best-effort，
+// 不是所有 OpenAI 兼容供应商都返回用量（见 provider.Usage 的文档注释）。
+// 这是一个已知的能力边界，不是缺陷：拿不到用量时仍然有轮次和墙钟两道防线兜底。
+func exceededBudget(elapsed time.Duration, usedTokens int) (turnStopReason, bool) {
+	if elapsed >= maxTurnDuration {
+		return stopByDuration, true
+	}
+	if usedTokens >= maxTurnTokens {
+		return stopByTokens, true
+	}
+	return stopByIterations, false
+}
 
 // normalizeToolArgs 把工具参数规范化成一个可比较的字符串。
 //
@@ -183,8 +236,17 @@ func blockedToolResultMessage(name string) string {
 // 模型有成本和延迟；二是让模型基于不完整的中间结果作答会诱发填空式幻觉——
 // 它会把缺的那部分编出来，而用户拿到的是一个看起来完整的答案。
 // 「信息不完整」这句声明必须由程序保证，不能寄望于提示词。
-func toolLoopExhaustedMessage() string {
-	return "抱歉，我在处理这个问题时连续调用了多次工具仍未能得到完整结果，已停止继续尝试。" +
+func toolLoopExhaustedMessage(reason turnStopReason) string {
+	var why string
+	switch reason {
+	case stopByDuration:
+		why = "本轮处理时间过长"
+	case stopByTokens:
+		why = "本轮消耗资源过多"
+	default:
+		why = "连续调用了多次工具仍未能得到完整结果"
+	}
+	return "抱歉，" + why + "，我已停止继续尝试。" +
 		"上面的工具调用记录是我已经获取到的信息，可能并不完整。" +
 		"你可以换一种问法，或者把问题拆成更小的部分再问我。"
 }
