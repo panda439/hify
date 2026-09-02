@@ -1691,3 +1691,66 @@ func TestIntegrationToolLoopExhaustionEndsWithFinalNotError(t *testing.T) {
 		t.Fatal("触顶收尾消息必须持久化")
 	}
 }
+
+// TestIntegrationTurnStopsOnTokenBudget —— 第一层的 token 预算那一半。
+//
+// 这条用例的意义：**轮次上限拦不住"单轮很贵"**。这里每轮都换不同参数（绕开
+// 重复检测）、也远没跑满 5 轮，但第一轮就报了一个超过预算的用量，
+// 循环必须在第二轮开始前就停下来——而不是老老实实把 5 轮跑完。
+func TestIntegrationTurnStopsOnTokenBudget(t *testing.T) {
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
+	ctx := context.Background()
+
+	var scripts [][]provider.ChatChunk
+	for i := 0; i < maxToolCallIterations; i++ {
+		idx := 0
+		scripts = append(scripts, []provider.ChatChunk{{
+			DeltaToolCalls: []provider.ToolCall{{
+				Index: &idx, ID: "c" + strconv.Itoa(i), Name: "search",
+				Arguments: json.RawMessage(`{"q":"` + strconv.Itoa(i) + `"}`),
+			}},
+			FinishReason: "tool_calls",
+			// 第一轮就把预算烧光——模拟"一个吃了大 context 的调用能顶十轮"。
+			Usage: provider.Usage{TotalTokens: maxTurnTokens + 1},
+		}})
+	}
+	chat := &scriptedChatClient{scripts: scripts}
+	mcpSvc := &fakeMCPSvc{
+		tool:   mcp.Tool{ID: "tool-1", ToolName: "search", IsActive: true},
+		result: mcp.ToolCallResult{Content: "结果"},
+	}
+	svc := NewService(repo,
+		&fakeAgentSvc{ag: agent.Agent{ID: "ag-budget", ModelID: "m1", SystemPrompt: "你是助手",
+			MCPToolIDs: []string{"tool-1"}}},
+		&fakeProviderSvc{client: chat}, &fakeKnowledgeSvc{},
+		mcpSvc, trace.NewStore(db), false, "", 1500*time.Millisecond)
+
+	seedConversation(t, repo, "conv-budget", "ag-budget", "u1")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-budget", "查一下")
+	if err != nil {
+		t.Fatalf("StreamMessage: %v", err)
+	}
+	got := drainEvents(t, events)
+
+	// 只应该发生 1 次模型调用：第 1 轮跑完就超预算，第 2 轮开始前被拦住。
+	if len(chat.requests) != 1 {
+		t.Fatalf("模型调用次数 = %d, want 1 —— 预算检查必须在下一轮**开始前**生效，"+
+			"否则等于白花一次调用", len(chat.requests))
+	}
+
+	// 仍然走优雅收尾，不是报错。
+	types := eventTypes(got)
+	for _, ty := range types {
+		if ty == EventError {
+			t.Fatalf("超预算也应优雅收尾，不该发 error，实际：%v", types)
+		}
+	}
+	final := got[len(got)-2]
+	if !strings.Contains(final.Content, "资源过多") {
+		t.Fatalf("收尾文案应说明是资源消耗触顶（而不是笼统的'调用太多次'），实际：%q", final.Content)
+	}
+	if !strings.Contains(final.Content, "不完整") {
+		t.Fatalf("收尾消息必须声明信息可能不完整，实际：%q", final.Content)
+	}
+}

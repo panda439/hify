@@ -3,6 +3,7 @@ package conversation
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // 005-tool-loop-guard：重复调用检测的纯逻辑单测，零依赖。
@@ -142,13 +143,70 @@ func TestInterventionMessageGivesAnExit(t *testing.T) {
 }
 
 func TestExhaustedMessageDeclaresIncompleteness(t *testing.T) {
-	msg := toolLoopExhaustedMessage()
-	// 「可能并不完整」这句是程序强制拼上去的，不依赖模型遵守提示词——
-	// 否则用户会把一个基于残缺信息的回答当成完整答案。
-	if !strings.Contains(msg, "不完整") {
-		t.Fatalf("收尾消息必须明确声明信息不完整，实际：%s", msg)
+	// 三种收尾原因的文案都必须满足同样两条：声明信息不完整、说明是主动停止
+	// 而不是出错。「可能并不完整」这句是程序强制拼上去的，不依赖模型遵守
+	// 提示词——否则用户会把一个基于残缺信息的回答当成完整答案。
+	for _, tc := range []struct {
+		name   string
+		reason turnStopReason
+		why    string
+	}{
+		{"轮次触顶", stopByIterations, "多次工具"},
+		{"墙钟触顶", stopByDuration, "时间过长"},
+		{"token 触顶", stopByTokens, "资源过多"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := toolLoopExhaustedMessage(tc.reason)
+			if !strings.Contains(msg, "不完整") {
+				t.Fatalf("收尾消息必须明确声明信息不完整，实际：%s", msg)
+			}
+			if !strings.Contains(msg, "停止") {
+				t.Fatalf("收尾消息必须说明是主动停止而不是出错，实际：%s", msg)
+			}
+			// 三种原因要给出**不同**的说明，否则用户分不清是系统慢、
+			// 花太多，还是查不到。
+			if !strings.Contains(msg, tc.why) {
+				t.Fatalf("%s 的文案应说明原因 %q，实际：%s", tc.name, tc.why, msg)
+			}
+		})
 	}
-	if !strings.Contains(msg, "停止") {
-		t.Fatalf("收尾消息必须说明是主动停止而不是出错，实际：%s", msg)
+}
+
+// TestExceededBudgetTriggersOnEitherLimit —— 第一层的另外两半。
+func TestExceededBudgetTriggersOnEitherLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		elapsed    time.Duration
+		tokens     int
+		wantOver   bool
+		wantReason turnStopReason
+	}{
+		{"都没超", time.Second, 100, false, stopByIterations},
+		{"墙钟刚好到", maxTurnDuration, 0, true, stopByDuration},
+		{"墙钟超了", maxTurnDuration + time.Second, 0, true, stopByDuration},
+		{"token 刚好到", time.Second, maxTurnTokens, true, stopByTokens},
+		{"token 超了", time.Second, maxTurnTokens + 1, true, stopByTokens},
+		// 墙钟优先：两者同时超时报墙钟，因为用户先感知到的是"等太久"。
+		{"两者都超", maxTurnDuration, maxTurnTokens, true, stopByDuration},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reason, over := exceededBudget(tc.elapsed, tc.tokens)
+			if over != tc.wantOver {
+				t.Fatalf("over = %v, want %v", over, tc.wantOver)
+			}
+			if over && reason != tc.wantReason {
+				t.Fatalf("reason = %v, want %v", reason, tc.wantReason)
+			}
+		})
+	}
+}
+
+// TestExceededBudgetNeverTriggersOnZeroUsage 锁定一条**已知的能力边界**：
+// provider.Usage 是 best-effort，不是所有 OpenAI 兼容供应商都返回用量。
+// 拿不到用量时 token 预算必须**静默失效**而不是误判成 0 就超标——
+// 此时仍有轮次与墙钟两道防线兜底。
+func TestExceededBudgetNeverTriggersOnZeroUsage(t *testing.T) {
+	if _, over := exceededBudget(time.Second, 0); over {
+		t.Fatal("供应商不返回用量时，token 预算不该触发")
 	}
 }
