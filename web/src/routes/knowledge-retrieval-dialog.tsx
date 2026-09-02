@@ -138,7 +138,12 @@ export function KnowledgeRetrievalDialog({
   const handleSearch = () => {
     const problem = validate();
     setLocalError(problem);
-    if (problem) return;
+    if (problem) {
+      // 校验失败时必须清掉上一次的结果：红字提示在上、旧结果在下，
+      // 用户很容易把旧结果当成这次输入对应的结果。
+      probe.reset();
+      return;
+    }
 
     probe.mutate({
       query: query.trim(),
