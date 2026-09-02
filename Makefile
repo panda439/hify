@@ -70,6 +70,12 @@ web-dev:
 
 web-build:
 	cd web && npm run build
+# Vite 构建默认清空 outDir，会把 web/dist/.gitkeep 一起删掉。那个占位文件是
+# 被跟踪的、且不能丢：web/embed.go 的 `go:embed all:dist` 在匹配不到任何文件
+# 时是**编译错误**而不是空 FS，而 web/dist/* 是 gitignore 的，全新 clone 下
+# 目录本来就是空的——占位文件是唯一让它编得过的东西。不补这一行的话，每次
+# 构建后 git 都会显示一个删除，一旦被误提交，别人 clone 下来直接编译失败。
+	touch web/dist/.gitkeep
 
 # 跑一遍 eval/testset.yaml，和 eval/baseline.json 做回归对比。需要
 # JUDGE_MODEL_ID/EVAL_USER_ID 两个环境变量（裁判模型和跑测试用的现有用户）。
