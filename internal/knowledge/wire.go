@@ -68,6 +68,10 @@ func RegisterRoutes(v1 *gin.RouterGroup, h *Handler, jwtSecret string) {
 	kbs.GET("", httperr.Wrap(h.List))
 	kbs.GET("/:id", httperr.Wrap(h.Get))
 	kbs.PUT("/:id", httperr.Wrap(h.Update))
+	// 003-retrieval-playground：试检索。语义是查询而非创建资源，用 POST 只是
+	// 因为请求体里有文档 ID 数组和问题原文，且问题原文不应进 URL（会被网关/
+	// 代理的访问日志记下来）——与 002 不把过滤取值写进应用日志是同一个口径。
+	kbs.POST("/:id/retrieve", httperr.Wrap(h.Retrieve))
 	kbs.POST("/:id/documents", httperr.Wrap(h.UploadDocument))
 	kbs.GET("/:id/documents", httperr.Wrap(h.ListDocuments))
 	kbs.GET("/:id/documents/:docId", httperr.Wrap(h.GetDocument))

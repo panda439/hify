@@ -237,3 +237,59 @@ func (h *Handler) RetryDocument(c *gin.Context) error {
 	c.JSON(http.StatusOK, toDocumentResponse(doc))
 	return nil
 }
+
+// Retrieve backs the retrieval playground (003-retrieval-playground): one
+// stateless probe into Service.Retrieve, scoped to a single knowledge
+// base, with 002-metadata-filter's filter exposed over HTTP for the first
+// time.
+//
+// It is deliberately NOT a conversation: no chat model is called, no
+// conversation/message rows are written, no trace span is recorded. It
+// answers exactly one question — "given this scope, what would retrieval
+// find?" — which is what makes it a debugging tool rather than a second,
+// divergent chat path.
+//
+// Every filter error from 002 (too many documents / invalid page range /
+// filter disabled) is returned verbatim via httperr.Wrap rather than being
+// swallowed or degraded into an empty result: silently retrieving outside
+// the scope a caller asked for is the one behavior that feature must never
+// have.
+func (h *Handler) Retrieve(c *gin.Context) error {
+	var req retrieveRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		return ErrInvalidRequest
+	}
+	if strings.TrimSpace(req.Query) == "" {
+		return ErrInvalidRequest
+	}
+
+	// Confirm the knowledge base exists before retrieving: Retrieve itself
+	// treats an unknown ID as "contributes no candidates" (so a deleted KB
+	// can't fail a whole conversation turn — see its doc comment), which
+	// is right for conversation but wrong here. A probe against a
+	// nonexistent knowledge base must be a 404, not an empty result the
+	// user would read as "nothing matched".
+	kbID := c.Param("id")
+	if _, err := h.service.GetKnowledgeBase(c.Request.Context(), kbID); err != nil {
+		return err
+	}
+
+	filter := RetrieveFilter{
+		DocumentIDs: req.DocumentIDs,
+		PageMin:     req.PageMin,
+		PageMax:     req.PageMax,
+	}
+	chunks, err := h.service.Retrieve(
+		c.Request.Context(),
+		[]string{kbID},
+		req.Query,
+		req.TopK,
+		RetrieveOptions{Filter: filter},
+	)
+	if err != nil {
+		return err
+	}
+
+	c.JSON(http.StatusOK, toRetrieveResponse(chunks, !filter.IsEmpty()))
+	return nil
+}

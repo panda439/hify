@@ -141,3 +141,42 @@ export function useDeleteDocument(kbId: string) {
     },
   });
 }
+
+// --- 003-retrieval-playground: 试检索 ---
+
+export interface RetrievalProbeInput {
+  query: string;
+  top_k?: number;
+  document_ids?: string[];
+  page_min?: number;
+  page_max?: number;
+}
+
+export interface RetrievedChunkResult {
+  id: string;
+  document_id: string;
+  document_name: string;
+  // null 表示这个片段没有页码——txt/md 本来就没有，绝不是 0。界面显示为「—」。
+  page_number: number | null;
+  content: string;
+  score: number;
+  // 邻接块：豁免页码过滤（见后端 002 的 FR-011），所以限定页码范围时
+  // 仍然可能出现范围外的片段。界面必须把它和命中区分开，否则看起来像 bug。
+  is_neighbor: boolean;
+  neighbor_of: string;
+}
+
+export interface RetrievalProbeResult {
+  chunks: RetrievedChunkResult[];
+  hit_count: number;
+  neighbor_count: number;
+  filter_applied: boolean;
+}
+
+// 试检索是一次性查询，不产生任何持久化状态，因此不 invalidate 任何缓存。
+export function useRetrievalProbe(kbId: string) {
+  return useMutation({
+    mutationFn: (input: RetrievalProbeInput) =>
+      api.post<RetrievalProbeResult>(`/knowledge-bases/${kbId}/retrieve`, input),
+  });
+}
