@@ -8,7 +8,9 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-dist
+dist/*
+# 占位文件必须提交：web/embed.go 的 go:embed 匹配不到任何文件是编译错误
+!dist/.gitkeep
 dist-ssr
 *.local
 

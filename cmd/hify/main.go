@@ -39,6 +39,7 @@ import (
 	"hify/internal/server"
 	"hify/internal/user"
 	"hify/internal/workflow"
+	"hify/web"
 )
 
 func main() {
@@ -125,6 +126,9 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 		DB:             db,
 		PG:             pgdb,
 		Redis:          rdb,
+		// 容器/生产构建里 web/dist 已被 go:embed 收进二进制，同源提供前端；
+		// 本地 make dev 没跑过 npm run build 时是 nil，前端走 Vite dev server。
+		WebAssets: web.Dist(),
 	})
 
 	// Layer 0

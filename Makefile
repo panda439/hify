@@ -1,7 +1,13 @@
 -include .env
 export
 
-.PHONY: dev build test test-race migrate-up migrate-down sqlc check-deps db-up db-down web-dev web-build eval eval-retrieval-gate
+# 本机 Docker Desktop 从 docker.io 拉 buildkit 的 frontend/manifest 会 403，
+# 所以默认走经典构建器（要求基础镜像已经 docker pull 到本地）。服务器上
+# buildkit 正常时用 `make app-up DOCKER_BUILDKIT=1`，构建更快、缓存更好。
+DOCKER_BUILDKIT ?= 0
+export DOCKER_BUILDKIT
+
+.PHONY: dev build test test-race migrate-up migrate-down sqlc check-deps db-up db-down web-dev web-build eval eval-retrieval-gate app-build app-up app-down app-logs app-seed-admin
 
 dev:
 	air
@@ -36,6 +42,28 @@ db-up:
 
 db-down:
 	docker compose down
+
+# --- 整套容器化运行（后端也进容器）-----------------------------------
+# 只有这几个 app-* 目标会拉起 app/migrate 容器（compose profile "app"）；
+# 上面的 db-up/dev 组合不受影响，日常开发照旧用 air 热重载。
+# 需要 .env.docker（从 .env.docker.example 复制）。
+
+app-build:
+	docker compose --profile app build
+
+# migrate 服务会先跑完 `hify migrate up`，成功后 app 才启动。
+app-up:
+	docker compose --profile app up -d --build
+
+app-down:
+	docker compose --profile app down
+
+app-logs:
+	docker compose --profile app logs -f app
+
+# 首个 admin 账号：跑一个一次性容器，读 .env.docker 里的 ADMIN_EMAIL/PASSWORD
+app-seed-admin:
+	docker compose --profile app run --rm app seed-admin
 
 web-dev:
 	cd web && npm run dev

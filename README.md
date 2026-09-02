@@ -34,6 +34,38 @@ make dev                    # 后端（air 热重载）
 make web-dev                # 前端
 ```
 
+### 整套容器化运行（后端也进容器）
+
+生产/服务器部署形态：前端 `npm run build` 的产物被 `go:embed` 收进二进制（见 [web/embed.go](web/embed.go)），
+同一个进程同源提供 SPA 和 `/api/v1`，最终镜像里只有一个静态二进制。
+
+```bash
+cp .env.docker.example .env.docker   # 主机名换成 compose 服务名，改掉密钥
+make app-up                          # 构建镜像 -> migrate up -> 起 app
+make app-seed-admin                  # 首次需要，创建 admin 账号
+```
+
+起来后访问 <http://localhost:8081>（宿主机 8080 留给本地 `make dev` 的 air 进程，
+和 mysql 3307 / redis 6380 是同一套端口避让约定）。`make app-logs` 看日志，`make app-down` 停。
+
+`app`/`migrate` 两个服务带 compose profile `app`，默认不启动——`make db-up` + `make dev`
+的本地开发流程完全不受影响。
+
+⚠️ **跑集成测试前先 `make app-down`**：容器和 `make test` 连的是同一套 dev 数据库，
+容器里的 asynq reconcile 任务会在测试跑到一半时改动数据，导致 `TestRetrievalGatePhase6`
+这类依赖真实库的用例莫名其妙地挂。
+
+**关于 ollama**：它不在 compose 里，跑在宿主机上（macOS 下 Docker 拿不到 Metal GPU，
+塞进容器只能用 CPU）。容器里访问它填 `http://host.docker.internal:11434/v1`，这个值配在
+Web 界面的「模型供应商」里（存 MySQL 的 `model_providers.base_url`），不是环境变量。
+compose 里给 app 加了 `extra_hosts: host.docker.internal:host-gateway`，所以这一份配置在
+macOS 和 Linux 服务器上通用。区别在于宿主机的 ollama 监听地址：
+
+- **macOS**：不用改。Docker Desktop 的网络栈会把 `host.docker.internal` 的流量从宿主机本地发出，
+  默认只听 `127.0.0.1` 的 ollama 也连得通（已实测）。
+- **Linux 服务器**：需要 `OLLAMA_HOST=0.0.0.0 ollama serve`，因为流量来自 docker 网桥地址，
+  只听回环会被拒。注意这会把 ollama 暴露到局域网，记得用防火墙只放行 docker 网段（`172.17.0.0/16`）。
+
 ## 测试
 
 ```bash

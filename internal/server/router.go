@@ -5,6 +5,7 @@ package server
 
 import (
 	"database/sql"
+	"io/fs"
 	"log/slog"
 
 	"github.com/gin-gonic/gin"
@@ -22,6 +23,9 @@ type Config struct {
 	// readiness must cover it alongside MySQL and Redis.
 	PG    *sql.DB
 	Redis *redis.Client
+	// WebAssets 是前端构建产物（web.Dist()），nil 表示这个二进制里没有
+	// 前端——开发期前端由 Vite dev server 提供，Go 只当 API 服务。
+	WebAssets fs.FS
 }
 
 // New builds the engine with framework-level middleware and the
@@ -46,6 +50,9 @@ func New(cfg Config) (*gin.Engine, *gin.RouterGroup) {
 	v1 := r.Group("/api/v1")
 	v1.GET("/health", httperr.Wrap(HealthCheck))
 	v1.GET("/ready", httperr.Wrap(Readiness(cfg.DB, cfg.PG, cfg.Redis)))
+
+	// 必须在 v1 之后挂：NoRoute 是所有路由的兜底，语义上就该最后注册。
+	mountSPA(r, cfg.WebAssets)
 
 	return r, v1
 }

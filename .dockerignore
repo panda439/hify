@@ -1,0 +1,17 @@
+.git
+.github
+.claude
+.specify
+.agents
+specs
+docs
+bin/
+tmp/
+data/
+web/node_modules/
+web/dist/
+eval/runs/
+*.log
+.DS_Store
+.env
+.env.docker

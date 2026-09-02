@@ -63,7 +63,66 @@ services:
       timeout: 5s
       retries: 10
 
+  # ---------------------------------------------------------------------
+  # 下面两个服务带 profiles: ["app"]，默认不启动——`make db-up` 依旧只拉起
+  # mysql/postgres/redis，本地开发继续用 `make dev`(air 热重载) 跑后端，
+  # 容器化不影响开发体验。要跑整套容器用 `make app-up`。
+  # ---------------------------------------------------------------------
+
+  # 一次性迁移任务。和 app 分开是为了让「schema 变更」是一个可见、可失败、
+  # 可单独重跑的步骤，而不是塞进 app 的启动脚本里悄悄跑。
+  migrate:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.docker
+    command: ["migrate", "up"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    ports:
+      # 宿主机 8080 留给本地 air 开发进程（和 mysql 3307 / redis 6380 同一套
+      # 端口避让约定），容器化的这份从 8081 进：http://localhost:8081
+      - "8081:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # host.docker.internal 在 Docker Desktop(mac/win) 上是内置的，Linux 服务器
+    # 上不是——host-gateway 这行让它在 Linux 上也解析到宿主机，这样「ollama 跑
+    # 在宿主机」这套配置在本机和服务器上是同一份，不用改 provider 的 base_url。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - hify_app_data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
 volumes:
   hify_mysql_data:
   hify_postgres_data:
   hify_redis_data:
+  hify_app_data:
