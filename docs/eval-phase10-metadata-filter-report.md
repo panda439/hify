@@ -6,7 +6,8 @@
 
 ## 0. 一句话总结
 
-给 `knowledge.Service.Retrieve` 增加一个**可选、可关闭、默认关闭**的范围限定入参，
+给 `knowledge.Service.Retrieve` 增加一个**可选、可关闭**的范围限定入参（本期默认关闭；
+Phase 12 起默认开启，理由见该期报告 §2），
 支持按 `document_id` 集合与 PDF 页码范围缩小候选来源，且该限定**下推到向量路与关键词路的
 召回 SQL**，而不是召回之后在 Go 里筛。
 

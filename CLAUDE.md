@@ -41,5 +41,7 @@ Hify 是模块化单体：`internal/` 下每个业务目录（auth, user, provid
 ## 其他约定
 
 - `Makefile` 提供 `dev`/`build`/`migrate-up`/`migrate-down`/`sqlc`/`check-deps`/`eval` 目标，日常开发用这些命令而不是手写等价命令。
+- 容器化运行整套（后端也进容器）用 `app-*` 目标：`app-up`/`app-down`/`app-logs`/`app-seed-admin`。`app`/`migrate` 两个 compose 服务带 profile `app`，默认不启动，不影响 `make db-up` + `make dev` 的本地开发流程。**跑集成测试前必须 `make app-down`**——容器和测试共用同一套 dev 库，容器里的 asynq reconcile 会污染测试数据。
+- 前端由 `web/embed.go` 用 `go:embed` 收进二进制，`internal/server/static.go` 负责挂载和 SPA fallback。`web/dist/` 是 gitignore 的构建产物，但 `web/dist/.gitkeep` 必须保留在版本库里——`go:embed` 匹配不到任何文件是编译错误，全新 clone 会编译失败。
 - API 统一在 `/api/v1/*`，其余路径走 SPA fallback。
 - Redis 只做缓存/限流状态/asynq 任务队列，不存任何"真相"数据。熔断器状态保持进程内，不放 Redis 跨实例共享。

@@ -25,7 +25,12 @@ const (
 	AttrFilteredByScoreCount  = "hify.rag.filtered_by_score_count"
 	AttrFilteredByBudgetCount = "hify.rag.filtered_by_budget_count"
 	AttrValidCitationCount    = "hify.rag.valid_citation_count"
-	AttrInvalidCitationCount  = "hify.rag.invalid_citation_count"
+
+	// 005-tool-loop-guard：本轮因重复调用被拦截的工具调用次数。
+	// 只记计数，不记工具名之外的任何东西——参数原文属于既有脱敏口径禁止
+	// 落 trace 的内容（见 runToolCall 关于 spanErrMsg 的注释）。
+	AttrToolLoopBlockedCount = "hify.tool.loop_blocked_count"
+	AttrInvalidCitationCount = "hify.rag.invalid_citation_count"
 	// AttrEvidence holds a JSON array of per-evidence metadata (ref,
 	// knowledge_base_id, document_id, chunk_id, score, content_length) —
 	// enough to trace which sources were used and how big they were,

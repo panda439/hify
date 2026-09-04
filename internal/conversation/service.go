@@ -253,6 +253,8 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 	// same reasoning as the recover defer's own comment below).
 	var turnErr error
 	var validCitationCount, invalidCitationCount int
+	// 005-tool-loop-guard：本轮因重复调用被拦截的次数，进 trace（只是计数，不含参数）。
+	var loopBlockedCount int
 	defer func() {
 		status := trace.StatusOK
 		errMsg := ""
@@ -267,6 +269,7 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 			Attrs: trace.Attrs(map[string]any{
 				trace.AttrValidCitationCount:   validCitationCount,
 				trace.AttrInvalidCitationCount: invalidCitationCount,
+				trace.AttrToolLoopBlockedCount: loopBlockedCount,
 			}),
 			StartedAt: turnStart, FinishedAt: time.Now(),
 		})
@@ -293,8 +296,30 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 
 	messages := req.Messages
 
+	// 005-tool-loop-guard：第二层止损的状态机，只在这一轮内有效（见 toolloop.go）。
+	loopGuard := newToolLoopDetector()
+	// 第一层的另外两半：累计 token 与墙钟。stopReason 记录最终是哪一项触顶，
+	// 只在真的提前收尾时才被读取。
+	stopReason := stopByIterations
+	usedTokens := 0
+
 	for iteration := 0; iteration < maxToolCallIterations; iteration++ {
+		// 预算检查放在**每轮开始**而不是结束：这样"已经超了"就不会再多打一次
+		// 模型调用。第 0 轮也检查——如果这一轮开始前就已经超时（前置的检索/
+		// 改写耗时过长），不该再往下走。
+		if reason, over := exceededBudget(time.Since(turnStart), usedTokens); over {
+			stopReason = reason
+			slog.Info("conversation: turn budget exceeded, stopping tool loop",
+				"conversation_id", conversationID, "trace_id", traceID,
+				"reason", reason, "iteration", iteration,
+				"elapsed_ms", time.Since(turnStart).Milliseconds(), "used_tokens", usedTokens)
+			break
+		}
+
 		req.Messages = messages
+		// 被拦截的工具在本轮后续迭代里必须真的消失，而不只是"注入一条消息劝它别调"
+		// ——已知失败模式是模型道歉之后再调一次同样的。
+		req.Tools = availableTools(req.Tools, loopGuard)
 
 		llmSpanStart := time.Now()
 		chunks, err := client.ChatStream(ctx, req)
@@ -338,6 +363,11 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 			}
 		}
 
+		// 累加**这次调用**的用量：工具循环每轮都会把完整历史重发，prompt token
+		// 是反复计费的，所以按调用累加才等于真实成本。usage 是 best-effort，
+		// 供应商不返回时为零值，此时 token 预算不会触发（见 exceededBudget）。
+		usedTokens += usage.TotalTokens
+
 		if streamErr != nil {
 			turnErr = streamErr
 			s.recordLLMCallSpan(traceID, conversationID, req.Model, llmSpanStart, messages, buf.String(), finishReason, trace.StatusError, streamErr.Error(), usage)
@@ -352,6 +382,32 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 			messages = append(messages, provider.Message{Role: provider.RoleAssistant, Content: buf.String(), ToolCalls: toolCalls})
 
 			for _, tc := range toolCalls {
+				// 005-tool-loop-guard：先看这次调用是不是同一调用的第
+				// maxIdenticalToolCalls 次连续出现。是的话不执行它，回一条工具
+				// 结果（协议要求每个 tool_call 都有配对的 tool 消息，缺了下一次
+				// 请求就是畸形的），并注入一条给模型指出路的系统消息。
+				if loopGuard.isBlocked(tc.Name) {
+					blocked := blockedToolResultMessage(tc.Name)
+					s.persistToolResult(conversationID, tc, blocked)
+					messages = append(messages, provider.Message{Role: provider.RoleTool, Content: blocked, ToolCallID: tc.ID})
+					continue
+				}
+				if loopGuard.observe(tc.Name, string(tc.Arguments)) {
+					slog.Info("conversation: tool loop detected, blocking tool for this turn",
+						"conversation_id", conversationID, "trace_id", traceID,
+						"tool", tc.Name, "repeat_count", maxIdenticalToolCalls,
+						"args_fingerprint", fingerprintPrefix(toolCallFingerprint(tc.Name, string(tc.Arguments))))
+					loopBlockedCount++
+
+					blocked := blockedToolResultMessage(tc.Name)
+					s.persistToolResult(conversationID, tc, blocked)
+					messages = append(messages, provider.Message{Role: provider.RoleTool, Content: blocked, ToolCallID: tc.ID})
+					messages = append(messages, provider.Message{
+						Role:    provider.RoleSystem,
+						Content: loopInterventionMessage(tc.Name, maxIdenticalToolCalls),
+					})
+					continue
+				}
 				result := s.runToolCall(ctx, tc, toolNameToID, conversationID, traceID, events)
 				messages = append(messages, provider.Message{Role: provider.RoleTool, Content: result, ToolCallID: tc.ID})
 			}
@@ -394,8 +450,43 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 		return
 	}
 
-	turnErr = errTooManyToolIterations
-	trySend(ctx, events, StreamEvent{Type: EventError, TraceID: traceID, Error: "工具调用次数过多，已终止本轮对话"})
+	// 005-tool-loop-guard 第三层：触顶不再直接报错。
+	//
+	// 中间过程本来就是逐轮落库的（上面每次 tool_calls 分支都调了
+	// persistAssistantTurn / persistToolResult），缺的是**一个收尾的答复**——
+	// 在此之前用户看到的是一条错误，会话历史里一串工具调用然后戛然而止，
+	// 不知道系统做了什么、为什么停了。
+	//
+	// 收尾文案由程序拼接、不再调模型：让模型基于不完整的中间结果作答会诱发
+	// 填空式幻觉（它会把缺的那部分编出来），而"信息可能不完整"这句声明必须
+	// 由程序保证，不能寄望于提示词。见 toolLoopExhaustedMessage 的注释。
+	//
+	// 不挂任何 Citation：这是一条程序文案，不是基于检索证据生成的回答，
+	// 给它挂引用会让它看起来像有出处。
+	turnErr = stopReasonError(stopReason)
+	exhausted := toolLoopExhaustedMessage(stopReason)
+	s.persistAssistantTurn(conversationID, exhausted, nil)
+	if !trySend(ctx, events, StreamEvent{Type: EventFinal, TraceID: traceID, Content: exhausted}) {
+		slog.Warn("conversation: tool-loop exhaustion notice not delivered (client disconnected), content already persisted",
+			"conversation_id", conversationID)
+		return
+	}
+	trySend(ctx, events, StreamEvent{Type: EventDone, TraceID: traceID})
+}
+
+// availableTools 去掉本轮已被循环检测停用的工具。返回原切片（而不是拷贝）
+// 当没有任何工具被停用时——绝大多数对话走这条路径，不该为此多分配一次。
+func availableTools(tools []provider.ToolDefinition, guard *toolLoopDetector) []provider.ToolDefinition {
+	if len(guard.blocked) == 0 {
+		return tools
+	}
+	out := make([]provider.ToolDefinition, 0, len(tools))
+	for _, t := range tools {
+		if !guard.isBlocked(t.Name) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // errClientDisconnected/errTooManyToolIterations back runStream's turnErr —
@@ -406,7 +497,23 @@ func (s *service) runStream(ctx context.Context, client provider.Client, req pro
 var (
 	errClientDisconnected    = errors.New("client disconnected mid-stream")
 	errTooManyToolIterations = errors.New("max tool-call iterations reached")
+	errTurnDurationExceeded  = errors.New("max turn duration exceeded")
+	errTurnTokenBudgetSpent  = errors.New("max turn token budget exceeded")
 )
+
+// stopReasonError 把提前收尾的原因映射成 trace 里记录的内部错误。
+// 三者都只进 trace_spans.error_message（内部排查字段），给用户的说明由
+// toolLoopExhaustedMessage 单独生成。
+func stopReasonError(reason turnStopReason) error {
+	switch reason {
+	case stopByDuration:
+		return errTurnDurationExceeded
+	case stopByTokens:
+		return errTurnTokenBudgetSpent
+	default:
+		return errTooManyToolIterations
+	}
+}
 
 // recordLLMCallSpan records one ChatStream call (one loop iteration) as a
 // kind=llm_call span. Input/Output deliberately stay empty — messages can
@@ -459,6 +566,24 @@ func trySend(ctx context.Context, events chan<- StreamEvent, evt StreamEvent) bo
 		return true
 	case <-ctx.Done():
 		return false
+	}
+}
+
+// persistToolResult 落一条 role=tool 消息。005-tool-loop-guard 用它给**没有真正
+// 执行**的调用（被循环检测拦截的）补一条配对结果——工具调用协议要求每个
+// tool_call 都有配对的 tool 消息，缺了下一次请求就是畸形的；静默丢弃还会让模型
+// 看不到任何反馈，更容易继续转圈。
+func (s *service) persistToolResult(conversationID string, tc provider.ToolCall, content string) {
+	persistCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := s.repo.createMessage(persistCtx, Message{
+		ID:             platform.NewID(),
+		ConversationID: conversationID,
+		Role:           string(provider.RoleTool),
+		Content:        content,
+		ToolCallID:     tc.ID,
+	}); err != nil {
+		slog.Error("conversation: persist blocked tool message failed", "err", err, "conversation_id", conversationID)
 	}
 }
 

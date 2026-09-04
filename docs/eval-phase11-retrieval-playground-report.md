@@ -195,8 +195,14 @@ tsc -b && vite build  →  ✓ built in 325ms（无 TS 错误）
 2. **`document_name` 对存量 chunk 是空串**（`000003` 迁移前入库的行）。
    前端已做兜底（回退显示 document_id），但显示效果不理想。
    正当修法是重新处理文档，不在本期范围。
-3. **面板默认状态下勾选文档会报错**。`HIFY_RAG_METADATA_FILTER_ENABLED` 默认仍是 `false`，
-   这是**有意保持**的（spec 明确不改默认值）。界面把需要设置的环境变量名直接写在错误提示里。
+3. ~~**面板默认状态下勾选文档会报错**~~ **已过期，Phase 12 改变了前提**。
+   本期写这条时 `HIFY_RAG_METADATA_FILTER_ENABLED` 默认是 `false`（当时是有意保持的，
+   spec 明确不改默认值）。**Phase 12（004-agent-document-scope）把默认值改成了 `true`**——
+   因为 Agent 能绑定文档范围之后，关闭开关会制造一条静默降级路径（配了范围的 Agent
+   会不带任何资料凭空作答）。理由与安全性论证见
+   `docs/eval-phase12-agent-document-scope-report.md` §2。
+   现在默认配置下面板可以直接勾选文档，不会再报「过滤未启用」。
+   界面里那段「需要设置哪个环境变量」的错误提示仍然保留——显式关闭开关时依然会用到。
 4. **没有分页**。topK 上限 50（`clampTopK`），一屏够放。
 5. **权限沿用知识库既有模型**（登录用户皆可检索），本期未新增权限维度。
 

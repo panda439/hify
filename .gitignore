@@ -2,10 +2,12 @@
 bin/
 tmp/
 data/
-web/dist/
+web/dist/*
+!web/dist/.gitkeep
 web/node_modules/
 *.log
 .DS_Store
 eval/runs/*.json
 eval/baseline.json
 .claude/settings.local.json
+.env.docker
