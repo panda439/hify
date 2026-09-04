@@ -1121,8 +1121,10 @@ func TestIntegrationStreamMessageContextExactBoundaryStillSucceeds(t *testing.T)
 // --- 001-rag-query-rerank US1：查询改写集成测试（T015） ---
 
 // seedPriorTurn 在 conv 里插入一轮"前置对话"（user+assistant），用来满足
-// shouldSkipRewrite 的"有历史"条件——有历史时快速路径总是不 skip，这样
-// 下面几个测试断言的就是改写本身的行为，而不是快速路径判定。
+// shouldSkipRewrite 的"有历史"条件。下面几个测试断言的是改写本身的行为，
+// 不是快速路径判定——所以它们的用户提问都刻意带指代词（"那它呢"/"它怎么
+// 配置"），指代词命中就一定不 skip，与有没有历史无关。光靠"有历史"已经
+// 不足以绕开快速路径了：自足性判定收紧后，有历史但问题完整的轮次照样 skip。
 func seedPriorTurn(t *testing.T, repo *Repository, convID string) {
 	t.Helper()
 	ctx := context.Background()

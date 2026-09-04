@@ -28,6 +28,16 @@ const (
 	// minRewriteTriggerRunes 短于此长度（去除标点空白后）的问题不值得触发
 	// 改写——空串、纯标点、纯表情都落在这里，按现有空查询逻辑处理即可。
 	minRewriteTriggerRunes = 2
+
+	// selfContainedMinRunes/selfContainedMinSignals 是"有历史、但问题本身
+	// 已经自足"的判定门槛（见 shouldSkipRewrite 的说明）。两个阈值都是经验
+	// 起点，不是推导出来的常数——调之前先用 eval 集扫一遍，确认召回指标不掉。
+	//
+	// 判错的代价是不对称的：漏判（该改写却跳过了）只是这一轮召回差一点，
+	// 而误判（不该改写却改了）是白付一次 LLM 调用。所以门槛可以往"多跳过"
+	// 的方向调，但必须有 make eval-retrieval-gate 兜着。
+	selfContainedMinRunes   = 8
+	selfContainedMinSignals = 2
 )
 
 // chinesePronouns/englishPronounPattern 是 shouldSkipRewrite 判断"是否含指
@@ -42,8 +52,12 @@ const (
 // 删掉它们不会漏掉真正的省略式提问：真实的指代要么带量词（这个/那个），要么
 // 是「它/它们/上述/前者/后者」这类本身就不会嵌进其他词的形式；而「那它的上限
 // 呢」这种典型句式仍然命中「它」。更关键的是，省略式追问几乎必然发生在多轮
-// 里，而 shouldSkipRewrite 只要 hasHistory 为真就一律不 skip——指代词模式真正
+// 里，而多轮场景里指代词几乎必然出现——指代词模式真正
 // 起作用的场景只有"首轮就带指代词"，那里宁可漏判也不该误判。
+//
+// 补充：shouldSkipRewrite 后来收紧了「有历史一律改写」这条（见该函数注释），
+// 有历史时也会走自足性判定。但指代词判断的定位没变——它仍然是"不自足"最强
+// 的信号，命中就直接改写，不再看长度和信号数。
 var chinesePronouns = []string{
 	"它们", "它", "他", "她",
 	"这个", "那个", "这些", "那些", "上述", "上面", "前者", "后者",
@@ -65,21 +79,47 @@ var pronounFalseFriends = []string{"其他", "其它", "吉他"}
 //
 // Order matters: an empty/punctuation-only question always skips
 // regardless of history (spec's Edge Cases — nothing usable to rewrite
-// either way); otherwise any history present forces a rewrite attempt;
-// otherwise a pronoun anywhere in the question forces a rewrite attempt;
-// everything else (a normal, complete, history-free question) skips.
+// either way); otherwise a pronoun anywhere in the question forces a
+// rewrite attempt; a history-free question without pronouns skips
+// (FR-004); and a question that HAS history but is already self-contained
+// also skips.
+//
+// 最后这条是对最初实现的收紧。原本「有历史」就一律不 skip，等于多轮对话里
+// 每一轮都要付一次改写调用——但改写要解决的是「检索器读不懂指代」，问题本身
+// 自足时（"pgvector 的 HNSW 参数怎么调"）改写没有任何东西可补，那次调用纯属
+// 浪费。判定复用 extractRelevanceSignals：它剥掉指代词和高频虚词后剩下的
+// bigram/ASCII 词，就是"这个问题自己携带了多少内容"的现成度量，不必另写一套
+// 实体抽取（中文没有分词器，也写不准）。
+//
+// 注意这里只是把快速路径从 FR-004 的「完整且无历史」放宽到「完整」，是它的
+// 超集，不与 FR-004 的 MUST 冲突。
 func shouldSkipRewrite(query string, hasHistory bool) bool {
 	normalized := stripPunctuationAndSpace(strings.TrimSpace(query))
 	if utf8.RuneCountInString(normalized) < minRewriteTriggerRunes {
 		return true
 	}
-	if hasHistory {
-		return false
-	}
+	// 指代词是"不自足"最强的信号，有没有历史都要改写：首轮带指代词说明用户
+	// 在指某个我们看不到的东西，多轮带指代词更是改写的主场。
 	if containsPronoun(query) {
 		return false
 	}
-	return true
+	if !hasHistory {
+		return true
+	}
+	return isSelfContained(query, normalized)
+}
+
+// isSelfContained 判断一个"有历史、但不含指代词"的问题是否已经能独立理解。
+// normalized 必须是 query 去掉标点空白后的结果（由调用方算好，避免重复扫描）。
+//
+// 两道门槛都必须过：够长，且带够内容信号。只看长度会把"这个上限呢这个上限呢"
+// 这类堆砌虚词的长句放过去；只看信号数会把"HNSW"这种极短但确实有信号的输入
+// 放过去，而那种输入恰恰最需要历史来补全成一个完整问题。
+func isSelfContained(query, normalized string) bool {
+	if utf8.RuneCountInString(normalized) < selfContainedMinRunes {
+		return false
+	}
+	return len(extractRelevanceSignals(query)) >= selfContainedMinSignals
 }
 
 // stripPunctuationAndSpace drops punctuation, symbols (including emoji,

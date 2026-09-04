@@ -12,7 +12,7 @@
 - **弹性调用装饰器**：per-provider 熔断（gobreaker）、并发限流 + Redis 令牌桶、指数退避重试（流式场景只重试首连，断流绝不重试以避免向客户端重复推送）、空闲超时。
 - **RAG 全流程**：结构感知文档解析分块（md 保留标题/段落/列表/代码块/表格并把标题带入 embedding 内容、txt 按段落/句子边界切、pdf 逐字形位置重建后按页切分保留页码；单个结构超限统一回退定长切分；PDF 无 OCR，扫描版/无文字层直接报错，Markdown 解析是行级启发式而非完整 CommonMark）→ 批量 embedding →  **Hybrid Search**：**PostgreSQL + pgvector** 余弦向量检索 + **pg_trgm** 字符级 trigram/word-similarity 关键词检索（不是 BM25，中英文一视同仁）并行召回，各自在库内打分/排序取宽候选窗口（`candidateK`），**Reciprocal Rank Fusion** 按 chunk ID 去重融合、**证据准入（Evidence Admission，Phase 8）**：用两路各自的原始相关度（不是 RRF 融合分，那只是排名信号）分别把关——向量余弦相似度 ≥ 0.35 或关键词 word-similarity ≥ 0.45，任一路达标即通过，两路都不达标的候选整体拒绝（固定包内常量，不做运行时可配置、也不用相对分差代替绝对门槛）；全部候选都被拒绝时 `Retrieve` 直接返回空结果，对话仍正常回答但不注入知识库内容、不生成引用——再**内容去重（Exact Content Dedup）**后截断全局 topK 核心命中（准入必须先于内容去重：被拒绝的高排名重复项先出局，剩余候选里"正文完全相同只保留排名最高者"才不会错误吞掉排名较低但合格的那一条；去重同样发生在截断到 topK 之前，让内容不同的候选可以补位；只做保守的 CRLF/首尾空白/行尾空格归一化，不做语义或模糊相似去重；无维度声明 vector 列支撑混合维度知识库；关键词一路不依赖 embedding，向量一路的 embedding 服务失败时仍可退化返回关键词结果）→ **邻接分块扩展（Neighbor Window Retrieval）**：每个核心命中块（已经过内容去重，被淘汰的重复核心块不再查询邻接窗口）best-effort 补上同文档、同 `document_version`、已发布的前一个/后一个 chunk（不参与排名；输出布局是全部核心块在前、全部邻接块整体在后的两层结构，绝不逐个核心块交替，配合对话侧按输入顺序贪心消耗预算的既有逻辑，保证预算不足时邻接块绝不挤出排名更低的核心块，也不需要提高 RAG 字符预算；绝不跨文档重处理版本混入邻接内容）——**批量邻接查询（Batch Neighbor Lookup）**：不管一次检索涉及多少个核心命中块、多少个不同的文档/版本，正常路径只发生一次数据库往返（把所有核心块需要的 `document_id + document_version + chunk_index` 坐标去重展平后一次批量取回，取代了早期按文档版本分组循环查询的 N+1 模式），批量查询失败或 KB 重新处理导致旧版本被删除时静默降级为只返回核心块 → 邻接扩展后再做一次内容去重（核心块优先于邻接块，邻接块之间保留输出顺序靠前者）→ 检索结果注入对话上下文并通过 SSE 暴露调试信息。
 
-  **查询优化与结果重排序（Phase 9）**在这条流水线的两端各加一层，两者都默认关闭、都可独立开关、任何失败都只降级为本功能上线前的行为而绝不让对话失败：**入口**在 `conversation` 组装上下文、调用 `knowledge.Retrieve` **之前**，把依赖上文的省略式追问（"那它的上限呢"）改写成脱离聊天记录也能独立理解的检索问题——无历史且不含指代词时走纯函数快速路径不产生任何模型调用，指代不明时模型置 `ambiguous` 并静默退回原问题（不打断对话反问用户），改写只影响检索输入，用户原话原样进入消息序列；**出口**在候选截断到 topK **之前**、准入与内容去重**之后**，用 cross-encoder 式 rerank 模型（供应商模型体系新增的第三类 `rerank` 能力，走 `/rerank` 端点）对融合排名前 50 的候选重新打分排序，分数相同时回退到重排前原始位置保证确定性，重排分数只用于决定顺序、绝不写入 `RetrievedChunk.Score`（后者语义是两路召回相关度的较大值，被覆盖会撞上对话侧 0.2 分数线把证据静默过滤掉），响应出现未知/重复/缺失 index 时整体丢弃保持融合排序、绝不部分采用。详见 [docs/eval-phase9-query-rerank-report.md](docs/eval-phase9-query-rerank-report.md)。
+  **查询优化与结果重排序（Phase 9）**在这条流水线的两端各加一层，两者都默认关闭、都可独立开关、任何失败都只降级为本功能上线前的行为而绝不让对话失败：**入口**在 `conversation` 组装上下文、调用 `knowledge.Retrieve` **之前**，把依赖上文的省略式追问（"那它的上限呢"）改写成脱离聊天记录也能独立理解的检索问题——问题本身已经自足时走纯函数快速路径、不产生任何模型调用（不含指代词，且要么是首轮、要么长度与内容信号数都达标），指代不明时模型置 `ambiguous` 并静默退回原问题（不打断对话反问用户），改写只影响检索输入，用户原话原样进入消息序列；**出口**在候选截断到 topK **之前**、准入与内容去重**之后**，用 cross-encoder 式 rerank 模型（供应商模型体系新增的第三类 `rerank` 能力，走 `/rerank` 端点）对融合排名前 50 的候选重新打分排序，分数相同时回退到重排前原始位置保证确定性，重排分数只用于决定顺序、绝不写入 `RetrievedChunk.Score`（后者语义是两路召回相关度的较大值，被覆盖会撞上对话侧 0.2 分数线把证据静默过滤掉），响应出现未知/重复/缺失 index 时整体丢弃保持融合排序、绝不部分采用。详见 [docs/eval-phase9-query-rerank-report.md](docs/eval-phase9-query-rerank-report.md)。
 
   上游各阶段详见 [docs/eval-phase3-hybrid-search-report.md](docs/eval-phase3-hybrid-search-report.md)、[docs/eval-phase4-neighbor-window-report.md](docs/eval-phase4-neighbor-window-report.md)、[docs/eval-phase5-content-dedup-report.md](docs/eval-phase5-content-dedup-report.md)、[docs/eval-phase6-retrieval-gate-report.md](docs/eval-phase6-retrieval-gate-report.md)、[docs/eval-phase7-batch-neighbor-report.md](docs/eval-phase7-batch-neighbor-report.md)、[docs/eval-phase8-evidence-admission-report.md](docs/eval-phase8-evidence-admission-report.md)。
 - **Agent 工具调用循环**：OpenAI 风格 function calling，流式 tool_calls 按 Index 合并分片，MCP（stdio + SSE）工具发现/同步/调用，最大迭代保护。
@@ -78,11 +78,20 @@ make eval-retrieval-gate
 | 环境变量 | 默认 | 说明 |
 |---|---|---|
 | `HIFY_RAG_QUERY_REWRITE_ENABLED` | `false` | 查询优化总开关 |
-| `HIFY_RAG_QUERY_REWRITE_MODEL_ID` | `""` | 留空则用当前 Agent 自己的 chat 模型 |
+| `HIFY_RAG_QUERY_REWRITE_MODEL_ID` | `""` | 留空则用当前 Agent 自己的 chat 模型；**生产建议显式指向一个小模型** |
 | `HIFY_RAG_QUERY_REWRITE_TIMEOUT` | `1500ms` | 超时立即降级为原问题 |
 | `HIFY_RAG_RERANK_ENABLED` | `false` | 重排总开关 |
 | `HIFY_RAG_RERANK_MODEL_ID` | `""` | 必须指向 `capability='rerank'` 且启用中的模型；为空视同关闭 |
 | `HIFY_RAG_RERANK_TIMEOUT` | `1500ms` | 超时立即降级为保持融合排序 |
+
+改写是个极简单的任务（补全指代，输出一行 JSON），不需要主对话模型。留空时它会复用
+Agent 自己的 chat 模型——如果那是个大模型，每次改写都在按大模型的价格和延迟付费。显式
+把 `HIFY_RAG_QUERY_REWRITE_MODEL_ID` 指向一个 1~2B 的本地小模型，成本能降一到两个数量级，
+延迟也从几百毫秒掉到几十毫秒，而改写质量基本无差。
+
+另外，只有"问题本身不自足"的轮次才会真的发起改写调用（含指代词，或有历史且问题过短/
+内容信号不足），完整问题无论有没有历史都走快速路径零调用——判定见
+`internal/conversation/queryrewrite.go` 的 `shouldSkipRewrite`。
 
 `HIFY_RAG_RERANK_ENABLED=true` 但没配模型 ID 时**不会**让进程启动失败，只降级为关闭并打一条
 `slog.Warn`——配置错误不该拖垮整个进程。

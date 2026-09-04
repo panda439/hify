@@ -47,8 +47,17 @@ func TestShouldSkipRewrite(t *testing.T) {
 		{name: "假阳性防回归：尤其 不含指代 -> skip", query: "尤其是大文档的处理流程是怎样的", hasHistory: false, want: true},
 		{name: "假阳性防回归：这里 不含指代 -> skip", query: "文档上传失败时这里会记录什么日志", hasHistory: false, want: true},
 		{name: "假阳性防回归：那么 不含指代 -> skip", query: "如果分块过大那么检索质量会下降吗", hasHistory: false, want: true},
-		{name: "无指代词但有历史 -> 不skip", query: "Hify 的分块策略是什么", hasHistory: true, want: false},
 		{name: "含指代词且有历史 -> 不skip", query: "那它呢", hasHistory: true, want: false},
+
+		// 有历史时的自足性判定（原本这里是「有历史一律不 skip」，多轮里每轮
+		// 都白付一次改写调用）。改写补的是指代，问题本身自足就没东西可补。
+		{name: "有历史+无指代+自足 -> skip", query: "Hify 的分块策略是什么", hasHistory: true, want: true},
+		{name: "有历史+无指代+自足（英文术语）-> skip", query: "pgvector 的 HNSW 参数怎么调", hasHistory: true, want: true},
+		{name: "有历史+无指代+自足（纯英文）-> skip", query: "what is the chunk size limit", hasHistory: true, want: true},
+		{name: "有历史+无指代但太短 -> 不skip", query: "上限呢", hasHistory: true, want: false},
+		{name: "有历史+无指代但全是虚词 -> 不skip", query: "那么具体是怎么样的呢", hasHistory: true, want: false},
+		{name: "有历史+极短但有信号 -> 不skip（正是需要历史补全的输入）", query: "HNSW", hasHistory: true, want: false},
+		{name: "无历史+无指代但太短 -> skip（首轮不看自足性）", query: "上限呢", hasHistory: false, want: true},
 		{name: "空串 -> skip", query: "", hasHistory: false, want: true},
 		{name: "纯标点 -> skip", query: "？！。", hasHistory: false, want: true},
 		{name: "空串但有历史 -> 仍skip（没有可改写的内容）", query: "   ", hasHistory: true, want: true},
@@ -268,8 +277,12 @@ func captureSlogOutput(t *testing.T) *bytes.Buffer {
 // queryrewrite.go parseRewriteResult 失败分支的既有设计意图——它的文档注
 // 释已经写明"Deliberately NOT logging err itself (FR-017)"，这里把它变成一
 // 条会真的跑起来验证的测试，而不是只靠注释自证。
+// 注：下面几个隐私测试的问题都以指代词开头。这不是随手写的——
+// shouldSkipRewrite 收紧后，"有历史"已不足以绕开快速路径（自足的问题照样
+// skip），必须让问题本身不自足，这些测试才真的走到它们要验证的改写/降级
+// 路径上。去掉指代词会让它们静默退化成"什么都没测"。
 func TestRewriteQueryPrivacyUnparsableOutputNeverLogsRawContent(t *testing.T) {
-	const sensitiveQuestion = "SECRET_QUESTION_不是JSON会漏出来吗_ABC123"
+	const sensitiveQuestion = "它SECRET_QUESTION_不是JSON会漏出来吗_ABC123"
 	const sensitiveRawOutput = "SECRET_MODEL_RAW_OUTPUT_XYZ789"
 
 	buf := captureSlogOutput(t)
@@ -321,7 +334,7 @@ func TestRewriteQueryPrivacyValidationFailureNeverLogsRawContent(t *testing.T) {
 	// "校验拒绝、且不泄漏"路径（之前踩过这个坑：两个标记都带 SECRET_ 前
 	// 缀，被当成"共享信号"而被判定为合法改写，Applied=true 而不是期望的
 	// Degraded=true）。
-	const sensitiveQuestion = "校验失败也不该漏QALPHA406"
+	const sensitiveQuestion = "它校验失败也不该漏QALPHA406"
 	const sensitiveRewrite = "跑题内容RBETA321"
 
 	buf := captureSlogOutput(t)
@@ -363,7 +376,7 @@ func TestRewriteQueryPrivacyValidationFailureNeverLogsRawContent(t *testing.T) {
 // 是"即便 err 里意外夹带了敏感串，我们也至少能发现它"这条安全网真的能跑起
 // 来，而不是形同虚设。
 func TestRewriteQueryPrivacyLLMCallErrorNeverLogsQuestionContent(t *testing.T) {
-	const sensitiveQuestion = "SECRET_QUESTION_LLM调用失败也不该漏_GHI789"
+	const sensitiveQuestion = "它SECRET_QUESTION_LLM调用失败也不该漏_GHI789"
 
 	buf := captureSlogOutput(t)
 
@@ -400,7 +413,7 @@ func TestRewriteQueryPrivacyLLMCallErrorNeverLogsQuestionContent(t *testing.T) {
 // Applied=true 的改写结果——这里专门覆盖"改写真的发生了"这个更贴近生产
 // 的分支。
 func TestIntegrationQueryRewriteSpanNeverStoresQuestionOrRewriteContent(t *testing.T) {
-	const sensitiveQuestion = "那SECRET_SPAN_ORIGINAL_QUESTION_原问题标记_111的限制呢"
+	const sensitiveQuestion = "它SECRET_SPAN_ORIGINAL_QUESTION_原问题标记_111的限制呢"
 	const sensitiveRewrite = "SECRET_SPAN_REWRITTEN_QUESTION_改写后问题标记_222"
 
 	db := testutil.MySQL(t, "conversation")
