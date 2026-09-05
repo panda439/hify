@@ -49,6 +49,27 @@ description: "Task list template for feature implementation"
 
 **Purpose**: Project initialization and basic structure
 
+<!--
+  ============================================================================
+  Hify 项目的三条经验规则（006/007/008 各付过一次学费，写在这里免得再付第四次）
+
+  1. ⭐ 验收用例引用到的**类型字段**必须划进 Phase 1，不能留到 Foundational。
+     宪法第 VI 条要求验收用例在改动前先跑出 FAIL，但如果它引用的字段还不存在，
+     它是**编译失败**而不是断言失败——「undefined: Xxx」证明不了任何事。
+     加一个未被读写的结构体字段不改变行为，所以提前不破坏「Phase 1 不写实现」
+     的意图。这条规则连续三期被现场补，第四次应该一开始就写对。
+
+  2. ⭐ 造出来的测试夹具必须**验证它触发的是哪条代码路径**，而不是只验它"造出来了"。
+     008 的夹具要触发 pageParsePanicked 而不是 pageUnresolvable，两条分支只有
+     前者是那期要覆盖的机制。不验的话，整期验收会建立在一个错的前提上，
+     而且从头到尾没有任何迹象。夹具任务应当自带一条「确认走的是哪条分支」的验证。
+
+  3. ⭐ 新增一个字段/一列时，既有的「这里应该是空」类断言必须**一并扩展**。
+     008 的变异测试逃逸了一项，就是因为 007 的「非 PDF 不带提示」用例只断言了
+     旧的那一列，新列被误写照样绿。新字段天生没有看守，除非主动给它加上。
+  ============================================================================
+-->
+
 - [ ] T001 Create project structure per implementation plan
 - [ ] T002 Initialize [language] project with [framework] dependencies
 - [ ] T003 [P] Configure linting and formatting tools
