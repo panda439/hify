@@ -260,11 +260,25 @@ type Document struct {
 	Status          string
 	ErrorMessage    string
 	ChunkCount      int
-	Version         int64
-	LeaseExpiresAt  *time.Time
-	CreatedBy       string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+
+	// UnextractedPages 是这次处理中**没能提取到文本**的页码（1-indexed、升序、
+	// 去重）。典型来源是夹在电子文档中间的扫描页——一份 50 页合同后 5 页是扫描
+	// 的签字页，那 5 页进不了知识库。
+	//
+	// nil 同时表示两件事：这次处理没有缺页，或者这份文档从未被本功能上线后的
+	// 版本处理过（存量行）。**系统不区分它们，因为它确实不知道**——一份从未
+	// 重新处理过的文档当初有没有缺页，那个信息在当时的抽取阶段就没被记录，
+	// 凭空给它一个值就是编造。两者都渲染为"无提示"。
+	//
+	// ⚠️ 它**不是错误**：携带它的文档 Status 仍然是 ready，可以正常检索，只是
+	// 内容不完整。失败原因走 ErrorMessage，两条通道完全独立（FR-002）——
+	// 一份文档绝不因为携带提示而被视为失败。
+	UnextractedPages []int
+	Version          int64
+	LeaseExpiresAt   *time.Time
+	CreatedBy        string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // Chunk is one embedded slice of a Document. It's immutable derived data —

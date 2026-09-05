@@ -85,6 +85,17 @@ export interface KnowledgeDocument {
   status: DocumentStatus;
   error_message: string;
   chunk_count: number;
+  // 未能提取到文本的页码（1-indexed、升序）——典型来源是夹在电子文档中间的
+  // 扫描页。null 或 [] 都表示「无提示」：后端只发 null 或非空数组，但两者都要
+  // 当作无提示处理（契约 C2）。
+  //
+  // ⚠️ 它**不是错误**：携带它的文档 status 仍是 "ready"，可以正常检索，只是
+  // 内容不完整。失败原因走 error_message，两条通道完全独立。
+  //
+  // ⚠️ 展示与否**只看 status**，不看这个字段有没有值：它可能是上一次成功处理
+  // 留下的，而这一次处理失败了——那时显示它就是在描述一个文档已经不在的状态
+  // （契约 C5）。
+  unextracted_pages: number[] | null;
   created_at: string;
   updated_at: string;
 }

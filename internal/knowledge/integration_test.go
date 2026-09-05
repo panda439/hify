@@ -871,7 +871,7 @@ func TestIntegrationRetryDocumentOnlyAllowedFromPendingOrFailed(t *testing.T) {
 	if ok, err := repo.markDocumentPublishing(ctx, "doc-retry-ready", 1, time.Now().Add(leaseDuration)); err != nil || !ok {
 		t.Fatalf("markDocumentPublishing setup = %v, %v", ok, err)
 	}
-	if ok, err := repo.markDocumentReady(ctx, "doc-retry-ready", 1, 0); err != nil || !ok {
+	if ok, err := repo.markDocumentReady(ctx, "doc-retry-ready", 1, 0, nil); err != nil || !ok {
 		t.Fatalf("markDocumentReady setup = %v, %v", ok, err)
 	}
 	if _, err := svc.RetryDocument(ctx, "doc-retry-ready", "owner-4", "user"); !errors.Is(err, ErrDocumentNotRetryable) {
@@ -1100,7 +1100,7 @@ func TestIntegrationPublishPermanentFailureReturnsErrorNotReady(t *testing.T) {
 	svc := &service{repo: repo, providerSvc: newFakeProvider(), storageDir: t.TempDir()}
 	cancelCtx, cancel := context.WithCancel(ctx)
 	cancel()
-	if err := svc.publishAndComplete(cancelCtx, "doc-pubdead", 1); err == nil {
+	if err := svc.publishAndComplete(cancelCtx, "doc-pubdead", 1, nil); err == nil {
 		t.Fatal("publishAndComplete with a dead context returned nil, want a non-nil error")
 	}
 
@@ -1529,7 +1529,7 @@ func TestIntegrationClaimPublishingRecoveryConcurrentOnlyOneWinsThenPublishes(t 
 	// unexported 方法，和 TestIntegrationPublishPermanentFailureReturnsErrorNotReady
 	// 用的是同一种白盒方式。
 	svc := &service{repo: repo, providerSvc: newFakeProvider(), storageDir: t.TempDir()}
-	if err := svc.publishAndComplete(ctx, "doc-toctou-pub2", 1); err != nil {
+	if err := svc.publishAndComplete(ctx, "doc-toctou-pub2", 1, nil); err != nil {
 		t.Fatalf("publishAndComplete: %v", err)
 	}
 
@@ -4878,4 +4878,252 @@ func TestIntegrationPageEndIsReadBackOnEveryRepositoryPath(t *testing.T) {
 		t.Fatalf("findPublishedNeighborChunksBatch: %v", err)
 	}
 	assertInterval("邻接批量查询", nbb, "pe-neighbor", 6, 6)
+}
+
+// --- 007-document-processing-notice US1：部分内容没进去时用户能看见 ---
+
+// TestIntegrationPartialScanNoticeReachesDocumentList 是 SC-001 的验收用例。
+//
+// ⚠️ 它刻意走 **ListDocuments**（文档列表）而不是 getDocument（单查）。
+// documents.sql 有三处 SELECT 要带出 unextracted_pages，漏掉列表那一处的话
+// 单查用例照样绿——而用户**唯一**能看到这条提示的地方恰恰是列表。用单查来
+// 验收这个功能，是在验一条用户永远走不到的路径。
+//
+// 夹具 F1：5 页 PDF，第 2、4 页没有文本层（真实场景里就是夹在电子文档中间的
+// 扫描签字页）。改动前的行为是：3 页正常入库、文档 ready、而"有 2 页没进去"
+// 这件事只存在于一条 slog.Warn 里，用户看不到任何东西。
+func TestIntegrationPartialScanNoticeReachesDocumentList(t *testing.T) {
+	repo := setupIntegration(t)
+	svc := newTestService(repo, newFakeProvider(), t.TempDir())
+	ctx := context.Background()
+
+	// ⚠️ 纯 ASCII：writeTestPDF 用 Courier + WinAnsi，中文会渲染成乱码。
+	path := writeTestPDF(t, pdfLinesFromStrings(
+		"pageone body text standing alone.",
+		"", // 第 2 页：扫描图，无文本层
+		"pagethree body text standing alone.",
+		"", // 第 4 页：扫描图，无文本层
+		"pagefive body text standing alone.",
+	))
+	seedDocForProcessing(t, repo, "kb-notice", "doc-notice", "contract.pdf", FileTypePDF, path)
+
+	if err := svc.ProcessDocument(ctx, "doc-notice", 1); err != nil {
+		t.Fatalf("部分扫描件应当正常入库有文本的部分，实际失败：%v", err)
+	}
+
+	docs, _, err := svc.ListDocuments(ctx, "kb-notice", 10, 0)
+	if err != nil {
+		t.Fatalf("ListDocuments: %v", err)
+	}
+	var got *Document
+	for i := range docs {
+		if docs[i].ID == "doc-notice" {
+			got = &docs[i]
+			break
+		}
+	}
+	if got == nil {
+		t.Fatalf("文档列表里没有 doc-notice：%+v", docs)
+	}
+
+	// 文档本身必须是可用的——这条提示不是错误（FR-002）。
+	if got.Status != StatusReady {
+		t.Fatalf("文档 status=%s，应当是 ready（携带提示不等于失败）", got.Status)
+	}
+	if got.ChunkCount == 0 {
+		t.Fatal("有文本的三页应当正常入库，chunk_count 不该是 0")
+	}
+
+	// ⭐ 这条是 SC-001 的核心：用户能从列表上看到「哪几页没进去」。
+	if len(got.UnextractedPages) == 0 {
+		t.Fatalf("文档列表没有带回缺页信息——用户无法知道有 2 页没进去，"+
+			"这条信息目前只存在于一条给开发者看的日志里。got=%+v", got)
+	}
+	want := []int{2, 4}
+	if len(got.UnextractedPages) != len(want) {
+		t.Fatalf("缺页页码 = %v，应当是 %v", got.UnextractedPages, want)
+	}
+	for i, p := range want {
+		if got.UnextractedPages[i] != p {
+			t.Fatalf("缺页页码 = %v，应当是 %v（1-indexed、升序）", got.UnextractedPages, want)
+		}
+	}
+}
+
+// --- 007 US3：提示随重新处理而更新（FR-004 / SC-005） ---
+
+// reprocessDoc 用一份新文件重新处理同一个文档：把 storage_path 换掉、版本推进，
+// 走一遍完整的 ProcessDocument。模拟用户把缺失页做了 OCR 后重新上传。
+func reprocessDoc(t *testing.T, repo *Repository, svc Service, docID string, version int64, newPath string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := repo.db.ExecContext(ctx,
+		"UPDATE documents SET storage_path = ?, status = 'pending', version = ? WHERE id = ?",
+		newPath, version, docID); err != nil {
+		t.Fatalf("reprocess setup: %v", err)
+	}
+	if err := svc.ProcessDocument(ctx, docID, version); err != nil {
+		t.Fatalf("ProcessDocument(v%d): %v", version, err)
+	}
+}
+
+func docByID(t *testing.T, repo *Repository, id string) Document {
+	t.Helper()
+	d, err := repo.getDocument(context.Background(), id)
+	if err != nil {
+		t.Fatalf("getDocument: %v", err)
+	}
+	return d
+}
+
+// TestIntegrationNoticeDisappearsWhenPagesNoLongerMissing 是 SC-005。
+//
+// ⚠️ 这条用例背后**几乎没有实现代码**：提示的清除是「写入并进 MarkDocumentReady」
+// 这个决策免费带来的——那条 UPDATE 本来就在无条件清 error_message，多一个字段
+// 语义完全对称。正因为它是免费的，它也**特别容易在将来被无声地弄坏**：
+// 任何人把那条 SQL 拆开、或者给提示单开一条写入语句，清除就没了，而表现是
+// 用户看到一条过期的提示——没有报错，没有日志，没人会来报 bug。
+// 这条断言就是拦这个的。
+func TestIntegrationNoticeDisappearsWhenPagesNoLongerMissing(t *testing.T) {
+	repo := setupIntegration(t)
+	svc := newTestService(repo, newFakeProvider(), t.TempDir())
+
+	withGap := writeTestPDF(t, pdfLinesFromStrings(
+		"pageone body text standing alone.",
+		"", // 缺页
+		"pagethree body text standing alone.",
+	))
+	seedDocForProcessing(t, repo, "kb-clear", "doc-clear", "contract.pdf", FileTypePDF, withGap)
+	if err := svc.ProcessDocument(context.Background(), "doc-clear", 1); err != nil {
+		t.Fatalf("ProcessDocument(v1): %v", err)
+	}
+	if got := docByID(t, repo, "doc-clear"); len(got.UnextractedPages) != 1 || got.UnextractedPages[0] != 2 {
+		t.Fatalf("第一次处理后应当有提示 [2]，实际 %v", got.UnextractedPages)
+	}
+
+	// 用户把第 2 页做了 OCR 后重新上传：现在三页都有文本。
+	ocred := writeTestPDF(t, pdfLinesFromStrings(
+		"pageone body text standing alone.",
+		"pagetwo body text now readable after ocr.",
+		"pagethree body text standing alone.",
+	))
+	reprocessDoc(t, repo, svc, "doc-clear", 2, ocred)
+
+	got := docByID(t, repo, "doc-clear")
+	if got.Status != StatusReady {
+		t.Fatalf("重新处理后 status=%s，应当是 ready", got.Status)
+	}
+	if len(got.UnextractedPages) != 0 {
+		t.Fatalf("重新处理后不再缺页，提示必须消失，实际 %v —— "+
+			"一条不会消失的提示很快就会变成没人相信的陈旧信息", got.UnextractedPages)
+	}
+}
+
+// TestIntegrationNoticeAppearsWhenPagesBecomeMissing 是反向：原本干净的文档
+// 被换成含扫描页的版本后，提示要出现。没有这一条，一个「永远写 NULL」的实现
+// 也能让上面那条用例通过。
+func TestIntegrationNoticeAppearsWhenPagesBecomeMissing(t *testing.T) {
+	repo := setupIntegration(t)
+	svc := newTestService(repo, newFakeProvider(), t.TempDir())
+
+	clean := writeTestPDF(t, pdfLinesFromStrings(
+		"pageone body text standing alone.",
+		"pagetwo body text standing alone.",
+	))
+	seedDocForProcessing(t, repo, "kb-appear", "doc-appear", "contract.pdf", FileTypePDF, clean)
+	if err := svc.ProcessDocument(context.Background(), "doc-appear", 1); err != nil {
+		t.Fatalf("ProcessDocument(v1): %v", err)
+	}
+	if got := docByID(t, repo, "doc-appear"); len(got.UnextractedPages) != 0 {
+		t.Fatalf("干净文档不该有提示，实际 %v", got.UnextractedPages)
+	}
+
+	withGap := writeTestPDF(t, pdfLinesFromStrings(
+		"pageone body text standing alone.",
+		"", // 换成扫描页
+		"pagethree body text standing alone.",
+	))
+	reprocessDoc(t, repo, svc, "doc-appear", 2, withGap)
+
+	got := docByID(t, repo, "doc-appear")
+	if len(got.UnextractedPages) != 1 || got.UnextractedPages[0] != 2 {
+		t.Fatalf("换成含扫描页的版本后应当出现提示 [2]，实际 %v", got.UnextractedPages)
+	}
+}
+
+// TestIntegrationFailedReprocessDoesNotShowStaleNotice 是 FR-005。
+//
+// 一份曾经成功、带着提示的文档，重新处理时失败了。此时用户看到的必须是
+// **失败原因**，而不是上一次成功留下的旧提示。
+//
+// ⚠️ 数据上那个字段**可能仍然有值**（它是上一次成功写的，这次根本没走到
+// MarkDocumentReady）。所以判断依据是 **status**，不是字段有没有值——
+// 这正是契约 C5 单独点出这一条的原因。
+func TestIntegrationFailedReprocessDoesNotShowStaleNotice(t *testing.T) {
+	repo := setupIntegration(t)
+	svc := newTestService(repo, newFakeProvider(), t.TempDir())
+
+	withGap := writeTestPDF(t, pdfLinesFromStrings(
+		"pageone body text standing alone.",
+		"",
+		"pagethree body text standing alone.",
+	))
+	seedDocForProcessing(t, repo, "kb-stale", "doc-stale", "contract.pdf", FileTypePDF, withGap)
+	if err := svc.ProcessDocument(context.Background(), "doc-stale", 1); err != nil {
+		t.Fatalf("ProcessDocument(v1): %v", err)
+	}
+	if got := docByID(t, repo, "doc-stale"); len(got.UnextractedPages) == 0 {
+		t.Fatal("第一次处理后应当有提示")
+	}
+
+	// 换成一份纯扫描件：整份无文本层 → 失败（006 的 FR-017）。
+	scanned := writeTestPDF(t, pdfLinesFromStrings("", "", ""))
+	ctx := context.Background()
+	if _, err := repo.db.ExecContext(ctx,
+		"UPDATE documents SET storage_path = ?, status = 'pending', version = 2 WHERE id = 'doc-stale'",
+		scanned); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ProcessDocument(ctx, "doc-stale", 2); !errors.Is(err, ErrPDFNoTextLayer) {
+		t.Fatalf("纯扫描件应当失败于 ErrPDFNoTextLayer，实际 %v", err)
+	}
+
+	got := docByID(t, repo, "doc-stale")
+	if got.Status != StatusFailed {
+		t.Fatalf("status=%s，应当是 failed", got.Status)
+	}
+	if got.ErrorMessage == "" {
+		t.Fatal("失败文档应当有 error_message")
+	}
+	// ⭐ 契约 C5 的实质：字段里可能还留着上一次的值，展示层**必须靠 status 判断**，
+	// 不能靠"字段有没有值"。这里断言的是这个前提确实成立——即字段确实可能残留。
+	// 前端据此必须 gate 在 status === "ready" 上（见 knowledge-documents-dialog.tsx）。
+	t.Logf("失败后残留的 UnextractedPages=%v（这正是前端必须按 status 判断的原因）", got.UnextractedPages)
+}
+
+// TestIntegrationTxtAndMarkdownNeverCarryNotice 是 SC-007 / FR-014：
+// 没有"页"概念的格式恒为空。
+func TestIntegrationTxtAndMarkdownNeverCarryNotice(t *testing.T) {
+	repo := setupIntegration(t)
+	svc := newTestService(repo, newFakeProvider(), t.TempDir())
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	for _, tc := range []struct{ id, name, fileType, body string }{
+		{"doc-nn-txt", "plain.txt", FileTypeTxt, "一段普通正文。\n\n另一段正文。"},
+		{"doc-nn-md", "notes.md", FileTypeMD, "# 标题\n\n正文一段。\n\n## 二级\n\n正文两段。"},
+	} {
+		p := filepath.Join(dir, tc.name)
+		if err := os.WriteFile(p, []byte(tc.body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		seedDocForProcessing(t, repo, "kb-nn-"+tc.id, tc.id, tc.name, tc.fileType, p)
+		if err := svc.ProcessDocument(ctx, tc.id, 1); err != nil {
+			t.Fatalf("ProcessDocument(%s): %v", tc.fileType, err)
+		}
+		if got := docByID(t, repo, tc.id); len(got.UnextractedPages) != 0 {
+			t.Fatalf("%s 文档带上了缺页提示 %v —— 它根本没有「页」这个概念",
+				tc.fileType, got.UnextractedPages)
+		}
+	}
 }

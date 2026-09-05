@@ -1,11 +1,14 @@
 package knowledge
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"hash/fnv"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -321,5 +324,75 @@ func TestRetrieveHandlerMarksNeighborChunks(t *testing.T) {
 	}
 	if resp.HitCount != 1 || resp.NeighborCount != 1 {
 		t.Fatalf("want hit_count=1 neighbor_count=1，got %d/%d", resp.HitCount, resp.NeighborCount)
+	}
+}
+
+// --- 007-document-processing-notice：文档列表端点的提示字段（契约 §1） ---
+
+// doListDocuments 走真实的 ListDocuments handler，返回状态码与响应体。
+func doListDocuments(t *testing.T, svc Service, kbID string) (int, string) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+
+	h := NewHandler(svc)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Params = gin.Params{{Key: "id", Value: kbID}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/?limit=50", nil)
+
+	if err := h.ListDocuments(c); err != nil {
+		t.Fatalf("ListDocuments handler: %v", err)
+	}
+	return rec.Code, rec.Body.String()
+}
+
+// TestListDocumentsEndpointCarriesUnextractedPages 走**真实的 HTTP handler**
+// 断言契约 §1 的形状。
+//
+// ⚠️ 为什么不满足于服务层的用例：用户看到提示的路径是
+// handler → dto → JSON → 前端，中间任何一环把字段掉了，服务层的断言都照样绿。
+// 尤其 toDocumentResponse 是手写的字段拷贝，漏一行不会有任何编译错误。
+//
+// 同时锁定 C2：没有提示时序列化成 **null**，不是 `[]`——给一个事实两种表示，
+// 每个下游都得处理两种，或者更常见地，只处理一种然后在另一种上悄悄出错。
+func TestListDocumentsEndpointCarriesUnextractedPages(t *testing.T) {
+	repo := setupIntegration(t)
+	svc := newTestService(repo, newFakeProvider(), t.TempDir())
+	ctx := context.Background()
+
+	path := writeTestPDF(t, pdfLinesFromStrings(
+		"pageone body text standing alone.",
+		"",
+		"pagethree body text standing alone.",
+	))
+	seedDocForProcessing(t, repo, "kb-http-notice", "doc-http-notice", "contract.pdf", FileTypePDF, path)
+	if err := svc.ProcessDocument(ctx, "doc-http-notice", 1); err != nil {
+		t.Fatalf("ProcessDocument: %v", err)
+	}
+
+	code, body := doListDocuments(t, svc, "kb-http-notice")
+	if code != http.StatusOK {
+		t.Fatalf("状态码 %d，响应 %s", code, body)
+	}
+	if !strings.Contains(body, `"unextracted_pages":[2]`) {
+		t.Fatalf("响应体里没有带回 unextracted_pages:[2]——"+
+			"handler/dto 这一段把字段掉了，服务层的断言看不到这个。响应：%s", body)
+	}
+
+	// 对照：没有缺页的文档必须序列化成 null，而不是 []。
+	txtPath := filepath.Join(t.TempDir(), "plain.txt")
+	if err := os.WriteFile(txtPath, []byte("一段普通正文。\n\n另一段正文。"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedDocForProcessing(t, repo, "kb-http-nonotice", "doc-http-nonotice", "plain.txt", FileTypeTxt, txtPath)
+	if err := svc.ProcessDocument(ctx, "doc-http-nonotice", 1); err != nil {
+		t.Fatalf("ProcessDocument(txt): %v", err)
+	}
+	code, body = doListDocuments(t, svc, "kb-http-nonotice")
+	if code != http.StatusOK {
+		t.Fatalf("状态码 %d，响应 %s", code, body)
+	}
+	if !strings.Contains(body, `"unextracted_pages":null`) {
+		t.Fatalf("无提示时应当序列化成 null 而不是 []（契约 C2）。响应：%s", body)
 	}
 }

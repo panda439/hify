@@ -6,14 +6,14 @@ INSERT INTO documents (
 -- name: GetDocumentByID :one
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at
+       version, lease_expires_at, unextracted_pages
 FROM documents
 WHERE id = ?;
 
 -- name: ListDocumentsByKnowledgeBase :many
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at
+       version, lease_expires_at, unextracted_pages
 FROM documents
 WHERE knowledge_base_id = ?
 ORDER BY created_at DESC
@@ -66,8 +66,22 @@ WHERE id = sqlc.arg(id) AND version = sqlc.arg(version) AND status = 'processing
 -- DeleteObsoleteChunkVersions + PublishChunkVersion）真正成功后才允许调用
 -- 这一步。0 行受影响说明这次尝试已经被别的 runner（原 worker 自己，或者
 -- reconciliation 的恢复流程）抢先完成了——不是错误，是良性的幂等竞争。
+--
+-- ⭐ 007-document-processing-notice 把 unextracted_pages 的写入并进了这一条，
+-- 而不是单开一条语句。这里是"一个版本成为 ready"的**唯一**入口，而且它已经
+-- 带着本功能需要的全部保证：
+--   * WHERE version = ? AND status = 'publishing' 保证写进去的提示属于**最终
+--     生效的那一次**处理，而不是被淘汰的那次——本功能因此一行并发代码都不用写；
+--   * 它已经在无条件清 error_message，把 unextracted_pages 加在旁边语义完全对称：
+--     **每次成功整体覆盖，没有缺页就写 NULL**。「重新处理后不再缺页则提示消失」
+--     由此是**免费得到的**，不需要任何额外语句。
+--
+-- ⚠️ **禁止**为清除提示单开一条语句。两条语句之间没有事务，就有一个窗口，
+-- 窗口里文档的状态和提示是不一致的——而这种不一致没有任何报错，只会让用户
+-- 看到一条过期的提示。
 UPDATE documents
-SET status = 'ready', error_message = NULL, chunk_count = ?, lease_expires_at = NULL
+SET status = 'ready', error_message = NULL, chunk_count = ?,
+    unextracted_pages = ?, lease_expires_at = NULL
 WHERE id = ? AND version = ? AND status = 'publishing';
 
 -- name: MarkDocumentFailed :execrows
@@ -129,7 +143,7 @@ WHERE id = sqlc.arg(id) AND version = sqlc.arg(version) AND status = 'publishing
 -- 崩溃留下的孤儿任务。LIMIT 防止单次 reconciliation 运行处理量失控。
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at
+       version, lease_expires_at, unextracted_pages
 FROM documents
 WHERE status = 'processing' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?
 LIMIT 100;
@@ -140,7 +154,7 @@ LIMIT 100;
 -- CAS ready 之前崩溃）。
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at
+       version, lease_expires_at, unextracted_pages
 FROM documents
 WHERE status = 'publishing' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?
 LIMIT 100;
@@ -151,7 +165,7 @@ LIMIT 100;
 -- 持有过租约，"入队丢了"这个问题只能靠 updated_at 阈值判断。
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at
+       version, lease_expires_at, unextracted_pages
 FROM documents
 WHERE status = 'pending' AND updated_at < ?
 LIMIT 100;

@@ -135,7 +135,7 @@ func (q *Queries) DeleteDocument(ctx context.Context, id string) error {
 const getDocumentByID = `-- name: GetDocumentByID :one
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at
+       version, lease_expires_at, unextracted_pages
 FROM documents
 WHERE id = ?
 `
@@ -158,6 +158,7 @@ func (q *Queries) GetDocumentByID(ctx context.Context, id string) (Document, err
 		&i.UpdatedAt,
 		&i.Version,
 		&i.LeaseExpiresAt,
+		&i.UnextractedPages,
 	)
 	return i, err
 }
@@ -165,7 +166,7 @@ func (q *Queries) GetDocumentByID(ctx context.Context, id string) (Document, err
 const listDocumentsByKnowledgeBase = `-- name: ListDocumentsByKnowledgeBase :many
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at
+       version, lease_expires_at, unextracted_pages
 FROM documents
 WHERE knowledge_base_id = ?
 ORDER BY created_at DESC
@@ -202,6 +203,7 @@ func (q *Queries) ListDocumentsByKnowledgeBase(ctx context.Context, arg ListDocu
 			&i.UpdatedAt,
 			&i.Version,
 			&i.LeaseExpiresAt,
+			&i.UnextractedPages,
 		); err != nil {
 			return nil, err
 		}
@@ -219,7 +221,7 @@ func (q *Queries) ListDocumentsByKnowledgeBase(ctx context.Context, arg ListDocu
 const listLeaseExpiredProcessingDocuments = `-- name: ListLeaseExpiredProcessingDocuments :many
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at
+       version, lease_expires_at, unextracted_pages
 FROM documents
 WHERE status = 'processing' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?
 LIMIT 100
@@ -251,6 +253,7 @@ func (q *Queries) ListLeaseExpiredProcessingDocuments(ctx context.Context, lease
 			&i.UpdatedAt,
 			&i.Version,
 			&i.LeaseExpiresAt,
+			&i.UnextractedPages,
 		); err != nil {
 			return nil, err
 		}
@@ -268,7 +271,7 @@ func (q *Queries) ListLeaseExpiredProcessingDocuments(ctx context.Context, lease
 const listLeaseExpiredPublishingDocuments = `-- name: ListLeaseExpiredPublishingDocuments :many
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at
+       version, lease_expires_at, unextracted_pages
 FROM documents
 WHERE status = 'publishing' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?
 LIMIT 100
@@ -301,6 +304,7 @@ func (q *Queries) ListLeaseExpiredPublishingDocuments(ctx context.Context, lease
 			&i.UpdatedAt,
 			&i.Version,
 			&i.LeaseExpiresAt,
+			&i.UnextractedPages,
 		); err != nil {
 			return nil, err
 		}
@@ -318,7 +322,7 @@ func (q *Queries) ListLeaseExpiredPublishingDocuments(ctx context.Context, lease
 const listStalePendingDocuments = `-- name: ListStalePendingDocuments :many
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at
+       version, lease_expires_at, unextracted_pages
 FROM documents
 WHERE status = 'pending' AND updated_at < ?
 LIMIT 100
@@ -351,6 +355,7 @@ func (q *Queries) ListStalePendingDocuments(ctx context.Context, updatedAt time.
 			&i.UpdatedAt,
 			&i.Version,
 			&i.LeaseExpiresAt,
+			&i.UnextractedPages,
 		); err != nil {
 			return nil, err
 		}
@@ -413,22 +418,42 @@ func (q *Queries) MarkDocumentPublishing(ctx context.Context, arg MarkDocumentPu
 
 const markDocumentReady = `-- name: MarkDocumentReady :execrows
 UPDATE documents
-SET status = 'ready', error_message = NULL, chunk_count = ?, lease_expires_at = NULL
+SET status = 'ready', error_message = NULL, chunk_count = ?,
+    unextracted_pages = ?, lease_expires_at = NULL
 WHERE id = ? AND version = ? AND status = 'publishing'
 `
 
 type MarkDocumentReadyParams struct {
-	ChunkCount int32  `json:"chunk_count"`
-	ID         string `json:"id"`
-	Version    int64  `json:"version"`
+	ChunkCount       int32          `json:"chunk_count"`
+	UnextractedPages sql.NullString `json:"unextracted_pages"`
+	ID               string         `json:"id"`
+	Version          int64          `json:"version"`
 }
 
 // publishing -> ready，是发布完成后的最终确认：只有 PG 发布（幂等的
 // DeleteObsoleteChunkVersions + PublishChunkVersion）真正成功后才允许调用
 // 这一步。0 行受影响说明这次尝试已经被别的 runner（原 worker 自己，或者
 // reconciliation 的恢复流程）抢先完成了——不是错误，是良性的幂等竞争。
+//
+// ⭐ 007-document-processing-notice 把 unextracted_pages 的写入并进了这一条，
+// 而不是单开一条语句。这里是"一个版本成为 ready"的**唯一**入口，而且它已经
+// 带着本功能需要的全部保证：
+//   - WHERE version = ? AND status = 'publishing' 保证写进去的提示属于**最终
+//     生效的那一次**处理，而不是被淘汰的那次——本功能因此一行并发代码都不用写；
+//   - 它已经在无条件清 error_message，把 unextracted_pages 加在旁边语义完全对称：
+//     **每次成功整体覆盖，没有缺页就写 NULL**。「重新处理后不再缺页则提示消失」
+//     由此是**免费得到的**，不需要任何额外语句。
+//
+// ⚠️ **禁止**为清除提示单开一条语句。两条语句之间没有事务，就有一个窗口，
+// 窗口里文档的状态和提示是不一致的——而这种不一致没有任何报错，只会让用户
+// 看到一条过期的提示。
 func (q *Queries) MarkDocumentReady(ctx context.Context, arg MarkDocumentReadyParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, markDocumentReady, arg.ChunkCount, arg.ID, arg.Version)
+	result, err := q.db.ExecContext(ctx, markDocumentReady,
+		arg.ChunkCount,
+		arg.UnextractedPages,
+		arg.ID,
+		arg.Version,
+	)
 	if err != nil {
 		return 0, err
 	}

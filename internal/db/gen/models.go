@@ -54,20 +54,21 @@ type Conversation struct {
 }
 
 type Document struct {
-	ID              string         `json:"id"`
-	KnowledgeBaseID string         `json:"knowledge_base_id"`
-	FileName        string         `json:"file_name"`
-	FileType        string         `json:"file_type"`
-	FileSize        int32          `json:"file_size"`
-	StoragePath     string         `json:"storage_path"`
-	Status          string         `json:"status"`
-	ErrorMessage    sql.NullString `json:"error_message"`
-	ChunkCount      int32          `json:"chunk_count"`
-	CreatedBy       string         `json:"created_by"`
-	CreatedAt       time.Time      `json:"created_at"`
-	UpdatedAt       time.Time      `json:"updated_at"`
-	Version         int64          `json:"version"`
-	LeaseExpiresAt  sql.NullTime   `json:"lease_expires_at"`
+	ID               string         `json:"id"`
+	KnowledgeBaseID  string         `json:"knowledge_base_id"`
+	FileName         string         `json:"file_name"`
+	FileType         string         `json:"file_type"`
+	FileSize         int32          `json:"file_size"`
+	StoragePath      string         `json:"storage_path"`
+	Status           string         `json:"status"`
+	ErrorMessage     sql.NullString `json:"error_message"`
+	ChunkCount       int32          `json:"chunk_count"`
+	CreatedBy        string         `json:"created_by"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
+	Version          int64          `json:"version"`
+	LeaseExpiresAt   sql.NullTime   `json:"lease_expires_at"`
+	UnextractedPages sql.NullString `json:"unextracted_pages"`
 }
 
 type KnowledgeBase struct {

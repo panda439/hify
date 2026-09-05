@@ -472,6 +472,11 @@ func (s *service) ProcessDocument(ctx context.Context, documentID string, versio
 		return s.failDocument(ctx, documentID, version, err)
 	}
 
+	// unextractedPages carries the pages whose text could not be read, from
+	// the extraction step down to markDocumentReady. Non-PDF documents have
+	// no notion of a page and always leave it nil (FR-014).
+	var unextractedPages []int
+
 	// 006-pdf-layout-chunking (FR-017): tell "a scan with no text layer"
 	// apart from "an empty file" BEFORE chunking, while the page count is
 	// still in hand. Afterwards both look identical — zero pieces — which
@@ -493,6 +498,12 @@ func (s *service) ProcessDocument(ctx context.Context, documentID string, versio
 			return s.failDocument(ctx, documentID, version, ErrPDFNoTextLayer)
 		}
 		if len(missing) > 0 {
+			// 007-document-processing-notice: this list used to end here, in
+			// a log line whose reader is a developer — while the person who
+			// uploaded the file saw a document marked "ready" and no hint at
+			// all that part of it never made it in. Now it travels down to
+			// markDocumentReady and becomes something the user can see.
+			unextractedPages = missing
 			slog.Warn("knowledge: pdf pages without a text layer were skipped",
 				"document_id", documentID,
 				"pages_without_text", missing,
@@ -637,7 +648,7 @@ func (s *service) ProcessDocument(ctx context.Context, documentID string, versio
 		return nil
 	}
 
-	if err := s.publishAndComplete(ctx, documentID, version); err != nil {
+	if err := s.publishAndComplete(ctx, documentID, version, unextractedPages); err != nil {
 		// Per the plan: a publish failure must NOT be swallowed as
 		// success. The document stays "publishing" — that's what makes
 		// ReconcileStuckDocuments's idempotent republish path the
@@ -685,7 +696,7 @@ func (s *service) publishWithRetry(ctx context.Context, documentID string, versi
 // parameter — ReconcileStuckDocuments runs in a different call than the
 // one that originally computed len(pieces), so PG's actual published row
 // count is the only value both callers can rely on.
-func (s *service) publishAndComplete(ctx context.Context, documentID string, version int64) error {
+func (s *service) publishAndComplete(ctx context.Context, documentID string, version int64, unextractedPages []int) error {
 	if err := s.publishWithRetry(ctx, documentID, version); err != nil {
 		return err
 	}
@@ -693,7 +704,7 @@ func (s *service) publishAndComplete(ctx context.Context, documentID string, ver
 	if err != nil {
 		return err
 	}
-	ready, err := s.repo.markDocumentReady(ctx, documentID, version, chunkCount)
+	ready, err := s.repo.markDocumentReady(ctx, documentID, version, chunkCount, unextractedPages)
 	if err != nil {
 		return err
 	}
@@ -826,7 +837,16 @@ func (s *service) ReconcileStuckDocuments(ctx context.Context) (int, error) {
 		if !claimed {
 			continue // renewed, published, or claimed by another recovery attempt since the scan
 		}
-		if err := s.publishAndComplete(ctx, doc.ID, doc.Version); err != nil {
+		// ⚠️ nil，不是遗漏。这条是 reconciliation 的恢复路径：它接手的是一份
+		// 卡在 publishing 的文档，**没有重新解析过文件**，因此它并不知道这次
+		// 处理有没有缺页。传 nil 写入 NULL，而 NULL 的语义正是"没有缺页**或者**
+		// 不知道"（见 model.go 的 UnextractedPages 注释）——所以这里写 NULL
+		// 不是在声称"没有缺页"，它落在语义的第二半里，是诚实的。
+		//
+		// 代价如实记：被 reconciliation 恢复的文档拿不到提示，即使它确实缺页。
+		// 要消除这一点得让缺页页码在 markDocumentPublishing 阶段就落库，
+		// 那是另一次写入和另一个覆盖时机，超出本期范围。已知缺陷，写进验收报告。
+		if err := s.publishAndComplete(ctx, doc.ID, doc.Version, nil); err != nil {
 			// Publish failed again: the document stays in publishing under
 			// the fresh recovery lease just claimed above, not eligible for
 			// another recovery attempt until that lease itself expires.

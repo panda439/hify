@@ -198,11 +198,20 @@ func (r *Repository) markDocumentPublishing(ctx context.Context, id string, vers
 // another runner (the original worker, or a concurrent reconciliation
 // recovery pass) already completed this exact transition — a benign
 // idempotent race, not an error.
-func (r *Repository) markDocumentReady(ctx context.Context, id string, version int64, chunkCount int) (bool, error) {
+// markDocumentReady also carries this attempt's unextracted-page list.
+//
+// Writing it here rather than in a statement of its own is what makes
+// "the notice always matches the version that actually won" free: this
+// UPDATE is already guarded by (id, version, status='publishing'), so a
+// losing attempt cannot overwrite the winner's notice. Passing nil clears
+// any previous notice, which is how a document that no longer has missing
+// pages stops showing one — also free, for the same reason.
+func (r *Repository) markDocumentReady(ctx context.Context, id string, version int64, chunkCount int, unextractedPages []int) (bool, error) {
 	n, err := r.queries.MarkDocumentReady(ctx, gen.MarkDocumentReadyParams{
-		ChunkCount: int32(chunkCount),
-		ID:         id,
-		Version:    version,
+		ChunkCount:       int32(chunkCount),
+		UnextractedPages: encodeUnextractedPages(unextractedPages),
+		ID:               id,
+		Version:          version,
 	})
 	if err != nil {
 		return false, fmt.Errorf("knowledge: mark document ready: %w", err)
@@ -752,9 +761,12 @@ func toDomainDocument(row gen.Document) Document {
 		ChunkCount:      int(row.ChunkCount),
 		Version:         row.Version,
 		LeaseExpiresAt:  fromNullTime(row.LeaseExpiresAt),
-		CreatedBy:       row.CreatedBy,
-		CreatedAt:       row.CreatedAt,
-		UpdatedAt:       row.UpdatedAt,
+		// All five document queries share this column list, so they all
+		// share this one mapping — there is no per-query place to forget.
+		UnextractedPages: decodeUnextractedPages(row.UnextractedPages),
+		CreatedBy:        row.CreatedBy,
+		CreatedAt:        row.CreatedAt,
+		UpdatedAt:        row.UpdatedAt,
 	}
 }
 

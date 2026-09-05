@@ -47,16 +47,32 @@ func toKnowledgeBaseResponse(kb KnowledgeBase) knowledgeBaseResponse {
 }
 
 type documentResponse struct {
-	ID           string    `json:"id"`
-	FileName     string    `json:"file_name"`
-	FileType     string    `json:"file_type"`
-	FileSize     int       `json:"file_size"`
-	Status       string    `json:"status"`
-	ErrorMessage string    `json:"error_message"`
-	ChunkCount   int       `json:"chunk_count"`
-	Version      int64     `json:"version"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID           string `json:"id"`
+	FileName     string `json:"file_name"`
+	FileType     string `json:"file_type"`
+	FileSize     int    `json:"file_size"`
+	Status       string `json:"status"`
+	ErrorMessage string `json:"error_message"`
+	ChunkCount   int    `json:"chunk_count"`
+
+	// UnextractedPages are the pages whose text could not be read
+	// (007-document-processing-notice). Serialises as null when there is
+	// nothing to report — never as an empty array, so a client has exactly
+	// one shape to check for "no notice".
+	//
+	// ⚠️ It is NOT an error. A document carrying it has Status "ready" and
+	// is fully searchable; the missing pages simply are not in it. Failure
+	// reasons stay in ErrorMessage and the two never mix (FR-002).
+	//
+	// ⚠️ A client MUST gate display on Status == "ready", not on this field
+	// being non-empty: the value can outlive the attempt that wrote it —
+	// a later attempt that FAILED leaves the previous success's list in
+	// place, and showing it then would describe a state the document is no
+	// longer in (FR-005 / contract C5).
+	UnextractedPages []int     `json:"unextracted_pages"`
+	Version          int64     `json:"version"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 func toDocumentResponse(d Document) documentResponse {
@@ -68,9 +84,11 @@ func toDocumentResponse(d Document) documentResponse {
 		Status:       d.Status,
 		ErrorMessage: d.ErrorMessage,
 		ChunkCount:   d.ChunkCount,
-		Version:      d.Version,
-		CreatedAt:    d.CreatedAt,
-		UpdatedAt:    d.UpdatedAt,
+		// nil stays nil so it serialises as JSON null, not [].
+		UnextractedPages: d.UnextractedPages,
+		Version:          d.Version,
+		CreatedAt:        d.CreatedAt,
+		UpdatedAt:        d.UpdatedAt,
 	}
 }
 
