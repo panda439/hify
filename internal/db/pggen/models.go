@@ -9,6 +9,7 @@ import (
 	"time"
 
 	pgvector "github.com/pgvector/pgvector-go"
+	"github.com/sqlc-dev/pqtype"
 )
 
 type Chunk struct {
@@ -27,4 +28,6 @@ type Chunk struct {
 	PageNumber         sql.NullInt32   `json:"page_number"`
 	SectionTitle       sql.NullString  `json:"section_title"`
 	PageEnd            sql.NullInt32   `json:"page_end"`
+	// 010 叙事来源元数据；非叙事片段为 NULL。结构见 000006 迁移注释与 data-model.md §4。
+	NarrativeMetadata pqtype.NullRawMessage `json:"narrative_metadata"`
 }

@@ -39,3 +39,9 @@ sql:
               import: "github.com/pgvector/pgvector-go"
               package: "pgvector"
               type: "Vector"
+          # ⚠️ 这里**故意不给 jsonb 加 override**。
+          # 试过映射成 json.RawMessage：sqlc v1.27.0 会在生成文件里同时 emit
+          # `"encoding/json"` 和 `json "encoding/json"` 两行，编译不过，
+          # 而生成代码不允许手改。因此接受 sqlc 默认的
+          # pqtype.NullRawMessage（github.com/sqlc-dev/pqtype，sqlc 官方配套的
+          # 小模块），由 repository 层转成领域类型——本来就该在那一层转。

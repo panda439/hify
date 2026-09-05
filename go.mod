@@ -18,6 +18,7 @@ require (
 	github.com/redis/go-redis/v9 v9.7.0
 	github.com/sashabaranov/go-openai v1.41.2
 	github.com/sony/gobreaker v1.0.0
+	github.com/sqlc-dev/pqtype v0.3.0
 	golang.org/x/crypto v0.37.0
 	golang.org/x/sync v0.17.0
 	gopkg.in/yaml.v3 v3.0.1

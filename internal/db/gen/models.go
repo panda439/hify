@@ -54,22 +54,26 @@ type Conversation struct {
 }
 
 type Document struct {
-	ID               string         `json:"id"`
-	KnowledgeBaseID  string         `json:"knowledge_base_id"`
-	FileName         string         `json:"file_name"`
-	FileType         string         `json:"file_type"`
-	FileSize         int32          `json:"file_size"`
-	StoragePath      string         `json:"storage_path"`
-	Status           string         `json:"status"`
-	ErrorMessage     sql.NullString `json:"error_message"`
-	ChunkCount       int32          `json:"chunk_count"`
-	CreatedBy        string         `json:"created_by"`
-	CreatedAt        time.Time      `json:"created_at"`
-	UpdatedAt        time.Time      `json:"updated_at"`
-	Version          int64          `json:"version"`
-	LeaseExpiresAt   sql.NullTime   `json:"lease_expires_at"`
-	UnextractedPages sql.NullString `json:"unextracted_pages"`
-	UnparseablePages sql.NullString `json:"unparseable_pages"`
+	ID                          string         `json:"id"`
+	KnowledgeBaseID             string         `json:"knowledge_base_id"`
+	FileName                    string         `json:"file_name"`
+	FileType                    string         `json:"file_type"`
+	FileSize                    int32          `json:"file_size"`
+	StoragePath                 string         `json:"storage_path"`
+	Status                      string         `json:"status"`
+	ErrorMessage                sql.NullString `json:"error_message"`
+	ChunkCount                  int32          `json:"chunk_count"`
+	CreatedBy                   string         `json:"created_by"`
+	CreatedAt                   time.Time      `json:"created_at"`
+	UpdatedAt                   time.Time      `json:"updated_at"`
+	Version                     int64          `json:"version"`
+	LeaseExpiresAt              sql.NullTime   `json:"lease_expires_at"`
+	UnextractedPages            sql.NullString `json:"unextracted_pages"`
+	UnparseablePages            sql.NullString `json:"unparseable_pages"`
+	IsNarrative                 bool           `json:"is_narrative"`
+	IsRelationExtractionEnabled bool           `json:"is_relation_extraction_enabled"`
+	RelationModelID             sql.NullString `json:"relation_model_id"`
+	ActiveRelationJobID         sql.NullString `json:"active_relation_job_id"`
 }
 
 type KnowledgeBase struct {
@@ -156,6 +160,58 @@ type ModelProvider struct {
 	UpdatedAt       time.Time       `json:"updated_at"`
 }
 
+type NarrativeAlias struct {
+	ID               string          `json:"id"`
+	JobID            string          `json:"job_id"`
+	CharacterID      sql.NullString  `json:"character_id"`
+	Surface          string          `json:"surface"`
+	SurfaceHash      []byte          `json:"surface_hash"`
+	State            string          `json:"state"`
+	Evidence         json.RawMessage `json:"evidence"`
+	FirstSourceOrder int64           `json:"first_source_order"`
+	DecisionKeyHash  []byte          `json:"decision_key_hash"`
+	CreatedAt        time.Time       `json:"created_at"`
+}
+
+type NarrativeCharacter struct {
+	ID               string          `json:"id"`
+	JobID            string          `json:"job_id"`
+	DisplayName      string          `json:"display_name"`
+	FirstSourceOrder int64           `json:"first_source_order"`
+	IdentityEvidence json.RawMessage `json:"identity_evidence"`
+	HasAmbiguity     bool            `json:"has_ambiguity"`
+	CreatedAt        time.Time       `json:"created_at"`
+}
+
+type NarrativeRelation struct {
+	ID               string         `json:"id"`
+	JobID            string         `json:"job_id"`
+	SubjectID        string         `json:"subject_id"`
+	ObjectID         string         `json:"object_id"`
+	RelationType     string         `json:"relation_type"`
+	IsDirected       bool           `json:"is_directed"`
+	RelationKeyHash  []byte         `json:"relation_key_hash"`
+	FirstSourceOrder int64          `json:"first_source_order"`
+	ChapterNumber    sql.NullInt32  `json:"chapter_number"`
+	ChapterTitle     sql.NullString `json:"chapter_title"`
+	CreatedAt        time.Time      `json:"created_at"`
+}
+
+type NarrativeRelationEvidence struct {
+	ID              string          `json:"id"`
+	JobID           string          `json:"job_id"`
+	RelationID      string          `json:"relation_id"`
+	ChunkID         string          `json:"chunk_id"`
+	DocumentVersion int32           `json:"document_version"`
+	SourceOrder     int64           `json:"source_order"`
+	SourceStart     int32           `json:"source_start"`
+	SourceEnd       int32           `json:"source_end"`
+	Quote           string          `json:"quote"`
+	SourceSegments  json.RawMessage `json:"source_segments"`
+	EvidenceKeyHash []byte          `json:"evidence_key_hash"`
+	CreatedAt       time.Time       `json:"created_at"`
+}
+
 type ProviderModel struct {
 	ID                 string        `json:"id"`
 	ProviderID         string        `json:"provider_id"`
@@ -177,6 +233,88 @@ type RefreshToken struct {
 	ExpiresAt time.Time    `json:"expires_at"`
 	RevokedAt sql.NullTime `json:"revoked_at"`
 	CreatedAt time.Time    `json:"created_at"`
+}
+
+type RelationExtractionAttempt struct {
+	ID                string         `json:"id"`
+	JobID             string         `json:"job_id"`
+	ItemID            string         `json:"item_id"`
+	Epoch             int32          `json:"epoch"`
+	Phase             string         `json:"phase"`
+	AttemptNumber     int32          `json:"attempt_number"`
+	RequestHash       []byte         `json:"request_hash"`
+	MaxOutputTokens   int32          `json:"max_output_tokens"`
+	State             string         `json:"state"`
+	CreatedAt         time.Time      `json:"created_at"`
+	StartedAt         sql.NullTime   `json:"started_at"`
+	FinishedAt        sql.NullTime   `json:"finished_at"`
+	ElapsedMs         sql.NullInt64  `json:"elapsed_ms"`
+	DispatchConfirmed bool           `json:"dispatch_confirmed"`
+	UsageKnown        bool           `json:"usage_known"`
+	InputTokens       sql.NullInt32  `json:"input_tokens"`
+	OutputTokens      sql.NullInt32  `json:"output_tokens"`
+	FinishReason      sql.NullString `json:"finish_reason"`
+	ErrorCode         sql.NullString `json:"error_code"`
+	RawResponse       sql.NullString `json:"raw_response"`
+	ResponseHash      sql.NullString `json:"response_hash"`
+	CostAmount        sql.NullString `json:"cost_amount"`
+	Currency          sql.NullString `json:"currency"`
+	PricingVersion    sql.NullString `json:"pricing_version"`
+	CostKind          string         `json:"cost_kind"`
+}
+
+type RelationExtractionItem struct {
+	ID                  string          `json:"id"`
+	JobID               string          `json:"job_id"`
+	ChunkID             string          `json:"chunk_id"`
+	ChunkIndex          int32           `json:"chunk_index"`
+	ContentHash         []byte          `json:"content_hash"`
+	State               string          `json:"state"`
+	ExtractAttemptCount int32           `json:"extract_attempt_count"`
+	AliasAttemptCount   int32           `json:"alias_attempt_count"`
+	ExtractResponse     json.RawMessage `json:"extract_response"`
+	AliasResponse       json.RawMessage `json:"alias_response"`
+	LastErrorCode       sql.NullString  `json:"last_error_code"`
+	CreatedAt           time.Time       `json:"created_at"`
+	UpdatedAt           time.Time       `json:"updated_at"`
+}
+
+type RelationExtractionJob struct {
+	ID                     string          `json:"id"`
+	DocumentID             string          `json:"document_id"`
+	KnowledgeBaseID        string          `json:"knowledge_base_id"`
+	DocumentVersion        int32           `json:"document_version"`
+	RunNumber              int32           `json:"run_number"`
+	ModelID                string          `json:"model_id"`
+	ConfigHash             []byte          `json:"config_hash"`
+	ConfigSnapshot         json.RawMessage `json:"config_snapshot"`
+	SourceHash             sql.NullString  `json:"source_hash"`
+	State                  string          `json:"state"`
+	StopReason             sql.NullString  `json:"stop_reason"`
+	Epoch                  int32           `json:"epoch"`
+	LeaseUntil             sql.NullTime    `json:"lease_until"`
+	HeartbeatAt            sql.NullTime    `json:"heartbeat_at"`
+	InitializationComplete bool            `json:"initialization_complete"`
+	TotalItems             int32           `json:"total_items"`
+	SucceededItems         int32           `json:"succeeded_items"`
+	FailedItems            int32           `json:"failed_items"`
+	ApprovedItemLimit      int32           `json:"approved_item_limit"`
+	CallLimit              int32           `json:"call_limit"`
+	ActiveMsLimit          int64           `json:"active_ms_limit"`
+	RetryRounds            int32           `json:"retry_rounds"`
+	ReservedCalls          int32           `json:"reserved_calls"`
+	ConfirmedDispatches    int32           `json:"confirmed_dispatches"`
+	UnknownAttempts        int32           `json:"unknown_attempts"`
+	ActiveMsUsed           int64           `json:"active_ms_used"`
+	ActiveMsReserved       int64           `json:"active_ms_reserved"`
+	StartedAt              sql.NullTime    `json:"started_at"`
+	FinishedAt             sql.NullTime    `json:"finished_at"`
+	ArchivedLedgerSummary  json.RawMessage `json:"archived_ledger_summary"`
+	OperationKeyHash       sql.NullString  `json:"operation_key_hash"`
+	OperationRequestHash   sql.NullString  `json:"operation_request_hash"`
+	BudgetOperations       json.RawMessage `json:"budget_operations"`
+	CreatedAt              time.Time       `json:"created_at"`
+	UpdatedAt              time.Time       `json:"updated_at"`
 }
 
 type TraceSpan struct {

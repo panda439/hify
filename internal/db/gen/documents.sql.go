@@ -136,7 +136,8 @@ func (q *Queries) DeleteDocument(ctx context.Context, id string) error {
 const getDocumentByID = `-- name: GetDocumentByID :one
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at, unextracted_pages, unparseable_pages
+       version, lease_expires_at, unextracted_pages, unparseable_pages,
+       is_narrative, is_relation_extraction_enabled, relation_model_id, active_relation_job_id
 FROM documents
 WHERE id = ?
 `
@@ -161,6 +162,10 @@ func (q *Queries) GetDocumentByID(ctx context.Context, id string) (Document, err
 		&i.LeaseExpiresAt,
 		&i.UnextractedPages,
 		&i.UnparseablePages,
+		&i.IsNarrative,
+		&i.IsRelationExtractionEnabled,
+		&i.RelationModelID,
+		&i.ActiveRelationJobID,
 	)
 	return i, err
 }
@@ -226,7 +231,8 @@ func (q *Queries) ListDocumentCoverages(ctx context.Context, ids []string) ([]Li
 const listDocumentsByKnowledgeBase = `-- name: ListDocumentsByKnowledgeBase :many
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at, unextracted_pages, unparseable_pages
+       version, lease_expires_at, unextracted_pages, unparseable_pages,
+       is_narrative, is_relation_extraction_enabled, relation_model_id, active_relation_job_id
 FROM documents
 WHERE knowledge_base_id = ?
 ORDER BY created_at DESC
@@ -265,6 +271,10 @@ func (q *Queries) ListDocumentsByKnowledgeBase(ctx context.Context, arg ListDocu
 			&i.LeaseExpiresAt,
 			&i.UnextractedPages,
 			&i.UnparseablePages,
+			&i.IsNarrative,
+			&i.IsRelationExtractionEnabled,
+			&i.RelationModelID,
+			&i.ActiveRelationJobID,
 		); err != nil {
 			return nil, err
 		}
@@ -282,7 +292,8 @@ func (q *Queries) ListDocumentsByKnowledgeBase(ctx context.Context, arg ListDocu
 const listLeaseExpiredProcessingDocuments = `-- name: ListLeaseExpiredProcessingDocuments :many
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at, unextracted_pages, unparseable_pages
+       version, lease_expires_at, unextracted_pages, unparseable_pages,
+       is_narrative, is_relation_extraction_enabled, relation_model_id, active_relation_job_id
 FROM documents
 WHERE status = 'processing' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?
 LIMIT 100
@@ -316,6 +327,10 @@ func (q *Queries) ListLeaseExpiredProcessingDocuments(ctx context.Context, lease
 			&i.LeaseExpiresAt,
 			&i.UnextractedPages,
 			&i.UnparseablePages,
+			&i.IsNarrative,
+			&i.IsRelationExtractionEnabled,
+			&i.RelationModelID,
+			&i.ActiveRelationJobID,
 		); err != nil {
 			return nil, err
 		}
@@ -333,7 +348,8 @@ func (q *Queries) ListLeaseExpiredProcessingDocuments(ctx context.Context, lease
 const listLeaseExpiredPublishingDocuments = `-- name: ListLeaseExpiredPublishingDocuments :many
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at, unextracted_pages, unparseable_pages
+       version, lease_expires_at, unextracted_pages, unparseable_pages,
+       is_narrative, is_relation_extraction_enabled, relation_model_id, active_relation_job_id
 FROM documents
 WHERE status = 'publishing' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?
 LIMIT 100
@@ -368,6 +384,10 @@ func (q *Queries) ListLeaseExpiredPublishingDocuments(ctx context.Context, lease
 			&i.LeaseExpiresAt,
 			&i.UnextractedPages,
 			&i.UnparseablePages,
+			&i.IsNarrative,
+			&i.IsRelationExtractionEnabled,
+			&i.RelationModelID,
+			&i.ActiveRelationJobID,
 		); err != nil {
 			return nil, err
 		}
@@ -385,7 +405,8 @@ func (q *Queries) ListLeaseExpiredPublishingDocuments(ctx context.Context, lease
 const listStalePendingDocuments = `-- name: ListStalePendingDocuments :many
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at, unextracted_pages, unparseable_pages
+       version, lease_expires_at, unextracted_pages, unparseable_pages,
+       is_narrative, is_relation_extraction_enabled, relation_model_id, active_relation_job_id
 FROM documents
 WHERE status = 'pending' AND updated_at < ?
 LIMIT 100
@@ -420,6 +441,10 @@ func (q *Queries) ListStalePendingDocuments(ctx context.Context, updatedAt time.
 			&i.LeaseExpiresAt,
 			&i.UnextractedPages,
 			&i.UnparseablePages,
+			&i.IsNarrative,
+			&i.IsRelationExtractionEnabled,
+			&i.RelationModelID,
+			&i.ActiveRelationJobID,
 		); err != nil {
 			return nil, err
 		}

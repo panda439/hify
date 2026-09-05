@@ -6,14 +6,16 @@ INSERT INTO documents (
 -- name: GetDocumentByID :one
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at, unextracted_pages, unparseable_pages
+       version, lease_expires_at, unextracted_pages, unparseable_pages,
+       is_narrative, is_relation_extraction_enabled, relation_model_id, active_relation_job_id
 FROM documents
 WHERE id = ?;
 
 -- name: ListDocumentsByKnowledgeBase :many
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at, unextracted_pages, unparseable_pages
+       version, lease_expires_at, unextracted_pages, unparseable_pages,
+       is_narrative, is_relation_extraction_enabled, relation_model_id, active_relation_job_id
 FROM documents
 WHERE knowledge_base_id = ?
 ORDER BY created_at DESC
@@ -179,7 +181,8 @@ WHERE id = sqlc.arg(id) AND version = sqlc.arg(version) AND status = 'publishing
 -- 崩溃留下的孤儿任务。LIMIT 防止单次 reconciliation 运行处理量失控。
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at, unextracted_pages, unparseable_pages
+       version, lease_expires_at, unextracted_pages, unparseable_pages,
+       is_narrative, is_relation_extraction_enabled, relation_model_id, active_relation_job_id
 FROM documents
 WHERE status = 'processing' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?
 LIMIT 100;
@@ -190,7 +193,8 @@ LIMIT 100;
 -- CAS ready 之前崩溃）。
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at, unextracted_pages, unparseable_pages
+       version, lease_expires_at, unextracted_pages, unparseable_pages,
+       is_narrative, is_relation_extraction_enabled, relation_model_id, active_relation_job_id
 FROM documents
 WHERE status = 'publishing' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?
 LIMIT 100;
@@ -201,7 +205,8 @@ LIMIT 100;
 -- 持有过租约，"入队丢了"这个问题只能靠 updated_at 阈值判断。
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at, unextracted_pages, unparseable_pages
+       version, lease_expires_at, unextracted_pages, unparseable_pages,
+       is_narrative, is_relation_extraction_enabled, relation_model_id, active_relation_job_id
 FROM documents
 WHERE status = 'pending' AND updated_at < ?
 LIMIT 100;
