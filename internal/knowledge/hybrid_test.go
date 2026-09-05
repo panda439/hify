@@ -407,6 +407,7 @@ func TestRRFFusePreservesChunkMetadata(t *testing.T) {
 			ID:           "meta1",
 			DocumentName: docName,
 			PageNumber:   &page,
+			PageEnd:      &page,
 			SectionTitle: &section,
 		},
 		Score: 0.77,

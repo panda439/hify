@@ -130,7 +130,7 @@ func TestDedupExactContentChunksPreservesOriginalFieldsOfKeptEntry(t *testing.T)
 	kept := RetrievedChunk{
 		Chunk: Chunk{
 			ID: "keep", Content: "  Some Text.\r\n  ", DocumentName: "doc.pdf",
-			PageNumber: &page, SectionTitle: &section, DocumentVersion: 7,
+			PageNumber: &page, PageEnd: &page, SectionTitle: &section, DocumentVersion: 7,
 		},
 		Score:      0.83,
 		NeighborOf: "anchor-x",

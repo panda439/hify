@@ -28,7 +28,7 @@ func anchorRC(id, docID string, version int64, chunkIndex int, score float64) Re
 func neighborRC(id, docID string, version int64, chunkIndex int, docName string, page *int, section *string) RetrievedChunk {
 	return RetrievedChunk{Chunk: Chunk{
 		ID: id, DocumentID: docID, DocumentVersion: version, ChunkIndex: chunkIndex,
-		DocumentName: docName, PageNumber: page, SectionTitle: section, Content: "content-" + id,
+		DocumentName: docName, PageNumber: page, PageEnd: page, SectionTitle: section, Content: "content-" + id,
 	}}
 }
 
@@ -364,7 +364,7 @@ func TestExpandWithNeighborsKeepsNeighborsOwnCitationMetadata(t *testing.T) {
 	anchorSection := "2.1 概述"
 	a1 := RetrievedChunk{
 		Chunk: Chunk{ID: "a1", DocumentID: "doc-1", DocumentVersion: 1, ChunkIndex: 5,
-			DocumentName: "anchor-doc.pdf", PageNumber: &anchorPage, SectionTitle: &anchorSection},
+			DocumentName: "anchor-doc.pdf", PageNumber: &anchorPage, PageEnd: &anchorPage, SectionTitle: &anchorSection},
 		Score: 0.9,
 	}
 	neighborPage := 6
@@ -605,5 +605,59 @@ func TestExpandWithNeighborsReturnsNeighborDuplicateCount(t *testing.T) {
 	)
 	if zeroCount != 0 {
 		t.Fatalf("neighborDuplicateCount = %d, want 0 (no duplicate content)", zeroCount)
+	}
+}
+
+// TestExpandWithNeighborsKeepsNeighborsOwnPageInterval —— 006 的 N1。
+//
+// neighbor.go 的文档注释第 4 条已经写明邻接块的来源元数据是**它自己的**，只有
+// Score 被覆写、NeighborOf 被设置，所以 PageEnd 沿着同一条路径继承下来预期是
+// 零代码改动。但"预期零改动"不是证据：这里断言邻接块报的是它自己的区间，
+// 既不是 anchor 的，也不是 nil。
+//
+// 之所以值得单独锁一条：repository.go 有**四处**行映射要读出 page_end，邻接
+// 查询是其中最容易被漏掉的一处（它的 SELECT 列表在另一条 SQL 里）。漏掉它
+// 的表现是邻接块的 PageEnd 恒为 nil —— 违反不变量 C1，而且如果哪天
+// chunks_page_range_valid 被拿掉，这个错误会一路静默传到前端显示成「—」。
+func TestExpandWithNeighborsKeepsNeighborsOwnPageInterval(t *testing.T) {
+	anchorStart, anchorEnd := 3, 4
+	prevStart, prevEnd := 2, 2
+	nextStart, nextEnd := 5, 6
+
+	anchor := RetrievedChunk{Chunk: Chunk{
+		ID: "anchor", DocumentID: "doc", ChunkIndex: 1, DocumentVersion: 1,
+		PageNumber: &anchorStart, PageEnd: &anchorEnd,
+	}, Score: 0.9}
+	prev := RetrievedChunk{Chunk: Chunk{ID: "prev", DocumentID: "doc", ChunkIndex: 0, DocumentVersion: 1,
+		PageNumber: &prevStart, PageEnd: &prevEnd}}
+	next := RetrievedChunk{Chunk: Chunk{ID: "next", DocumentID: "doc", ChunkIndex: 2, DocumentVersion: 1,
+		PageNumber: &nextStart, PageEnd: &nextEnd}}
+
+	out, _ := expandWithNeighbors([]RetrievedChunk{anchor}, []RetrievedChunk{prev, next})
+
+	want := map[string][2]int{
+		"anchor": {3, 4},
+		"prev":   {2, 2},
+		"next":   {5, 6},
+	}
+	seen := map[string]bool{}
+	for _, c := range out {
+		w, ok := want[c.ID]
+		if !ok {
+			t.Fatalf("unexpected chunk %q in output", c.ID)
+		}
+		seen[c.ID] = true
+		if c.PageNumber == nil || c.PageEnd == nil {
+			t.Fatalf("chunk %q lost an end of its page interval: %+v", c.ID, c)
+		}
+		if *c.PageNumber != w[0] || *c.PageEnd != w[1] {
+			t.Fatalf("chunk %q reports pages %d-%d, want %d-%d — a neighbor must carry its OWN interval, not the anchor's",
+				c.ID, *c.PageNumber, *c.PageEnd, w[0], w[1])
+		}
+	}
+	for id := range want {
+		if !seen[id] {
+			t.Fatalf("chunk %q missing from output", id)
+		}
 	}
 }

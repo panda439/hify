@@ -387,6 +387,7 @@ func (r *Repository) createChunks(ctx context.Context, chunks []Chunk, version i
 				IsPublished:        false,
 				DocumentName:       c.DocumentName,
 				PageNumber:         intPtrToNullInt32(c.PageNumber),
+				PageEnd:            intPtrToNullInt32(c.PageEnd),
 				SectionTitle:       stringPtrToNullString(c.SectionTitle),
 			}); err != nil {
 				return fmt.Errorf("knowledge: create chunk: %w", err)
@@ -499,6 +500,7 @@ func (r *Repository) searchVectorChunks(ctx context.Context, kbIDs []string, que
 				// vectors back defeats the point of scoring in-database.
 				EmbeddingDimension: int(row.EmbeddingDimension),
 				PageNumber:         nullInt32ToIntPtr(row.PageNumber),
+				PageEnd:            nullInt32ToIntPtr(row.PageEnd),
 				SectionTitle:       nullStringToStringPtr(row.SectionTitle),
 				CreatedAt:          row.CreatedAt,
 				// DocumentVersion: Phase 4's neighbor-window expansion
@@ -550,6 +552,7 @@ func (r *Repository) searchKeywordChunks(ctx context.Context, kbIDs []string, qu
 				ContentLength:      int(row.ContentLength),
 				EmbeddingDimension: int(row.EmbeddingDimension),
 				PageNumber:         nullInt32ToIntPtr(row.PageNumber),
+				PageEnd:            nullInt32ToIntPtr(row.PageEnd),
 				SectionTitle:       nullStringToStringPtr(row.SectionTitle),
 				CreatedAt:          row.CreatedAt,
 				DocumentVersion:    row.DocumentVersion,
@@ -602,6 +605,7 @@ func (r *Repository) findPublishedNeighborChunks(ctx context.Context, documentID
 				ContentLength:      int(row.ContentLength),
 				EmbeddingDimension: int(row.EmbeddingDimension),
 				PageNumber:         nullInt32ToIntPtr(row.PageNumber),
+				PageEnd:            nullInt32ToIntPtr(row.PageEnd),
 				SectionTitle:       nullStringToStringPtr(row.SectionTitle),
 				CreatedAt:          row.CreatedAt,
 				DocumentVersion:    row.DocumentVersion,
@@ -684,6 +688,7 @@ func (r *Repository) findPublishedNeighborChunksBatch(ctx context.Context, reque
 				ContentLength:      int(row.ContentLength),
 				EmbeddingDimension: int(row.EmbeddingDimension),
 				PageNumber:         nullInt32ToIntPtr(row.PageNumber),
+				PageEnd:            nullInt32ToIntPtr(row.PageEnd),
 				SectionTitle:       nullStringToStringPtr(row.SectionTitle),
 				CreatedAt:          row.CreatedAt,
 				DocumentVersion:    row.DocumentVersion,

@@ -99,11 +99,20 @@ type chunkResult struct {
 	ID           string `json:"id"`
 	DocumentID   string `json:"document_id"`
 	DocumentName string `json:"document_name"`
-	// PageNumber stays a pointer so a chunk with no page serializes as
-	// JSON null rather than 0 — a txt/md chunk (or a row written before
-	// the 000003 migration) genuinely has no page, and 0 would be a
-	// fabricated one. The frontend renders null as "—".
+	// PageNumber/PageEnd are the closed page interval this chunk covers
+	// (006-pdf-layout-chunking): PageNumber is the first page, PageEnd the
+	// last. They are ALWAYS both null or both set — never one of each —
+	// because a chunk either has an honest page range or has none. The
+	// frontend relies on exactly that: equal ends render as "第 N 页",
+	// different ends as "第 N-M 页", both null as "—". It must NOT paper
+	// over a mismatch with `page_end ?? page_number`; that would turn a
+	// backend bug into a UI that merely looks fine.
+	//
+	// Both stay pointers so a chunk with no page serializes as JSON null
+	// rather than 0 — a txt/md chunk (or a row written before the 000003
+	// migration) genuinely has no page, and 0 would be a fabricated one.
 	PageNumber *int    `json:"page_number"`
+	PageEnd    *int    `json:"page_end"`
 	Content    string  `json:"content"`
 	Score      float64 `json:"score"`
 
@@ -142,6 +151,7 @@ func toRetrieveResponse(chunks []RetrievedChunk, filterApplied bool) retrieveRes
 			DocumentID:   c.DocumentID,
 			DocumentName: c.DocumentName,
 			PageNumber:   c.PageNumber,
+			PageEnd:      c.PageEnd,
 			Content:      c.Content,
 			Score:        c.Score,
 			IsNeighbor:   isNeighbor,

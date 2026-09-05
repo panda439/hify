@@ -153,16 +153,27 @@ type RetrieveFilter struct {
 	// 那是一个空结果，不是错误，也绝不是把这个条件悄悄丢掉（FR-010）。
 	DocumentIDs []string
 
-	// PageMin/PageMax 以**闭区间**约束 Chunk.PageNumber（1-indexed，就是
-	// parse.go 的 pdfPage.Number 已经在产出的那套编号）。任意一端可以为 nil，
-	// 表示那一侧不设限。
+	// PageMin/PageMax 是一个 1-indexed 的**闭区间**，任意一端可以为 nil，
+	// 表示那一侧不设限。字段本身与 002-metadata-filter 时期完全一致，
+	// **变的是"什么叫匹配"**。
+	//
+	// ⭐ 006-pdf-layout-chunking：匹配规则从「**点落区间**」改成「**区间相交**」。
+	// chunk 现在携带的是一个区间 [PageNumber, PageEnd]（见 Chunk 的文档注释），
+	// 判定标准是它与 [PageMin, PageMax] **有交集**，而不是某一个页码落在里面。
+	//
+	// 对存量行与全部单页片段（PageEnd == PageNumber）这次改写是**逐字节等价**
+	// 的，因此没有任何一格是"原本命中的现在不命中"；只有真正跨页的片段上多出
+	// "原本漏掉的现在命中了"——过滤「第 4 页」本来就该命中一个覆盖 3-4 页的
+	// 片段，因为它确实包含第 4 页的内容。完整对照表见
+	// specs/006-pdf-layout-chunking/contracts/retrieval-page-range.md §3.3。
 	//
 	// PageNumber 为 NULL 的 chunk——全部 txt/md chunk，以及 000003 迁移之前
 	// 写入的存量行——只要设了任意一端，就**不匹配**。这一点由 SQL 的三值逻辑
 	// 保证，而不是靠显式的 IS NOT NULL 判断，详见 pgqueries/chunks.sql 里
-	// SearchVectorChunks 的注释。
+	// SearchVectorChunks 的注释；改写后依然成立，因为 PageEnd 与 PageNumber
+	// 同为 NULL（不变量 C1，由数据库约束强制）。
 	// ⚠️ 绝不要用 COALESCE 给它加默认值来"修复"——那等于给一个本来没有页码的
-	// chunk 编造出一个页码。
+	// chunk 编造出一个页码。这条禁令对 page_end 一字不改地同样适用。
 	PageMin *int
 	PageMax *int
 }
@@ -268,12 +279,31 @@ type Document struct {
 // needing a display name must fall back to DocumentID themselves rather
 // than treating "" as an error.
 //
-// PageNumber/SectionTitle are nil unless the parser can honestly produce
-// them (see chunk.go's chunkDocument and its per-file-type chunkers):
-// txt chunks never set either, md chunks may set SectionTitle but never
-// PageNumber, pdf chunks may set PageNumber but never SectionTitle (the
-// reconstructed-from-glyph-positions text has no reliable heading signal).
+// PageNumber/PageEnd/SectionTitle are nil unless the parser can honestly
+// produce them (see chunk.go's chunkDocument and its per-file-type
+// chunkers): txt chunks never set any of them, md chunks may set
+// SectionTitle but never a page, pdf chunks set both page fields.
 // Never fabricate a value here.
+//
+// PageNumber and PageEnd are a closed 1-indexed INTERVAL, not two loose
+// numbers: PageNumber is the first page the chunk covers and PageEnd the
+// last. Before 006-pdf-layout-chunking a chunk could not span pages (PDFs
+// were chunked page by page), so PageNumber alone was enough; now that a
+// paragraph broken across a page boundary is reassembled into one chunk,
+// reporting a single page would mean picking one end and calling it the
+// answer — a fabricated citation (FR-011). Invariants, all three enforced:
+//
+//	C1  PageEnd == nil  ⟺  PageNumber == nil   (DB: chunks_page_range_valid)
+//	C2  both non-nil ⇒ *PageNumber <= *PageEnd (DB: chunks_page_range_valid)
+//	C3  both non-nil ⇒ 1 <= *PageNumber and *PageEnd <= the document's page
+//	    count — the upper half is NOT checkable by the database (it does not
+//	    know how many pages a document has), so it is asserted where the
+//	    values are produced, in layout.go, and pinned by layout_test.go.
+//
+// C1 is load-bearing for retrieval, not decoration: the page filter's lower
+// bound reads page_end while its upper bound reads page_number, so a row
+// with one set and the other NULL is silently dropped by any filtered
+// search — no error, no log line. See pgqueries/chunks.sql.
 type Chunk struct {
 	ID                 string
 	KnowledgeBaseID    string
@@ -285,6 +315,7 @@ type Chunk struct {
 	Embedding          []float32
 	EmbeddingDimension int
 	PageNumber         *int
+	PageEnd            *int
 	SectionTitle       *string
 	CreatedAt          time.Time
 

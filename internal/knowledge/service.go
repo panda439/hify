@@ -472,11 +472,54 @@ func (s *service) ProcessDocument(ctx context.Context, documentID string, versio
 		return s.failDocument(ctx, documentID, version, err)
 	}
 
+	// 006-pdf-layout-chunking (FR-017): tell "a scan with no text layer"
+	// apart from "an empty file" BEFORE chunking, while the page count is
+	// still in hand. Afterwards both look identical — zero pieces — which
+	// is exactly why the old ErrEmptyContent had to cover both and could
+	// not say anything useful about either.
+	//
+	// ⚠️ FR-018 (telling the user when SOME pages lack a text layer) is
+	// deliberately NOT implemented in this phase — see plan.md「三项拍板」
+	// decision 1. The documents table has nowhere to hang a "succeeded, but
+	// with a caveat" message (MarkDocumentReady hardcodes error_message =
+	// NULL), and adding one reaches into MySQL, the DTO and the document
+	// list UI for a case worth much less than the pure-scan one. So the
+	// partial case ingests what it can and leaves a log line ONLY: the user
+	// sees nothing. That is a known, stated gap, not a satisfied
+	// requirement, and it must not be written up as one.
+	if doc.FileType == FileTypePDF {
+		withText, missing := textLayerCoverage(parsed.Pages)
+		if withText == 0 && len(missing) > 0 {
+			return s.failDocument(ctx, documentID, version, ErrPDFNoTextLayer)
+		}
+		if len(missing) > 0 {
+			slog.Warn("knowledge: pdf pages without a text layer were skipped",
+				"document_id", documentID,
+				"pages_without_text", missing,
+				"pages_with_text", withText)
+		}
+	}
+
+	// 006-pdf-layout-chunking: strip running headers/footers and standalone
+	// page-number lines before chunking. They are page furniture, not
+	// content — leaving them in dilutes the embedding of every chunk that
+	// swallows one, and makes chunks from unrelated pages spuriously
+	// similar to each other because they share the same header text.
+	//
+	// PDF only: txt and md have no page furniture, and FR-020 requires
+	// their behaviour to be byte-for-byte unchanged.
+	if doc.FileType == FileTypePDF {
+		cleaned, stripped := stripLayoutNoise(parsed.Pages)
+		parsed.Pages = cleaned
+		s.logStrippedLayoutNoise(documentID, stripped)
+	}
+
 	// Structure-aware chunking (chunkDocument dispatches by file type —
 	// see chunk.go): markdown keeps headings/paragraphs/lists/code
 	// blocks/tables intact where possible, txt splits on
-	// paragraph/sentence boundaries, pdf chunks per page so PageNumber is
-	// never attributed across a page boundary. Every path still falls
+	// paragraph/sentence boundaries, pdf consumes the reassembled
+	// paragraph stream so a paragraph broken by a page break stays whole
+	// and reports the page INTERVAL it covers. Every path still falls
 	// back to the fixed-length chunkText for a single structural unit
 	// too large to fit in kb.ChunkSize on its own.
 	pieces := chunkDocument(doc.FileType, parsed, kb.ChunkSize, kb.ChunkOverlap)
@@ -541,11 +584,12 @@ func (s *service) ProcessDocument(ctx context.Context, documentID string, versio
 
 	// DocumentName is the Citation V1 source-attribution snapshot (see
 	// Chunk's doc comment) — doc.FileName at processing time, not a live
-	// pointer back to the documents row. PageNumber/SectionTitle come
-	// straight from chunkDocument's per-piece metadata — nil wherever the
-	// source format/parser genuinely can't support it (txt never sets
-	// either; pdf never sets SectionTitle; md never sets PageNumber), never
-	// fabricated.
+	// pointer back to the documents row. PageNumber/PageEnd/SectionTitle
+	// come straight from chunkDocument's per-piece metadata — nil wherever
+	// the source format/parser genuinely can't support it (txt sets none of
+	// them; pdf never sets SectionTitle; md never sets a page), never
+	// fabricated. PageNumber/PageEnd travel together as one interval and
+	// are never half-filled (chunkPiece's C1).
 	chunks := make([]Chunk, 0, len(pieces))
 	for i, piece := range pieces {
 		chunks = append(chunks, Chunk{
@@ -559,6 +603,7 @@ func (s *service) ProcessDocument(ctx context.Context, documentID string, versio
 			Embedding:          embeddings[i],
 			EmbeddingDimension: expectedDimension,
 			PageNumber:         piece.PageNumber,
+			PageEnd:            piece.PageEnd,
 			SectionTitle:       piece.SectionTitle,
 		})
 	}
@@ -1265,4 +1310,51 @@ func (s *service) embedQuery(ctx context.Context, modelID, query string) ([]floa
 		return nil, fmt.Errorf("knowledge: embedding provider returned no vectors")
 	}
 	return result.Embeddings[0], nil
+}
+
+// logStrippedLayoutNoise is FR-008's audit trail: what layout.go removed
+// from a document, so a wrong deletion can be found after the fact rather
+// than only suspected.
+//
+// ⚠️ This logs the stripped TEXT, which runs against the rule 002 settled
+// on for this package — logs record kinds and counts, never chunk content,
+// document ids or query text. The exception is deliberate and bounded:
+//
+//   - SC-005 fixes the false-deletion rate at 0, and FR-008 exists so that
+//     claim can be CHECKED. A bare count cannot be checked against
+//     anything; it degrades into a number nobody can act on. Verifying
+//     "nothing was deleted that shouldn't have been" requires seeing what
+//     was deleted.
+//   - What is recorded is by definition page furniture, not user prose:
+//     criterion 2 only fires on text repeated across most pages of the
+//     document, and the page-number rule only on lines that are nothing
+//     but a page marker.
+//   - The constitution's logging ban targets credentials — passwords,
+//     tokens, API keys. None of that can appear here.
+//
+// Three mitigations, all required: only the NORMALISED text (digits
+// already removed) is recorded, each line is truncated, and the number of
+// per-line entries per document is capped — beyond the cap only the total
+// is carried, so a thousand-page document cannot flood the log.
+func (s *service) logStrippedLayoutNoise(documentID string, records []noiseRecord) {
+	if len(records) == 0 {
+		return
+	}
+	logged := records
+	if len(logged) > noiseLogLineLimit {
+		logged = logged[:noiseLogLineLimit]
+	}
+	for _, r := range logged {
+		slog.Debug("knowledge: stripped layout noise line",
+			"document_id", documentID,
+			"page", r.Page,
+			"reason", string(r.Reason),
+			"line_length", r.LineLength,
+			"repeat_page_ratio", r.RepeatPageRatio,
+			"text", r.Text)
+	}
+	slog.Info("knowledge: layout noise stripped",
+		"document_id", documentID,
+		"stripped_total", len(records),
+		"lines_logged", len(logged))
 }

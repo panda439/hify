@@ -669,11 +669,11 @@ func TestChunkPDFPagesAllBlankProducesNoChunks(t *testing.T) {
 // --- extractPDFPages: real PDF bytes, hand-built (see writeTestPDF) ---
 
 func TestExtractPDFPagesReturnsTextPerPageWithCorrectNumbers(t *testing.T) {
-	path := writeTestPDF(t, []string{
+	path := writeTestPDF(t, pdfLinesFromStrings(
 		"This is page one content for testing",
 		"This is page two content different from one",
 		"This is page three the final page here",
-	})
+	))
 
 	pages, err := extractPDFPages(path)
 	if err != nil {
@@ -697,11 +697,26 @@ func TestExtractPDFPagesReturnsTextPerPageWithCorrectNumbers(t *testing.T) {
 	}
 }
 
-func TestParseFileAndChunkPDFEndToEndPageNumbersNeverCrossed(t *testing.T) {
-	path := writeTestPDF(t, []string{
+// TestParseFileAndChunkPDFEndToEndPageIntervalsStayHonest replaces
+// TestParseFileAndChunkPDFEndToEndPageNumbersNeverCrossed.
+//
+// The old test asserted that no chunk may contain text from two pages,
+// which was the pre-006 contract — and this fixture is precisely the case
+// 006 exists to fix: two pages of unpunctuated, full-width text, i.e. one
+// continuous run that the page break happened to interrupt. Under the new
+// contract those two halves SHOULD end up together; keeping the old
+// assertion would mean asserting the bug.
+//
+// What is still asserted, and matters more: whatever the chunker decides,
+// the page interval it reports must be the truth. A chunk containing only
+// alpha text says page 1, only beta says page 2, both says 1-2 — never one
+// end of the range picked arbitrarily (FR-011), and never a section title
+// invented out of glyph positions (FR-016).
+func TestParseFileAndChunkPDFEndToEndPageIntervalsStayHonest(t *testing.T) {
+	path := writeTestPDF(t, pdfLinesFromStrings(
 		strings.Repeat("alphaword ", 15),
 		strings.Repeat("betaword ", 15),
-	})
+	))
 
 	parsed, err := parseFile(path, FileTypePDF)
 	if err != nil {
@@ -711,31 +726,43 @@ func TestParseFileAndChunkPDFEndToEndPageNumbersNeverCrossed(t *testing.T) {
 	if len(pieces) == 0 {
 		t.Fatalf("expected chunks from a 2-page pdf, got none")
 	}
+	sawCrossPageInterval := false
 	for _, p := range pieces {
-		if p.PageNumber == nil {
-			t.Fatalf("pdf chunk missing page number: %+v", p)
+		if p.PageNumber == nil || p.PageEnd == nil {
+			t.Fatalf("pdf chunk missing a page interval end: %+v", p)
+		}
+		if *p.PageNumber > *p.PageEnd {
+			t.Fatalf("inverted page interval %d-%d: %+v", *p.PageNumber, *p.PageEnd, p)
+		}
+		if *p.PageNumber < 1 || *p.PageEnd > 2 {
+			t.Fatalf("page interval %d-%d outside the document's 2 pages: %+v", *p.PageNumber, *p.PageEnd, p)
 		}
 		if p.SectionTitle != nil {
 			t.Fatalf("pdf chunk must never fabricate a section title: %+v", p)
 		}
-		hasAlpha := strings.Contains(p.Content, "alphaword")
-		hasBeta := strings.Contains(p.Content, "betaword")
-		if hasAlpha && hasBeta {
-			t.Fatalf("chunk spans both pages, page number would be unreliable: %+v", p)
+
+		if *p.PageNumber == 1 && *p.PageEnd == 2 {
+			sawCrossPageInterval = true
 		}
-		if hasAlpha && *p.PageNumber != 1 {
-			t.Fatalf("alpha content tagged with page %d, want 1", *p.PageNumber)
-		}
-		if hasBeta && *p.PageNumber != 2 {
-			t.Fatalf("beta content tagged with page %d, want 2", *p.PageNumber)
-		}
+	}
+	// Evidence of the merge is a chunk reporting the interval 1-2, not a
+	// chunk containing both marker words: chunk_size here is 30 against a
+	// 300-rune merged unit, so the oversize fallback splits it into pieces
+	// that each hold only one page's words while still covering both pages
+	// (see chunkPDFStream's note on inherited intervals). Requiring one
+	// chunk to hold both words would be asserting a chunk_size, not a
+	// contract.
+	if !sawCrossPageInterval {
+		t.Fatalf("no chunk reported a 1-2 interval — this fixture is a continuous run"+
+			" split by a page break, so the merge should have joined it. chunks:\n%s",
+			chunkContentsForDiag(pieces))
 	}
 }
 
 func TestParseFileScannedPDFWithNoTextYieldsEmptyContent(t *testing.T) {
 	// A page with no text-showing operators at all — the scanned-PDF case
 	// (no OCR in this phase, see parse.go's doc comment).
-	path := writeTestPDF(t, []string{""})
+	path := writeTestPDF(t, pdfLinesFromStrings(""))
 
 	parsed, err := parseFile(path, FileTypePDF)
 	if err != nil {
@@ -758,7 +785,50 @@ func TestParseFileScannedPDFWithNoTextYieldsEmptyContent(t *testing.T) {
 // heuristic has real X deltas to work with). Callers must stick to plain
 // ASCII words with no '(', ')', or '\\' — those would need PDF string
 // escaping this helper doesn't implement, and no test needs it.
-func writeTestPDF(t *testing.T, pages []string) string {
+//
+// 006-pdf-layout-chunking extended this from "one Tj per page at a fixed
+// 72 700 with a fixed size 12" to "one Td (and optional Tf) per line".
+// The old shape could not build a single fixture this feature needs: with
+// every glyph on one Y at one size, "top of page" and "bottom of page"
+// are the same line (no header/footer position signal), every line is the
+// same size (no heading signal), and every line is the same width (the
+// near-full-width merge criterion is then either always or never true).
+// Deliberately still no multi-column, no rotation, no embedded fonts —
+// this feature does not need them (multi-column reading order is
+// explicitly out of scope per spec.md).
+type testLine struct {
+	Text string
+	// FontSize in points; 0 means "use testPDFDefaultFontSize", which is
+	// what every pre-006 caller implicitly got.
+	FontSize float64
+}
+
+const (
+	// testPDFDefaultFontSize matches the size the pre-006 helper hardcoded,
+	// so single-line pages come out byte-identical to before.
+	testPDFDefaultFontSize = 12.0
+	// testPDFFirstLineY / testPDFMinLeading: the first baseline sits where
+	// the old helper put its only line, and each subsequent line drops by
+	// max(fontSize*1.2, testPDFMinLeading). The floor matters because
+	// extractPDFPages only starts a new line when lastY-Y > 2 — a leading
+	// at or under that threshold would silently merge two fixture lines
+	// into one and quietly defeat whatever the fixture was built to test.
+	testPDFFirstLineY = 700.0
+	testPDFMinLeading = 14.0
+)
+
+// pdfLinesFromStrings adapts the pre-006 "one string per page" call shape
+// to writeTestPDF's line-based one. Kept so the existing call sites stay
+// one-liners and keep asserting exactly what they asserted before.
+func pdfLinesFromStrings(pages ...string) [][]testLine {
+	out := make([][]testLine, len(pages))
+	for i, p := range pages {
+		out[i] = []testLine{{Text: p}}
+	}
+	return out
+}
+
+func writeTestPDF(t testing.TB, pages [][]testLine) string {
 	t.Helper()
 	n := len(pages)
 	fontObj := 3 + 2*n
@@ -784,19 +854,33 @@ func writeTestPDF(t *testing.T, pages []string) string {
 		"<< /Type /Pages /Kids [ %s] /Count %d /MediaBox [0 0 612 792] /Resources << /Font << /F1 %d 0 R >> >> >>",
 		kids.String(), n, fontObj))
 
-	for i, pageText := range pages {
+	for i, pageLines := range pages {
 		pageID := 3 + i
 		contentID := 3 + n + i
 		writeObj(pageID, fmt.Sprintf("<< /Type /Page /Parent 2 0 R /Contents %d 0 R >>", contentID))
 
-		// The whole page's text goes out as a single Tj string on one
-		// line — reconstructing line breaks isn't what these tests
-		// exercise (chunkPlainText's paragraph splitting is already
-		// covered directly against strings), only that spaces within a
-		// line and page boundaries survive extractPDFPages correctly.
+		// One BT/ET block per line, each with its own absolute Td — Td is
+		// relative to the text-object origin, so restarting the block per
+		// line makes every coordinate absolute and keeps the emitted
+		// stream readable when a fixture misbehaves. Blank lines emit
+		// nothing at all but still consume their Y slot, so a fixture can
+		// leave vertical gaps; a page whose lines are all blank emits an
+		// empty content stream, which is the scanned-page case.
 		var content strings.Builder
-		if trimmed := strings.TrimSpace(pageText); trimmed != "" {
-			fmt.Fprintf(&content, "BT /F1 12 Tf 72 700 Td (%s) Tj ET\n", trimmed)
+		y := testPDFFirstLineY
+		for _, line := range pageLines {
+			size := line.FontSize
+			if size <= 0 {
+				size = testPDFDefaultFontSize
+			}
+			if trimmed := strings.TrimSpace(line.Text); trimmed != "" {
+				fmt.Fprintf(&content, "BT /F1 %g Tf 72 %g Td (%s) Tj ET\n", size, y, trimmed)
+			}
+			leading := size * 1.2
+			if leading < testPDFMinLeading {
+				leading = testPDFMinLeading
+			}
+			y -= leading
 		}
 		contentBytes := content.String()
 		offsets[contentID] = buf.Len()
@@ -881,5 +965,36 @@ func TestChunkPDFPagesTagsEveryPieceWithItsSourcePage(t *testing.T) {
 	// 0 here would mean someone reintroduced a zero-based index.
 	if seen[0] != 0 {
 		t.Fatal("a piece was tagged with page 0; PDF page numbers are 1-indexed (parse.go's pdfPage.Number)")
+	}
+}
+
+// TestWriteTestPDFEmitsDistinctLines guards the fixture builder itself:
+// every later fixture in this feature (headers, footers, headings,
+// near-full-width merge candidates) is built on the assumption that one
+// testLine comes back as one line, with its own size and its own width.
+// If this breaks, the fixtures silently stop testing what they claim to
+// and everything downstream still passes.
+func TestWriteTestPDFEmitsDistinctLines(t *testing.T) {
+	path := writeTestPDF(t, [][]testLine{{
+		{Text: "Chapter Seven Overview", FontSize: 20},
+		{Text: "this is a much longer body line than the heading above it"},
+		{Text: "short tail"},
+	}})
+
+	pages, err := extractPDFPages(path)
+	if err != nil {
+		t.Fatalf("extractPDFPages: %v", err)
+	}
+	if len(pages) != 1 {
+		t.Fatalf("got %d pages, want 1", len(pages))
+	}
+	lines := strings.Split(strings.TrimSpace(pages[0].Text), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("got %d lines %q, want 3 — the per-line Td is not taking effect", len(lines), lines)
+	}
+	for i, want := range []string{"Chapter Seven Overview", "this is a much longer body line", "short tail"} {
+		if !strings.Contains(lines[i], want) {
+			t.Fatalf("line %d = %q, want it to contain %q", i, lines[i], want)
+		}
 	}
 }

@@ -22,6 +22,7 @@ import (
 	pgvector "github.com/pgvector/pgvector-go"
 
 	"hify/internal/platform"
+	"hify/internal/platform/apperr"
 	"hify/internal/provider"
 	"hify/internal/testutil"
 	"hify/internal/user"
@@ -1739,10 +1740,10 @@ func TestIntegrationProcessDocumentPDFPageNumbers(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	pdfPath := writeTestPDF(t, []string{
+	pdfPath := writeTestPDF(t, pdfLinesFromStrings(
 		strings.Repeat("alphaword ", 15), // page 1, long enough to split into >=1 chunk
 		strings.Repeat("betaword ", 15),  // page 2
-	})
+	))
 	if err := repo.createDocument(ctx, Document{ID: "doc-pdfpage", KnowledgeBaseID: "kb-pdfpage",
 		FileName: "pages.pdf", FileType: FileTypePDF, FileSize: 1, StoragePath: pdfPath, CreatedBy: "u1"}); err != nil {
 		t.Fatal(err)
@@ -1766,24 +1767,34 @@ func TestIntegrationProcessDocumentPDFPageNumbers(t *testing.T) {
 	if len(chunks) == 0 {
 		t.Fatal("expected at least one searchable chunk")
 	}
+	// 006-pdf-layout-chunking 更新了本用例断言的契约。原来它断言"没有任何
+	// chunk 同时含两页的内容"——那是按页硬切时期的性质，而这份夹具（两页都是
+	// 无标点、接近满行宽的连续文本）恰恰是本功能存在的理由：它本来就是一段被
+	// 页边界打断的连续内容，现在应该被接回去。继续断言旧性质等于断言那个缺陷。
+	//
+	// 现在断言的是更要紧的一条：不管切成什么样，**报出来的页码区间必须是真的**
+	// ——两端都有值（C1）、起始 ≤ 结束（C2）、都落在文档的 2 页之内（C3），
+	// 且确实出现了一个 1-2 的区间证明合并真的发生了。
+	sawCrossPageInterval := false
 	for _, c := range chunks {
 		if c.SectionTitle != nil {
 			t.Fatalf("pdf chunk must never fabricate a section title: %+v", c)
 		}
-		if c.PageNumber == nil {
-			t.Fatalf("pdf chunk missing page number: %+v", c)
+		if c.PageNumber == nil || c.PageEnd == nil {
+			t.Fatalf("pdf chunk missing a page interval end: %+v", c)
 		}
-		hasAlpha := strings.Contains(c.Content, "alphaword")
-		hasBeta := strings.Contains(c.Content, "betaword")
-		if hasAlpha && hasBeta {
-			t.Fatalf("chunk spans both pages, page number would be unreliable: %+v", c)
+		if *c.PageNumber > *c.PageEnd {
+			t.Fatalf("inverted page interval %d-%d: %+v", *c.PageNumber, *c.PageEnd, c)
 		}
-		if hasAlpha && *c.PageNumber != 1 {
-			t.Fatalf("alpha content tagged with page %d, want 1: %+v", *c.PageNumber, c)
+		if *c.PageNumber < 1 || *c.PageEnd > 2 {
+			t.Fatalf("page interval %d-%d outside the document's 2 pages: %+v", *c.PageNumber, *c.PageEnd, c)
 		}
-		if hasBeta && *c.PageNumber != 2 {
-			t.Fatalf("beta content tagged with page %d, want 2: %+v", *c.PageNumber, c)
+		if *c.PageNumber == 1 && *c.PageEnd == 2 {
+			sawCrossPageInterval = true
 		}
+	}
+	if !sawCrossPageInterval {
+		t.Fatalf("no chunk reported a 1-2 interval, so the cross-page merge never happened")
 	}
 }
 
@@ -1942,7 +1953,8 @@ func seedChunkWithContentSourceMeta(t *testing.T, repo *Repository, kbID, docID,
 		ID: chunkID, KnowledgeBaseID: kbID, DocumentID: docID, ChunkIndex: 0,
 		Content: content, ContentLength: len([]rune(content)),
 		Embedding: vec, EmbeddingDimension: len(vec),
-		DocumentName: documentName, PageNumber: pageNumber, SectionTitle: sectionTitle,
+		DocumentName: documentName, PageNumber: pageNumber, PageEnd: pageNumber,
+		SectionTitle: sectionTitle,
 	}}, seedChunkVersion); err != nil {
 		t.Fatalf("seed chunk %s: %v", chunkID, err)
 	}
@@ -2604,7 +2616,23 @@ type neighborSeedChunk struct {
 	Vec          []float32
 	DocumentName string
 	PageNumber   *int
+	// PageEnd defaults to PageNumber when left nil, which is what every
+	// pre-006 fixture means: a chunk that sits on exactly one page. Set it
+	// explicitly only to seed a genuinely cross-page chunk (page_number=3,
+	// page_end=4). Leaving it nil while PageNumber is set would violate
+	// invariant C1 and the chunks_page_range_valid constraint would reject
+	// the whole batch.
+	PageEnd      *int
 	SectionTitle *string
+}
+
+// seedPageEnd applies neighborSeedChunk.PageEnd's default: a fixture that
+// only says "page 7" means the closed interval [7, 7].
+func seedPageEnd(c neighborSeedChunk) *int {
+	if c.PageEnd != nil {
+		return c.PageEnd
+	}
+	return c.PageNumber
 }
 
 // seedNeighborChunkBatch writes every row in chunks under (kbID, docID,
@@ -2624,7 +2652,8 @@ func seedNeighborChunkBatch(t *testing.T, repo *Repository, kbID, docID string, 
 			ID: c.ID, KnowledgeBaseID: kbID, DocumentID: docID, ChunkIndex: c.ChunkIndex,
 			Content: c.Content, ContentLength: len([]rune(c.Content)),
 			Embedding: c.Vec, EmbeddingDimension: len(c.Vec),
-			DocumentName: c.DocumentName, PageNumber: c.PageNumber, SectionTitle: c.SectionTitle,
+			DocumentName: c.DocumentName, PageNumber: c.PageNumber, PageEnd: seedPageEnd(c),
+			SectionTitle: c.SectionTitle,
 		})
 	}
 	if err := repo.createChunks(ctx, rows, version); err != nil {
@@ -4305,4 +4334,548 @@ func TestIntegrationRetrieveFilterDiagnosticsAreContentFree(t *testing.T) {
 				forbidden.what, forbidden.value, logged)
 		}
 	}
+}
+
+// --- 006-pdf-layout-chunking US1：真实 PG 上的跨页召回与确定性 ---
+
+// seedCrossPagePDFDoc 把 chunk_test.go 的 F1 夹具（第 3 页末尾与第 4 页开头
+// 是同一段话）真的走一遍入库流水线，返回知识库 ID。
+func seedCrossPagePDFDoc(t *testing.T, repo *Repository, svc Service, kbID, docID string) {
+	t.Helper()
+	ctx := context.Background()
+	if err := repo.createKnowledgeBase(ctx, KnowledgeBase{
+		ID: kbID, Name: kbID, EmbeddingModelID: "m3",
+		ChunkSize: 400, ChunkOverlap: 40, CreatedBy: "u1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.createDocument(ctx, Document{
+		ID: docID, KnowledgeBaseID: kbID, FileName: "handbook.pdf", FileType: FileTypePDF,
+		FileSize: 1, StoragePath: crossPageFixture(t), CreatedBy: "u1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ProcessDocument(ctx, docID, 1); err != nil {
+		t.Fatalf("ProcessDocument: %v", err)
+	}
+	doc, err := repo.getDocument(ctx, docID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Status != StatusReady {
+		t.Fatalf("doc status=%s, want ready (err=%q)", doc.Status, doc.ErrorMessage)
+	}
+}
+
+// TestIntegrationCrossPageParagraphIsRetrievableWhole is SC-001 at the far
+// end of the pipeline: not "the chunker kept it together" but "asking about
+// it gets the whole thing back, cited as pages 3-4".
+//
+// The query is the marker token from the FIRST half of the paragraph. Before
+// this feature that token lived in a chunk which stopped mid-sentence — the
+// answer's second half was in a different chunk on a different page, and
+// retrieving the first half returned a fragment ending "...created before
+// the", which is exactly the shape that invites a model to invent the rest.
+func TestIntegrationCrossPageParagraphIsRetrievableWhole(t *testing.T) {
+	repo := setupIntegration(t)
+	svc := newTestService(repo, newFakeProvider(), t.TempDir())
+	seedCrossPagePDFDoc(t, repo, svc, "kb-xpage", "doc-xpage")
+
+	out, err := svc.Retrieve(context.Background(), []string{"kb-xpage"}, crossPageTailMarker, 5, RetrieveOptions{})
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	if len(out) == 0 {
+		t.Fatal("检索没有返回任何片段——跨页那段话应当被关键词路命中")
+	}
+
+	for _, c := range out {
+		if !strings.Contains(c.Content, crossPageTailMarker) {
+			continue
+		}
+		if !strings.Contains(c.Content, crossPageHeadMarker) {
+			t.Fatalf("命中的片段只有跨页段落的前半截，后半截仍然在别的片段里：%q", c.Content)
+		}
+		if c.PageNumber == nil || c.PageEnd == nil {
+			t.Fatalf("跨页片段缺少页码区间：%+v", c)
+		}
+		if *c.PageNumber != 3 || *c.PageEnd != 4 {
+			t.Fatalf("跨页片段报出的页码是 %d-%d，应当是 3-4——它确实覆盖了这两页",
+				*c.PageNumber, *c.PageEnd)
+		}
+		return
+	}
+	t.Fatalf("检索结果里没有包含跨页段落的片段：%+v", out)
+}
+
+// TestIntegrationPDFChunkingIsByteForByteRepeatable is SC-004 on the whole
+// chain. Running the same PDF through chunkDocument twice must produce the
+// same chunks with the same page intervals, byte for byte.
+//
+// ⚠️ This is aimed squarely at the map-iteration trap in layout.go's modal
+// statistics: that bug does not fail every run, it fails a small fraction
+// of them, so the loop count is the test. layout_test.go covers the same
+// property on the pure functions with a tighter loop; this one proves it
+// survives the real extractor, whose line widths do not tie as neatly as a
+// hand-written fixture's.
+func TestIntegrationPDFChunkingIsByteForByteRepeatable(t *testing.T) {
+	path := crossPageFixture(t)
+	parsed, err := parseFile(path, FileTypePDF)
+	if err != nil {
+		t.Fatalf("parseFile: %v", err)
+	}
+
+	first := chunkDocument(FileTypePDF, parsed, 400, 40)
+	if len(first) == 0 {
+		t.Fatal("expected chunks")
+	}
+	render := func(pieces []chunkPiece) string {
+		var sb strings.Builder
+		for _, p := range pieces {
+			start, end := "nil", "nil"
+			if p.PageNumber != nil {
+				start = strconv.Itoa(*p.PageNumber)
+			}
+			if p.PageEnd != nil {
+				end = strconv.Itoa(*p.PageEnd)
+			}
+			fmt.Fprintf(&sb, "%s|%s|%s\n", start, end, p.Content)
+		}
+		return sb.String()
+	}
+	want := render(first)
+
+	for i := 0; i < 50; i++ {
+		reparsed, err := parseFile(path, FileTypePDF)
+		if err != nil {
+			t.Fatalf("parseFile run %d: %v", i, err)
+		}
+		if got := render(chunkDocument(FileTypePDF, reparsed, 400, 40)); got != want {
+			t.Fatalf("run %d produced different chunks/page intervals:\n got:\n%s\nwant:\n%s", i, got, want)
+		}
+	}
+}
+
+// --- 006-pdf-layout-chunking US2：剥离审计日志（FR-008） ---
+
+// TestIntegrationLayoutNoiseAuditLogIsWritten 断言 FR-008 的审计线索真的
+// 从 ProcessDocument 里写出来了，而不是只存在于 stripLayoutNoise 的返回值里
+// 却没人消费。
+//
+// ⚠️ 这条日志**会记录被剥离的文本**，与 002-metadata-filter 确立的"日志不记
+// 片段正文"口径方向相反。理由与三条缓解措施见 service.go 的
+// logStrippedLayoutNoise 注释；这里断言的是缓解措施确实生效：记的是**归一化
+// 后**的文本（数字已被抹掉），且汇总行带上了 stripped_total。
+func TestIntegrationLayoutNoiseAuditLogIsWritten(t *testing.T) {
+	repo := setupIntegration(t)
+	svc := newTestService(repo, newFakeProvider(), t.TempDir())
+	ctx := context.Background()
+
+	if err := repo.createKnowledgeBase(ctx, KnowledgeBase{
+		ID: "kb-noise", Name: "kb-noise", EmbeddingModelID: "m3",
+		ChunkSize: 400, ChunkOverlap: 40, CreatedBy: "u1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.createDocument(ctx, Document{
+		ID: "doc-noise", KnowledgeBaseID: "kb-noise", FileName: "handbook.pdf",
+		FileType: FileTypePDF, FileSize: 1, StoragePath: headerFooterFixture(t), CreatedBy: "u1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	prev := slog.Default()
+	var buf bytes.Buffer
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	defer slog.SetDefault(prev)
+
+	if err := svc.ProcessDocument(ctx, "doc-noise", 1); err != nil {
+		t.Fatalf("ProcessDocument: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "layout noise stripped") {
+		t.Fatalf("没有写出剥离汇总日志（FR-008）：%s", out)
+	}
+	if !strings.Contains(out, "stripped_total") {
+		t.Fatalf("汇总日志缺少 stripped_total：%s", out)
+	}
+	if !strings.Contains(out, string(reasonRepeatedHeader)) {
+		t.Fatalf("逐行记录里没有出现 %q 这个原因：%s", reasonRepeatedHeader, out)
+	}
+	// 记的是归一化后的文本：数字已被抹掉，所以原始页码行 "Page 3 of 6" 不该
+	// 原样出现在日志里。
+	if strings.Contains(out, "Page 3 of 6") {
+		t.Fatalf("日志记录了未归一化的原始文本，缓解措施没有生效：%s", out)
+	}
+}
+
+// --- 006-pdf-layout-chunking US3：页码过滤的区间相交语义 ---
+
+// TestIntegrationPageFilterIntersectsChunkInterval 逐格走 contracts §3.3 的
+// 对照表：一个跨第 3-4 页的片段与一个单独在第 3 页的片段，在九种过滤条件下
+// 分别该不该命中。
+//
+// ⭐ 三个 ⭐ 格（min=4,max=4 / min=4,max=9 / 只给 min=4）是本次改动**唯一**
+// 改变行为的地方，而且方向全是"原本漏掉的现在命中了"——过滤「第 4 页」本来
+// 就该命中一个覆盖 3-4 页的片段，因为它确实包含第 4 页的内容。表里不存在
+// 任何一格是"原本命中的现在不命中"，这正是 FR-022 与 SC-006 在契约层的表述。
+//
+// 单页片段那一列同时充当对照组：它在所有九格里的行为与改动前**完全一致**，
+// 所以这张表也证明了 R2 的等价性论证（data-model.md §7.1）在真实 SQL 上成立，
+// 而不只是在纸面上。
+func TestIntegrationPageFilterIntersectsChunkInterval(t *testing.T) {
+	repo := setupIntegration(t)
+	svc := newTestServiceWithFilter(repo, newFakeProvider(), t.TempDir())
+	ctx := context.Background()
+
+	kb := "kb-filter-interval"
+	seedKB(t, repo, kb, "m3", "u1", true)
+	p3, p4 := 3, 4
+	seedNeighborChunkBatch(t, repo, kb, "doc-interval", 1, []neighborSeedChunk{
+		// 真正的跨页片段：起始第 3 页、结束第 4 页。
+		{ID: "iv-cross", ChunkIndex: 0, Content: "跨页片段的正文", Vec: []float32{1, 0, 0},
+			PageNumber: &p3, PageEnd: &p4},
+		// 对照：只在第 3 页。chunk_index 刻意与上面拉开，避免邻接窗口把它作为
+		// 上下文补全带回来（那是 002 FR-011 的豁免，正确但会让断言失去针对性）。
+		{ID: "iv-single", ChunkIndex: 9, Content: "单页片段的正文", Vec: []float32{1, 0.05, 0},
+			PageNumber: &p3, PageEnd: &p3},
+	}, true)
+
+	cases := []struct {
+		name         string
+		filter       RetrieveFilter
+		wantCross    bool
+		wantSingle   bool
+		changedBy006 bool
+	}{
+		{"min=3 max=3", RetrieveFilter{PageMin: intPtr(3), PageMax: intPtr(3)}, true, true, false},
+		{"min=4 max=4 ⭐", RetrieveFilter{PageMin: intPtr(4), PageMax: intPtr(4)}, true, false, true},
+		{"min=4 max=9 ⭐", RetrieveFilter{PageMin: intPtr(4), PageMax: intPtr(9)}, true, false, true},
+		{"只给 min=4 ⭐", RetrieveFilter{PageMin: intPtr(4)}, true, false, true},
+		{"min=1 max=2", RetrieveFilter{PageMin: intPtr(1), PageMax: intPtr(2)}, false, false, false},
+		{"min=5 max=9", RetrieveFilter{PageMin: intPtr(5), PageMax: intPtr(9)}, false, false, false},
+		{"min=1 max=10", RetrieveFilter{PageMin: intPtr(1), PageMax: intPtr(10)}, true, true, false},
+		{"只给 max=3", RetrieveFilter{PageMax: intPtr(3)}, true, true, false},
+		{"两端都不设", RetrieveFilter{}, true, true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := svc.Retrieve(ctx, []string{kb}, "片段的正文", 10, RetrieveOptions{Filter: tc.filter})
+			if err != nil {
+				t.Fatalf("Retrieve: %v", err)
+			}
+			if got := containsChunkID(out, "iv-cross"); got != tc.wantCross {
+				marker := ""
+				if tc.changedBy006 {
+					marker = "（这是 006 改变行为的三格之一：跨页片段确实包含该页的内容，应当命中）"
+				}
+				t.Fatalf("跨页片段(3-4) 命中=%v，期望 %v%s，got %v", got, tc.wantCross, marker, ids(out))
+			}
+			if got := containsChunkID(out, "iv-single"); got != tc.wantSingle {
+				t.Fatalf("单页片段(3) 命中=%v，期望 %v —— 单页片段的行为必须与改动前完全一致，got %v",
+					got, tc.wantSingle, ids(out))
+			}
+		})
+	}
+}
+
+// TestIntegrationCrossPageChunkCarriesIntervalThroughRetrieval 锁定
+// page_end 真的从库里读了出来，而不是只写进去。四处行映射漏掉任何一处，
+// 那条路径返回的 chunk 的 PageEnd 就会恒为 nil，违反不变量 C1；如果 000005
+// 的 CHECK 约束哪天被拿掉，这个错误会一路静默传到前端显示成「—」。
+func TestIntegrationCrossPageChunkCarriesIntervalThroughRetrieval(t *testing.T) {
+	repo := setupIntegration(t)
+	svc := newTestServiceWithFilter(repo, newFakeProvider(), t.TempDir())
+	ctx := context.Background()
+
+	kb := "kb-interval-roundtrip"
+	seedKB(t, repo, kb, "m3", "u1", true)
+	p3, p4 := 3, 4
+	seedNeighborChunkBatch(t, repo, kb, "doc-interval-rt", 1, []neighborSeedChunk{
+		{ID: "rt-cross", ChunkIndex: 0, Content: "跨页片段的正文往返", Vec: []float32{1, 0, 0},
+			PageNumber: &p3, PageEnd: &p4},
+	}, true)
+
+	out, err := svc.Retrieve(ctx, []string{kb}, "跨页片段的正文往返", 5, RetrieveOptions{})
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	for _, c := range out {
+		if c.ID != "rt-cross" {
+			continue
+		}
+		if c.PageNumber == nil || c.PageEnd == nil {
+			t.Fatalf("跨页片段往返之后丢了区间的一端（C1）：%+v", c)
+		}
+		if *c.PageNumber != 3 || *c.PageEnd != 4 {
+			t.Fatalf("往返之后区间变成 %d-%d，应当是 3-4", *c.PageNumber, *c.PageEnd)
+		}
+		return
+	}
+	t.Fatalf("没有召回 rt-cross：%v", ids(out))
+}
+
+// --- 006-pdf-layout-chunking US5：扫描件与空文件必须能被用户区分（SC-007） ---
+
+func seedDocForProcessing(t *testing.T, repo *Repository, kbID, docID, fileName, fileType, path string) {
+	t.Helper()
+	ctx := context.Background()
+	if err := repo.createKnowledgeBase(ctx, KnowledgeBase{
+		ID: kbID, Name: kbID, EmbeddingModelID: "m3",
+		ChunkSize: 400, ChunkOverlap: 40, CreatedBy: "u1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.createDocument(ctx, Document{
+		ID: docID, KnowledgeBaseID: kbID, FileName: fileName, FileType: fileType,
+		FileSize: 1, StoragePath: path, CreatedBy: "u1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestIntegrationScannedPDFIsDistinguishableFromAnEmptyFile 是 SC-007 的
+// 验收形态：**用户看到的那句话**必须让他判断得出下一步该做什么。
+//
+// 改动前两种情况都返回「文档内容为空或无法提取到文本」——准确，但用户没法
+// 知道自己是传了个空文件还是传了份需要 OCR 的扫描件，而这两件事的下一步完全
+// 不同。改动后扫描件走专用错误并点名 OCR，空文件仍走原来那条（它的适用范围
+// 由此**收缩**为"真正的空文件"，文案一个字没改）。
+func TestIntegrationScannedPDFIsDistinguishableFromAnEmptyFile(t *testing.T) {
+	repo := setupIntegration(t)
+	svc := newTestService(repo, newFakeProvider(), t.TempDir())
+	ctx := context.Background()
+
+	// F4：所有页都没有可提取文本的纯扫描件。
+	scanned := writeTestPDF(t, pdfLinesFromStrings("", "", ""))
+	seedDocForProcessing(t, repo, "kb-scan", "doc-scan", "scan.pdf", FileTypePDF, scanned)
+	scanErr := svc.ProcessDocument(ctx, "doc-scan", 1)
+	if !errors.Is(scanErr, ErrPDFNoTextLayer) {
+		t.Fatalf("纯扫描件返回的是 %v，应当是 ErrPDFNoTextLayer", scanErr)
+	}
+
+	// 真正的空文件：仍然走 ErrEmptyContent。
+	emptyPath := filepath.Join(t.TempDir(), "empty.txt")
+	if err := os.WriteFile(emptyPath, []byte("   \n\n  "), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedDocForProcessing(t, repo, "kb-empty-scan006", "doc-empty-scan006", "empty.txt", FileTypeTxt, emptyPath)
+	emptyErr := svc.ProcessDocument(ctx, "doc-empty-scan006", 1)
+	if !errors.Is(emptyErr, ErrEmptyContent) {
+		t.Fatalf("空文件返回的是 %v，应当是 ErrEmptyContent", emptyErr)
+	}
+
+	// ⭐ 两条用户可见文案必须真的不同，而且扫描件那条要点名 OCR——SC-007 的
+	// 原话是"无需查阅日志就能判断下一步动作"。
+	var scanApp, emptyApp *apperr.AppError
+	if !errors.As(scanErr, &scanApp) || !errors.As(emptyErr, &emptyApp) {
+		t.Fatalf("两个错误都应当是 AppError：%v / %v", scanErr, emptyErr)
+	}
+	if scanApp.Message == emptyApp.Message {
+		t.Fatalf("扫描件与空文件的用户文案相同（%q），用户无法区分自己是哪种情况", scanApp.Message)
+	}
+	if !strings.Contains(scanApp.Message, "OCR") {
+		t.Fatalf("扫描件的提示没有点名 OCR，用户仍然不知道下一步做什么：%q", scanApp.Message)
+	}
+
+	// 文档状态与 error_message 落库，前端文档列表就是从这里读的。
+	got, err := repo.getDocument(ctx, "doc-scan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusFailed || !strings.Contains(got.ErrorMessage, "OCR") {
+		t.Fatalf("扫描件文档 status=%s error_message=%q，应当是 failed 且提示里带 OCR", got.Status, got.ErrorMessage)
+	}
+}
+
+// TestIntegrationPartiallyScannedPDFStillIngestsItsTextPages 是夹具 F5。
+//
+// ⚠️ 这条**不断言任何"告知用户"的行为**：FR-018 已按 plan.md「三项拍板」
+// 决策 1 整条推迟到下一期，本期用户界面上看不到任何提示，只有一条结构化日志。
+// 这里锁定的是本期真正做到的两件事：有文本的页正常入库（不因为部分页缺文本
+// 就整体失败），以及**页码不错位**——被跳过的页不能让后面的页码往前挪。
+func TestIntegrationPartiallyScannedPDFStillIngestsItsTextPages(t *testing.T) {
+	repo := setupIntegration(t)
+	svc := newTestService(repo, newFakeProvider(), t.TempDir())
+	ctx := context.Background()
+
+	// 5 页里第 2、4 页无文本。
+	// ⚠️ 只能用纯 ASCII：writeTestPDF 用的是 Courier + WinAnsi，中文会被渲染成
+	// 一串乱码（helper 的文档注释写明了这条限制，不是本用例的问题）。
+	path := writeTestPDF(t, pdfLinesFromStrings(
+		"pageone body text standing alone.",
+		"",
+		"pagethree body text standing alone.",
+		"",
+		"pagefive body text standing alone.",
+	))
+	seedDocForProcessing(t, repo, "kb-partial", "doc-partial", "partial.pdf", FileTypePDF, path)
+	if err := svc.ProcessDocument(ctx, "doc-partial", 1); err != nil {
+		t.Fatalf("部分扫描件应当正常入库有文本的部分，实际失败：%v", err)
+	}
+
+	chunks, err := repo.searchVectorChunks(ctx, []string{"kb-partial"}, []float32{1, 0, 0}, 100, RetrieveFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) == 0 {
+		t.Fatal("有文本的三页一个片段都没入库")
+	}
+	byPage := map[int]string{}
+	for _, c := range chunks {
+		if c.PageNumber == nil || c.PageEnd == nil {
+			t.Fatalf("片段缺少页码区间：%+v", c)
+		}
+		byPage[*c.PageNumber] += c.Content
+	}
+	// 页码必须指向**真实页号** 1/3/5，而不是被压缩成 1/2/3。
+	for page, want := range map[int]string{1: "pageone", 3: "pagethree", 5: "pagefive"} {
+		got, ok := byPage[page]
+		if !ok {
+			t.Fatalf("第 %d 页的内容没有以页码 %d 入库，实际页码分布：%v", page, page, byPage)
+		}
+		if !strings.Contains(got, want) {
+			t.Fatalf("页码 %d 上的内容是 %q，应当包含 %q —— 跳过的空白页让页码错位了", page, got, want)
+		}
+	}
+}
+
+// TestIntegrationPageFilterIntersectionAppliesToBothRecallPaths 是变异测试
+// 逼出来的用例。
+//
+// ⚠️ 发现经过：把 SearchVectorChunks 的下界谓词单独改回
+// `page_number >= min`（即 006 之前的点落语义），
+// TestIntegrationPageFilterIntersectsChunkInterval **照样通过**——因为它走的是
+// 公开的 Retrieve，两路召回融合之后，未被改坏的关键词路仍然把跨页片段带了
+// 回来，向量路的回归被整个掩盖掉。两处一起改才会失败。
+//
+// 这正是 002-metadata-filter 踩过的那个盲区换了个形状又出现了一次：**一条经过
+// 融合的断言，对"只有一路出问题"是瞎的**。所以这条用例绕开融合，直接分别打
+// 两条召回 SQL，让每一路各自暴露。
+//
+// 页码过滤的谓词在两条查询里是逐字重复的，重复就意味着可以只改一处——这条
+// 用例存在的全部意义就是让那种改动响亮地失败。
+func TestIntegrationPageFilterIntersectionAppliesToBothRecallPaths(t *testing.T) {
+	repo := setupIntegration(t)
+	ctx := context.Background()
+
+	kb := "kb-filter-bothpaths"
+	seedKB(t, repo, kb, "m3", "u1", true)
+	p3, p4 := 3, 4
+	seedNeighborChunkBatch(t, repo, kb, "doc-bothpaths", 1, []neighborSeedChunk{
+		{ID: "bp-cross", ChunkIndex: 0, Content: "BOTHPATHSTOKEN 跨页片段的正文", Vec: []float32{1, 0, 0},
+			PageNumber: &p3, PageEnd: &p4},
+	}, true)
+
+	// 过滤「第 4 页」：跨页片段(3-4) 与它相交，两条路都必须召回它。
+	// 点落语义下 page_number=3 不满足 >=4，任何一路退回点落语义都会在这里
+	// 露出来。
+	filter := RetrieveFilter{PageMin: intPtr(4), PageMax: intPtr(4)}
+
+	vec, err := repo.searchVectorChunks(ctx, []string{kb}, []float32{1, 0, 0}, 10, filter)
+	if err != nil {
+		t.Fatalf("searchVectorChunks: %v", err)
+	}
+	if !containsChunkID(vec, "bp-cross") {
+		t.Fatalf("向量召回路没有命中跨页片段(3-4)——这一路的页码谓词退回了点落语义，got %v", ids(vec))
+	}
+
+	kw, err := repo.searchKeywordChunks(ctx, []string{kb}, "BOTHPATHSTOKEN", 10, filter)
+	if err != nil {
+		t.Fatalf("searchKeywordChunks: %v", err)
+	}
+	if !containsChunkID(kw, "bp-cross") {
+		t.Fatalf("关键词召回路没有命中跨页片段(3-4)——这一路的页码谓词退回了点落语义，got %v", ids(kw))
+	}
+
+	// 反向对照：范围完全落在区间之外时两条路都不该命中，否则上面两条断言用
+	// 一个"永远命中"的实现也能通过。
+	outside := RetrieveFilter{PageMin: intPtr(9), PageMax: intPtr(9)}
+	vecOut, err := repo.searchVectorChunks(ctx, []string{kb}, []float32{1, 0, 0}, 10, outside)
+	if err != nil {
+		t.Fatalf("searchVectorChunks（范围外）: %v", err)
+	}
+	if containsChunkID(vecOut, "bp-cross") {
+		t.Fatalf("向量召回路把区间外的片段也带回来了，got %v", ids(vecOut))
+	}
+	kwOut, err := repo.searchKeywordChunks(ctx, []string{kb}, "BOTHPATHSTOKEN", 10, outside)
+	if err != nil {
+		t.Fatalf("searchKeywordChunks（范围外）: %v", err)
+	}
+	if containsChunkID(kwOut, "bp-cross") {
+		t.Fatalf("关键词召回路把区间外的片段也带回来了，got %v", ids(kwOut))
+	}
+}
+
+// TestIntegrationPageEndIsReadBackOnEveryRepositoryPath 是变异测试逼出来的
+// 第二条用例。
+//
+// ⚠️ 发现经过：repository.go 有**四处**行映射要把 page_end 读出来（向量召回、
+// 关键词召回、邻接查询、邻接批量查询）。逐处删掉那一行做变异测试，只有第一处
+// 被既有用例抓住，另外三处**全部逃逸**。
+//
+// 逃逸的后果不是报错，是**静默**：那条路径返回的 chunk 的 PageEnd 恒为 nil，
+// 违反不变量 C1；前端拿到 page_number 有值而 page_end 为 null 的响应，会按
+// R3 的三分支落到「—」，用户看到的是"这个片段没有页码"——一个看起来正常的
+// 界面，背后是一条被悄悄丢掉的引用信息。
+//
+// 四条路径逐条断言，不走融合：融合会让任何单路的回归被其他路掩盖（同
+// TestIntegrationPageFilterIntersectionAppliesToBothRecallPaths 的教训）。
+func TestIntegrationPageEndIsReadBackOnEveryRepositoryPath(t *testing.T) {
+	repo := setupIntegration(t)
+	ctx := context.Background()
+
+	kb := "kb-pageend-paths"
+	seedKB(t, repo, kb, "m3", "u1", true)
+	p3, p4, p6 := 3, 4, 6
+	seedNeighborChunkBatch(t, repo, kb, "doc-pageend", 1, []neighborSeedChunk{
+		{ID: "pe-anchor", ChunkIndex: 0, Content: "PAGEENDTOKEN 锚点片段的正文", Vec: []float32{1, 0, 0},
+			PageNumber: &p3, PageEnd: &p4},
+		{ID: "pe-neighbor", ChunkIndex: 1, Content: "邻接片段的正文", Vec: []float32{0, 1, 0},
+			PageNumber: &p6, PageEnd: &p6},
+	}, true)
+
+	assertInterval := func(path string, chunks []RetrievedChunk, id string, wantStart, wantEnd int) {
+		t.Helper()
+		for _, c := range chunks {
+			if c.ID != id {
+				continue
+			}
+			if c.PageNumber == nil || c.PageEnd == nil {
+				t.Fatalf("%s 返回的 %s 缺少页码区间的一端（C1）——这条路径的行映射漏读了 page_end：%+v", path, id, c)
+			}
+			if *c.PageNumber != wantStart || *c.PageEnd != wantEnd {
+				t.Fatalf("%s 返回的 %s 区间是 %d-%d，应当是 %d-%d", path, id, *c.PageNumber, *c.PageEnd, wantStart, wantEnd)
+			}
+			return
+		}
+		t.Fatalf("%s 没有返回 %s：%v", path, id, ids(chunks))
+	}
+
+	vec, err := repo.searchVectorChunks(ctx, []string{kb}, []float32{1, 0, 0}, 10, RetrieveFilter{})
+	if err != nil {
+		t.Fatalf("searchVectorChunks: %v", err)
+	}
+	assertInterval("向量召回", vec, "pe-anchor", 3, 4)
+
+	kw, err := repo.searchKeywordChunks(ctx, []string{kb}, "PAGEENDTOKEN", 10, RetrieveFilter{})
+	if err != nil {
+		t.Fatalf("searchKeywordChunks: %v", err)
+	}
+	assertInterval("关键词召回", kw, "pe-anchor", 3, 4)
+
+	nb, err := repo.findPublishedNeighborChunks(ctx, "doc-pageend", 1, []int{1})
+	if err != nil {
+		t.Fatalf("findPublishedNeighborChunks: %v", err)
+	}
+	assertInterval("邻接查询", nb, "pe-neighbor", 6, 6)
+
+	nbb, err := repo.findPublishedNeighborChunksBatch(ctx, []neighborRequest{
+		{documentID: "doc-pageend", documentVersion: 1, chunkIndex: 1},
+	})
+	if err != nil {
+		t.Fatalf("findPublishedNeighborChunksBatch: %v", err)
+	}
+	assertInterval("邻接批量查询", nbb, "pe-neighbor", 6, 6)
 }

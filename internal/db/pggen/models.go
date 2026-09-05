@@ -26,4 +26,5 @@ type Chunk struct {
 	DocumentName       string          `json:"document_name"`
 	PageNumber         sql.NullInt32   `json:"page_number"`
 	SectionTitle       sql.NullString  `json:"section_title"`
+	PageEnd            sql.NullInt32   `json:"page_end"`
 }

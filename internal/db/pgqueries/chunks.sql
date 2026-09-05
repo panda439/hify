@@ -6,10 +6,13 @@
 --
 -- page_number/section_title 由调用方按解析器**真实能产出**的信号传入，
 -- 拿不到才传 NULL，任何情况下不允许伪造：
---   * PDF 有 page_number（parse.go 的 pdfPage.Number 是 1-indexed 页码，
---     chunk.go 的 chunkPDFPages 严格按页切块，因此每个 chunk 的页码都是
---     确定且唯一的——这也是为什么不存在"跨页 chunk 该报哪一页"的问题），
---     没有 section_title；
+--   * PDF 有 page_number + page_end（一个**闭区间**，均为 1-indexed）。
+--     006-pdf-layout-chunking 更正：本段原文说"chunkPDFPages 严格按页切块，
+--     因此不存在'跨页 chunk 该报哪一页'的问题"——那个问题不是不存在，是被
+--     按页硬切**回避**掉了，代价是跨页段落被切成两个都不完整的半截。现在
+--     段落跨页合并，一个 chunk 可以覆盖第 3-4 页，page_number 收紧为起始
+--     页、page_end 为结束页。**不允许任选一端**（FR-011）；
+--     PDF 仍然没有 section_title（US4 若落地会开始产出）；
 --   * Markdown 有 section_title（chunkMarkdown 的标题栈），没有 page_number；
 --   * txt 两者都没有。
 -- 002-metadata-filter 更正：本段原文写的是"当前解析器不产出可靠值，调用方
@@ -20,8 +23,8 @@
 INSERT INTO chunks (
     id, knowledge_base_id, document_id, chunk_index, content,
     content_length, embedding, embedding_dimension, document_version, is_published,
-    document_name, page_number, section_title
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13);
+    document_name, page_number, section_title, page_end
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);
 
 -- name: SearchVectorChunks :many
 -- Phase 3 前叫 SearchChunks——引入 SearchKeywordChunks 之后改名以便和它
@@ -51,7 +54,7 @@ INSERT INTO chunks (
 -- 把已经存在的列读出来交给 Go 层，不改变检索排序或候选集本身。
 SELECT id, knowledge_base_id, document_id, document_version, chunk_index, content,
        content_length, embedding_dimension, created_at,
-       document_name, page_number, section_title,
+       document_name, page_number, section_title, page_end,
        (1 - (embedding <=> sqlc.arg(query_embedding)))::float8 AS score
 FROM chunks
 WHERE knowledge_base_id = ANY(sqlc.arg(knowledge_base_ids)::text[])
@@ -74,15 +77,37 @@ WHERE knowledge_base_id = ANY(sqlc.arg(knowledge_base_ids)::text[])
 -- 不受影响——ORDER BY 以 id ASC 收尾（理由见上文关于 RRF rank 稳定性的说
 -- 明），最终顺序与 PostgreSQL 因多出常量谓词而可能选择的不同扫描方式无关。
 --
+-- ⭐ 006-pdf-layout-chunking：页码谓词从「点落区间」改成「**区间相交**」。
+-- chunk 现在携带的是一个闭区间 [page_number, page_end]（起始页/结束页），
+-- 过滤条件也是一个闭区间 [min, max]，判定标准是**两个区间有交集**。
+-- 区间相交的标准形式是 A.start <= B.end AND A.end >= B.start，展开就是下面
+-- 那两行——⚠️ **下界谓词作用在 page_end 上、上界谓词作用在 page_number 上，
+-- 两行是交叉的**。写成同一列（两行都用 page_number，或两行都用 page_end）
+-- 会得到一个语义完全不同、且在跨页行上恒错的条件。这是本次改动最容易写错
+-- 的一处，由跨页片段的区间相交用例逐格锁定（contracts §3.3 的表）。
+--
+-- 对**存量行与全部单页片段**（page_end = page_number）这次改写是**逐字节
+-- 等价**的：page_end >= min 就是 page_number >= min。因此没有任何一格是
+-- "原本命中的现在不命中"，只有跨页片段上多出三格"原本漏掉的现在命中了"
+-- ——那正是想要的：过滤"第 4 页"应当命中一个覆盖 3-4 页的片段，因为它
+-- 确实包含第 4 页的内容。完整论证见 data-model.md §7.1。
+--
 -- 页码过滤对 page_number IS NULL 的行（全部 txt/md chunk，以及 000003 迁移
 -- 之前写入的存量行）的行为，靠 SQL 三值逻辑天然正确，**不需要**也**没有**
 -- 显式的 IS NOT NULL：`NULL >= 10` 求值为 NULL 而不是 FALSE，此时另一侧
 -- `filter_page_min IS NULL` 为 FALSE，`FALSE OR NULL` = NULL，而 WHERE 只
 -- 接受 TRUE，该行被排除。这正是"无页码 MUST 视为不匹配，MUST NOT 当作无
--- 元数据即通过"的要求。
--- ⚠️ 禁止把它改写成 COALESCE(page_number, 0) 之类的写法：那等于给一个本来
--- 没有页码的 chunk 编造出第 0 页，与"绝不伪造"的既有约定正面冲突。该行为
--- 由 TestFilterPageRangeExcludesNullPageChunks 锁定。
+-- 元数据即通过"的要求。改写后这条**依然成立且理由不变**，因为 page_end 与
+-- page_number 同为 NULL——这个不变量由 pgmigration 000005 的
+-- chunks_page_range_valid 约束强制，不是靠约定维持：一旦出现一行
+-- page_number 有值而 page_end 为 NULL，下界谓词会排除它而上界谓词会放行，
+-- 结果是任何设了 min 的检索都**静默漏召回**这一行，没有报错也没有日志。
+-- ⚠️ 禁止把它改写成 COALESCE(page_number, 0) / COALESCE(page_end, 0) 之类的
+-- 写法：那等于给一个本来没有页码的 chunk 编造出第 0 页，与"绝不伪造"的既有
+-- 约定正面冲突，page_end 完全适用这条禁令、一个字都不放宽。该行为由
+-- TestFilterPageRangeExcludesNullPageChunks 锁定（006 给 page_end 侧补了
+-- 对称用例，且只给下界/只给上界/闭区间**三种入参各试一次**——只测闭区间
+-- 时单侧的错误会被另一侧未改动的谓词掩盖掉）。
 --
 -- 邻接窗口查询（FindPublishedNeighborChunksBatch）**故意没有**这三行，
 -- 那不是遗漏：文档级约束对邻接块是结构性满足的（邻接坐标全部取自已经通过
@@ -91,8 +116,8 @@ WHERE knowledge_base_id = ANY(sqlc.arg(knowledge_base_ids)::text[])
 -- 的后半句挡在外面（FR-011）。
   AND (sqlc.narg(filter_document_ids)::text[] IS NULL
        OR document_id = ANY(sqlc.narg(filter_document_ids)::text[]))
-  AND (sqlc.narg(filter_page_min)::int IS NULL OR page_number >= sqlc.narg(filter_page_min)::int)
-  AND (sqlc.narg(filter_page_max)::int IS NULL OR page_number <= sqlc.narg(filter_page_max)::int)
+  AND (sqlc.narg(filter_page_min)::int IS NULL OR page_end     >= sqlc.narg(filter_page_min)::int)
+  AND (sqlc.narg(filter_page_max)::int IS NULL OR page_number  <= sqlc.narg(filter_page_max)::int)
 ORDER BY embedding <=> sqlc.arg(query_embedding), id ASC
 LIMIT sqlc.arg(top_k);
 
@@ -121,7 +146,7 @@ LIMIT sqlc.arg(top_k);
 -- 的 chunk 同样可能被邻接扩展，必须知道它属于哪一次处理尝试。
 SELECT id, knowledge_base_id, document_id, document_version, chunk_index, content,
        content_length, embedding_dimension, created_at,
-       document_name, page_number, section_title,
+       document_name, page_number, section_title, page_end,
        word_similarity(sqlc.arg(query_text), content)::float8 AS score
 FROM chunks
 WHERE knowledge_base_id = ANY(sqlc.arg(knowledge_base_ids)::text[])
@@ -140,8 +165,8 @@ WHERE knowledge_base_id = ANY(sqlc.arg(knowledge_base_ids)::text[])
 -- 向量路过滤会让关键词路把范围外的片段重新带回候选池。
   AND (sqlc.narg(filter_document_ids)::text[] IS NULL
        OR document_id = ANY(sqlc.narg(filter_document_ids)::text[]))
-  AND (sqlc.narg(filter_page_min)::int IS NULL OR page_number >= sqlc.narg(filter_page_min)::int)
-  AND (sqlc.narg(filter_page_max)::int IS NULL OR page_number <= sqlc.narg(filter_page_max)::int)
+  AND (sqlc.narg(filter_page_min)::int IS NULL OR page_end     >= sqlc.narg(filter_page_min)::int)
+  AND (sqlc.narg(filter_page_max)::int IS NULL OR page_number  <= sqlc.narg(filter_page_max)::int)
 ORDER BY word_similarity(sqlc.arg(query_text), content) DESC, id ASC
 LIMIT sqlc.arg(candidate_k);
 
@@ -213,7 +238,7 @@ SELECT COUNT(*) FROM chunks WHERE document_id = $1 AND document_version = $2 AND
 -- 一个"这条查询没有稳定排序保证"的例外。
 SELECT id, knowledge_base_id, document_id, document_version, chunk_index, content,
        content_length, embedding_dimension, created_at,
-       document_name, page_number, section_title
+       document_name, page_number, section_title, page_end
 FROM chunks
 WHERE document_id = sqlc.arg(document_id)
   AND document_version = sqlc.arg(document_version)
@@ -284,7 +309,7 @@ WITH requested AS (
 )
 SELECT ch.id, ch.knowledge_base_id, ch.document_id, ch.document_version, ch.chunk_index, ch.content,
        ch.content_length, ch.embedding_dimension, ch.created_at,
-       ch.document_name, ch.page_number, ch.section_title
+       ch.document_name, ch.page_number, ch.section_title, ch.page_end
 FROM chunks ch
 JOIN requested r
   ON ch.document_id = r.document_id

@@ -15,9 +15,59 @@ var (
 	// failDocument) — Message stays fixed/Chinese, any dynamic detail
 	// (counts, file paths) goes to the log instead, same "Message can't
 	// carry dynamic content" rule workflow's errors.go documents.
+	//
+	// 006-pdf-layout-chunking：ErrEmptyContent 的**文案一个字不改**，但适用
+	// 范围收缩为"真正的空文件"——零字节、只有空白、解析后确实一个字都没有。
+	// 在此之前它同时兜住了扫描件，那让用户无法区分"我传了个空文件"和"我传了
+	// 份需要 OCR 的扫描件"，两者的下一步动作完全不同（SC-007）。
 	ErrEmptyContent           = apperr.InvalidInput("knowledge.empty_content", "文档内容为空或无法提取到文本")
 	ErrEmbeddingCountMismatch = apperr.InvalidInput("knowledge.embedding_count_mismatch", "向量生成数量与分块数量不一致，请重试")
 	ErrTooManyChunks          = apperr.InvalidInput("knowledge.too_many_chunks", "文档分块数量超出单文档上限，请拆分文件后重新上传")
+
+	// ErrPDFNoTextLayer fires when a PDF has no extractable text on ANY
+	// page — the scanned/image-only case. Split out of ErrEmptyContent by
+	// 006-pdf-layout-chunking for one reason: turning a confusing failure
+	// into an actionable one. "文档内容为空或无法提取到文本" is accurate but
+	// leaves the user with nothing to do; naming OCR tells them exactly
+	// what the next step is, without reading any log (SC-007).
+	//
+	// Classified InvalidInput, same as ErrEmptyContent: this is "the file
+	// itself is unsuitable", not an infrastructure fault — retrying it
+	// unchanged will produce the same result every time.
+	//
+	// ⚠️ No OCR and no visual retrieval in this phase (FR-019). This error
+	// is the whole of the scanned-PDF work: recognising the boundary of
+	// what the system can do and degrading explicitly, rather than pretending
+	// the file was empty.
+	//
+	// Message carries no dynamic content (how many pages, which pages) —
+	// those go to the structured log, per the rule above.
+	ErrPDFNoTextLayer = apperr.InvalidInput("knowledge.pdf_no_text_layer",
+		"该 PDF 没有文本层（疑似扫描件或图片型 PDF），暂不支持自动识别，请先用 OCR 工具转换为可选中文字的 PDF 后重新上传")
+
+	// ErrPDFUnreadable is what a PDF the parser cannot read at all becomes.
+	//
+	// ⚠️ Found by 006's own acceptance step (quickstart §5: verify against a
+	// REAL multi-page PDF, not one this repo's test helper built), and it is
+	// a PRE-EXISTING defect, not one 006 introduced: rsc.io/pdf PANICS on
+	// malformed or unsupported constructs — "malformed PDF: reading at
+	// offset 0: stream not present" is what two ordinary arXiv papers
+	// produced — and nothing in this package recovered. The failure was
+	// therefore not "this file could not be processed" but a panic thrown
+	// out of document processing.
+	//
+	// Turning that into an error is the same move US5 makes for scanned
+	// PDFs, for the same reason: the system genuinely cannot handle this
+	// file, and the honest response is to say so in a sentence the user can
+	// act on — not to crash, and not to leave the document stuck.
+	//
+	// ⚠️ This does NOT make those PDFs work. rsc.io/pdf's coverage of
+	// real-world PDFs is the underlying problem and it is untouched here;
+	// replacing the parser is exactly the "swap the parsing layer" route
+	// research.md R1 weighed and rejected. This error is a containment, and
+	// the acceptance report must describe it as one.
+	ErrPDFUnreadable = apperr.InvalidInput("knowledge.pdf_unreadable",
+		"无法解析该 PDF 文件（文件可能已损坏，或使用了当前解析器不支持的格式），请尝试用其他工具重新导出后上传")
 
 	// ErrEmbeddingDimensionMismatch guards validateEmbedBatch — a later
 	// batch reporting a different dimension than the first batch

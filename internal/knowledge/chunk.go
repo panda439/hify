@@ -104,13 +104,28 @@ func prependOverlap(overlapTail, sep, content string, budget int) string {
 }
 
 // chunkPiece is one structure-aware chunk plus whatever source-attribution
-// metadata its parser could honestly derive. PageNumber is only ever set
-// by chunkPDFPages, SectionTitle only ever by chunkMarkdown — never
-// fabricate a value the source format can't reliably support (see
+// metadata its parser could honestly derive. PageNumber/PageEnd are only
+// ever set by the PDF chunker, SectionTitle only ever by chunkMarkdown —
+// never fabricate a value the source format can't reliably support (see
 // Chunk's doc comment in model.go).
+//
+// PageNumber and PageEnd are a closed interval (first page covered, last
+// page covered), not two independent numbers. Invariants, mirroring
+// Chunk's C1-C3 and the chunks_page_range_valid database constraint:
+//
+//	C1  PageEnd == nil ⟺ PageNumber == nil
+//	C2  both set ⇒ *PageNumber <= *PageEnd
+//	C3  both set ⇒ 1 <= *PageNumber and *PageEnd <= the document's page count
+//	C4  txt/md pieces have BOTH nil, always (FR-014/FR-020)
+//
+// C1 is why the two fields must be filled in together at every producing
+// site: a piece with a page number but no page end is rejected outright by
+// the database, and would silently vanish from any page-filtered search if
+// it ever got past it.
 type chunkPiece struct {
 	Content      string
 	PageNumber   *int
+	PageEnd      *int
 	SectionTitle *string
 }
 
@@ -647,28 +662,257 @@ func chunkPlainText(text string, size, overlap int) []string {
 	return chunks
 }
 
-// --- PDF: per-page chunking, never mixing two pages into one chunk ---
+// --- PDF: paragraph-stream chunking, pages are coordinates not boundaries ---
 
-// chunkPDFPages chunks each page's text independently with chunkPlainText
-// (paragraph/sentence aware, same fixed-length fallback) and tags every
-// resulting piece with that page's number. Chunking per page rather than
-// across the whole document is deliberate: it's the only way to guarantee
-// PageNumber is never wrong — a chunk spanning two pages would have no
-// single honest page number to report. Overlap therefore also never
-// carries across a page boundary (chunkPlainText's pendingOverlap starts
-// fresh on every call). Pages with no extractable text (images, blank
-// pages) are skipped rather than emitting an empty chunk.
+// chunkPDFPages chunks a PDF by consuming the reassembled paragraph stream
+// (layout.go's buildParagraphStream) rather than one page at a time, and
+// tags every piece with the closed page interval it actually covers.
+//
+// What changed and why (006-pdf-layout-chunking). The previous version
+// chunked each page independently and gave each piece that page's number.
+// The doc comment defended this as "the only way to guarantee PageNumber
+// is never wrong" — which was true, and beside the point: it bought an
+// always-correct page number by making the CHUNKS wrong. A paragraph
+// straddling a page break came out as two half-paragraphs, each missing
+// the context that made it meaningful, neither similar enough to the
+// user's question to be retrieved, and the one that did surface ended
+// mid-sentence and invited the model to complete it. Nothing downstream
+// could repair that: the neighbour window can attach the adjacent chunk,
+// but it cannot un-cut the sentence. Carrying a page INTERVAL keeps the
+// citation just as honest without paying that price.
+//
+// Overlap now carries across a page break as a side effect, not as a
+// special case: overlap was per-call state in chunkPlainText and every
+// page was its own call, so a page boundary was the one place in the whole
+// pipeline with no overlap protection at all. One call over the whole
+// stream removes that hole without any code that knows about it.
+//
+// Length limits are untouched (FR-004): a merged paragraph longer than
+// size still falls back to chunkBySentence and ultimately to fixed-length
+// chunkText, exactly as an over-long single-page paragraph always did.
+// Merging changes what counts as a paragraph; it does not exempt anything
+// from the size budget.
+//
+// Pages with no extractable text contribute no units and are skipped, as
+// before — and, per buildParagraphStream, they also break continuity
+// rather than letting the pages either side of them be joined.
 func chunkPDFPages(pages []pdfPage, size, overlap int) []chunkPiece {
-	var pieces []chunkPiece
-	for _, page := range pages {
-		if strings.TrimSpace(page.Text) == "" {
+	pieces := chunkPDFStream(buildParagraphStream(pages), size, overlap)
+	return dropImpossiblePageIntervals(pieces, maxPageNumber(pages))
+}
+
+// dropImpossiblePageIntervals is the last-resort guard on invariant C3's
+// upper half — "the interval lies within the document's pages" — which is
+// the one part of C1/C2/C3 the database cannot check, because the database
+// has no idea how many pages a document has.
+//
+// If an interval ever comes out impossible, the answer is to report NO page
+// rather than a wrong one: a missing citation is visibly missing, while a
+// citation pointing at a page that does not exist looks perfectly normal
+// until someone goes to check it. Nothing should ever reach here — every
+// page number originates from pdfPage.Number — so it also logs nothing and
+// costs one comparison per piece; it exists so that a future change that
+// breaks the invariant degrades honestly instead of inventing pages.
+func dropImpossiblePageIntervals(pieces []chunkPiece, maxPage int) []chunkPiece {
+	for i, p := range pieces {
+		if p.PageNumber == nil || p.PageEnd == nil {
 			continue
 		}
-		num := page.Number
-		for _, body := range chunkPlainText(page.Text, size, overlap) {
-			pieces = append(pieces, chunkPiece{Content: body, PageNumber: &num})
+		if *p.PageNumber < 1 || *p.PageNumber > *p.PageEnd || *p.PageEnd > maxPage {
+			pieces[i].PageNumber, pieces[i].PageEnd = nil, nil
 		}
 	}
+	return pieces
+}
+
+func maxPageNumber(pages []pdfPage) int {
+	maxPage := 0
+	for _, p := range pages {
+		if p.Number > maxPage {
+			maxPage = p.Number
+		}
+	}
+	return maxPage
+}
+
+// chunkPDFStream is chunkPlainText's accumulation loop with page-interval
+// bookkeeping alongside it: same paragraph packing, same oversized-unit
+// fallback, same overlap budget rules, but every emitted piece also
+// reports the span of pages the text in it came from.
+//
+// ⭐ Page attribution rule: a piece's interval is the union of the
+// intervals of the units that contributed text to it — INCLUDING the unit
+// that contributed only an overlap seed. The alternative (count only "the
+// unit's own" text) was rejected: the seed is genuinely present in the
+// chunk, and FR-010 asks for the pages a chunk actually covers. Widening
+// an interval is not fabrication; narrowing it is, because it sends a
+// reader to page 4 to find a sentence printed on page 3.
+//
+// ⚠️ The cost, stated plainly rather than buried: a chunk whose body is
+// entirely on page 4 but whose overlap seed came from page 3 is labelled
+// "3-4". That is intended, not a defect — but it does mean intervals are
+// slightly wider than the strict minimum wherever overlap crosses a page.
+// Likewise, when one merged unit is split into several pieces by the
+// oversize fallback, every piece inherits the whole unit's interval; the
+// split happens inside text this package no longer tracks positions for,
+// and guessing which half of a merged paragraph a sentence came from would
+// be inventing precision that isn't there.
+func chunkPDFStream(units []paragraphUnit, size, overlap int) []chunkPiece {
+	size, overlap = normalizeChunkParams(size, overlap)
+	if len(units) == 0 {
+		return nil
+	}
+
+	var pieces []chunkPiece
+	var acc []string
+	var pendingOverlap string
+	// accHeadings is the heading stack shared by everything in acc. Units
+	// under a different heading force a flush, so one chunk never carries a
+	// breadcrumb that only half of it belongs to.
+	var accHeadings []string
+	// accStart/accEnd track the interval of everything currently in acc,
+	// including any overlap seed already spliced onto its first element.
+	// 0 means "nothing accumulated yet".
+	accStart, accEnd := 0, 0
+	// carryStart/carryEnd is the interval of the pending overlap text, so
+	// the seed's pages follow it into the next piece.
+	carryStart, carryEnd := 0, 0
+
+	cover := func(start, end int) {
+		if start <= 0 || end <= 0 {
+			return
+		}
+		if accStart == 0 || start < accStart {
+			accStart = start
+		}
+		if end > accEnd {
+			accEnd = end
+		}
+	}
+
+	accRuneLen := func() int {
+		if len(acc) == 0 {
+			return 0
+		}
+		total := 2 * (len(acc) - 1)
+		for _, s := range acc {
+			total += len([]rune(s))
+		}
+		return total
+	}
+
+	emit := func(body string, start, end int, headings []string) {
+		if strings.TrimSpace(body) == "" {
+			return
+		}
+		// US4 / FR-015: the heading path is spliced INTO the chunk text, not
+		// merely recorded beside it. Only the text is embedded, so a
+		// section title kept solely in a metadata column contributes nothing
+		// to retrieval — which is the entire reason to detect headings.
+		// FR-015a's precedence (body first, breadcrumb shortens or is
+		// dropped) is buildBreadcrumbContent's existing contract, shared
+		// verbatim with the Markdown path.
+		piece := chunkPiece{Content: buildBreadcrumbContent(headings, body, size)}
+		if start > 0 && end > 0 {
+			s, e := start, end
+			piece.PageNumber, piece.PageEnd = &s, &e
+		}
+		if len(headings) > 0 {
+			title := headings[len(headings)-1]
+			piece.SectionTitle = &title
+		}
+		pieces = append(pieces, piece)
+	}
+
+	flush := func(carryOverlap bool) {
+		if len(acc) == 0 {
+			if !carryOverlap {
+				pendingOverlap, carryStart, carryEnd = "", 0, 0
+			}
+			return
+		}
+		body := strings.Join(acc, "\n\n")
+		emit(body, accStart, accEnd, accHeadings)
+		if carryOverlap && overlap > 0 {
+			pendingOverlap = tailRunes(body, overlap)
+			// The tail of this piece is the seed for the next one, so the
+			// next piece inherits this piece's pages. Attributing the seed
+			// to the LAST page of this piece (rather than its whole span)
+			// would be more precise but not provably so — the tail may
+			// itself straddle the merge seam.
+			carryStart, carryEnd = accStart, accEnd
+		} else {
+			pendingOverlap, carryStart, carryEnd = "", 0, 0
+		}
+		acc, accStart, accEnd, accHeadings = nil, 0, 0, nil
+	}
+
+	// prevEnd is the last page touched by the previous unit, used to spot a
+	// page boundary the merge test declined to join.
+	prevEnd := 0
+
+	for _, unit := range units {
+		// A page boundary that did NOT merge is still a boundary: the
+		// paragraph really did end there. Flushing keeps the pre-006
+		// behaviour for every such seam — one page's text never packs
+		// together with the next page's into a single chunk, and page
+		// intervals stay tight instead of creeping across the whole
+		// document. Only text the merge test actually joined travels
+		// across a page break, which is also where FR-002's "overlap can
+		// cross a page boundary" is satisfied: inside a merged paragraph
+		// that is long enough to need splitting, the overlap seed crosses
+		// the seam like any other. Carrying overlap across a CLEAN break
+		// as well was considered and dropped — it would widen every
+		// chunk's interval by one page in exchange for context the
+		// neighbour window already provides.
+		if prevEnd != 0 && unit.PageStart != prevEnd {
+			flush(false)
+		}
+		if len(acc) > 0 && !sameHeadings(accHeadings, unit.Headings) {
+			// A section boundary. Flushing here is what keeps a chunk's
+			// breadcrumb true of all of its text.
+			flush(true)
+		}
+		prevEnd = unit.PageEnd
+
+		unitLen := len([]rune(unit.Content))
+		if unitLen > size {
+			flush(false)
+			// bodyBudget mirrors chunkMarkdown: leave the breadcrumb room
+			// up front so the split bodies plus their prefix still fit,
+			// with a floor so a very long breadcrumb cannot starve the body
+			// down to nothing.
+			budget := size
+			if bc := len([]rune(strings.Join(unit.Headings, " > "))); bc > 0 {
+				if budget-bc-2 > size/2 {
+					budget = budget - bc - 2
+				} else if size/2 > 1 {
+					budget = size / 2
+				}
+			}
+			for _, body := range chunkBySentence(unit.Content, budget, overlap) {
+				emit(body, unit.PageStart, unit.PageEnd, unit.Headings)
+			}
+			continue
+		}
+
+		if len(acc) > 0 && accRuneLen()+2+unitLen > size {
+			flush(true)
+		}
+
+		next := unit.Content
+		if len(acc) == 0 && pendingOverlap != "" {
+			next = prependOverlap(pendingOverlap, "\n", unit.Content, size)
+			cover(carryStart, carryEnd)
+			pendingOverlap, carryStart, carryEnd = "", 0, 0
+		}
+		cover(unit.PageStart, unit.PageEnd)
+		if len(acc) == 0 {
+			accHeadings = unit.Headings
+		}
+		acc = append(acc, next)
+	}
+	flush(false)
 	return pieces
 }
 
@@ -689,4 +933,17 @@ func batchStrings(items []string, size int) [][]string {
 		batches = append(batches, items[start:end])
 	}
 	return batches
+}
+
+// sameHeadings reports whether two heading stacks are identical.
+func sameHeadings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

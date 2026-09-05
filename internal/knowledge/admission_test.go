@@ -71,6 +71,7 @@ func TestRRFFuseAdmissionAndDedupPreserveSurvivorFields(t *testing.T) {
 			Content:      "重复正文",
 			DocumentName: docName,
 			PageNumber:   &page,
+			PageEnd:      &page,
 			SectionTitle: &section,
 		},
 		Score: 0.5, // admitted (>= vectorAdmissionThreshold)

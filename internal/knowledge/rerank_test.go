@@ -70,7 +70,7 @@ func TestApplyRerankNeverOverwritesScoreOrMetadata(t *testing.T) {
 	section := "2.1 概述"
 	candidates := []RetrievedChunk{
 		{
-			Chunk:      Chunk{ID: "core", DocumentName: "手册.pdf", PageNumber: &page, SectionTitle: &section},
+			Chunk:      Chunk{ID: "core", DocumentName: "手册.pdf", PageNumber: &page, PageEnd: &page, SectionTitle: &section},
 			Score:      0.37, // 向量/关键词较大值，rerank 绝不能改写这个字段
 			NeighborOf: "",
 		},
