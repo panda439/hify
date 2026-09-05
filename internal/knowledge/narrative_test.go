@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/sqlc-dev/pqtype"
 )
 
 // narrative_test.go 守 010 US1 的纯函数切分（FR-001/002/004/008）。
@@ -427,5 +429,204 @@ func TestCharacterLevelFallbackKeepsCorrectOffsets(t *testing.T) {
 	if fallback < 3 {
 		// ⚠️ 夹具本身也要验：走不到字符级降级的话，上面的断言等于没跑。
 		t.Fatalf("只产生了 %d 个硬切块，夹具没有真正触发字符级降级", fallback)
+	}
+}
+
+// ---- 持久化元数据（narrative_metadata.go）----
+
+// TestMetadataCoversEveryChunkOnRealCorpus 用构造文本把四条路径都走一遍，
+// 再断言每一块的 segments **完整覆盖**它的内容。
+// ⭐ 覆盖检查是这组断言里唯一要紧的：其他字段都合法、内容只被**部分**映射的
+// 块照样能存进去，产出的引用对覆盖到的那部分是对的、对其余部分是错的，
+// 而且没有任何运行期症状——数字只是稍微偏一点。
+func TestMetadataCoversEveryChunk(t *testing.T) {
+	text := "引言。\n楔子\n楔子正文。\n第一章　甲\n" +
+		strings.Repeat("甲的正文。", 60) + "\n\n" + strings.Repeat("另一段。", 60) + "\n" +
+		"***\n第二场景。\n第二章　乙\n先有一句带标点的话。" + strings.Repeat("无标点长串", 60) + "\n"
+	for _, overlap := range []int{0, 30} {
+		pieces := chunkNarrative(text, 120, overlap)
+		if len(pieces) < 10 {
+			t.Fatalf("夹具只切出 %d 块，覆盖不到全部路径", len(pieces))
+		}
+		for i, p := range pieces {
+			if p.Narrative == nil {
+				t.Fatalf("overlap=%d 第 %d 块没有元数据", overlap, i)
+			}
+			if err := validateNarrativeMetadata(*p.Narrative, len([]rune(p.Content))); err != nil {
+				t.Errorf("overlap=%d 第 %d 块元数据不合法：%v\n%.40q", overlap, i, err, p.Content)
+			}
+		}
+	}
+}
+
+// TestOverlapCopyCarriesNoDocumentInterval——⭐ overlap 种子那一段**不带**
+// 文档区间。它的文字是真的，但它的家在**前一块**；从这里引用它会把读者指到
+// 错误的位置，而位置看起来完全合理。所以宁可标成"不可定位"，也不给一个
+// 差不多的坐标。
+func TestOverlapCopyCarriesNoDocumentInterval(t *testing.T) {
+	text := "第一章\n" + strings.Repeat("甲的正文。", 60) + "\n"
+	var sawCopy bool
+	for _, p := range chunkNarrative(text, 120, 40) {
+		for _, seg := range p.Narrative.Segments {
+			if !seg.IsOverlapCopy {
+				continue
+			}
+			sawCopy = true
+			if seg.DocumentStart != nil || seg.DocumentEnd != nil {
+				t.Errorf("overlap 拷贝段带上了文档区间 [%v,%v)", seg.DocumentStart, seg.DocumentEnd)
+			}
+		}
+	}
+	if !sawCopy {
+		t.Fatal("夹具没有产生任何 overlap 拷贝段，这条断言等于没跑")
+	}
+}
+
+// TestMetadataOffsetsAreRunesNotBytes——data-model §4 定死了存的是 rune 区间。
+// ⚠️ 分块内部用字节（Go 切片按字节），转换只在持久化边界做一次。
+// 漏了这次转换的表现是：中文文本里每个区间都是真实值的约 3 倍，
+// 越界或指到别处，而在纯 ASCII 夹具上两者完全相同——所以这条必须用中文验。
+func TestMetadataOffsetsAreRunesNotBytes(t *testing.T) {
+	text := "第一章　甲\n" + strings.Repeat("中文正文。", 30) + "\n"
+	runes := []rune(strings.ReplaceAll(text, "\r\n", "\n"))
+	for _, p := range chunkNarrative(text, 500, 0) {
+		for _, seg := range p.Narrative.Segments {
+			if seg.DocumentEnd == nil {
+				continue
+			}
+			if *seg.DocumentEnd > len(runes) {
+				t.Fatalf("区间终点 %d 超出文档 rune 长度 %d——多半还是字节偏移",
+					*seg.DocumentEnd, len(runes))
+			}
+			got := strings.Join(strings.Fields(string(runes[*seg.DocumentStart:*seg.DocumentEnd])), "")
+			want := strings.Join(strings.Fields(string([]rune(p.Content)[seg.ChunkStart:seg.ChunkEnd])), "")
+			if got != want {
+				t.Errorf("rune 区间取出来的原文对不上：\n got=%.40q\nwant=%.40q", got, want)
+			}
+		}
+	}
+}
+
+// TestMetadataHashPinsTheCoordinateSystem——同一份文档的 hash 必须一致，
+// 改一个字必须变。⚠️ 没有它，重新处理过的文档产生的偏移和当前文档的偏移
+// 长得一模一样——引用能干净地解析出来，只是解析到了错的文字。
+func TestMetadataHashPinsTheCoordinateSystem(t *testing.T) {
+	a := chunkNarrative("第一章\n甲的正文。\n", 500, 0)
+	b := chunkNarrative("第一章\n甲的正文。\n", 500, 0)
+	c := chunkNarrative("第一章\n乙的正文。\n", 500, 0)
+	if a[0].Narrative.NormalizedDocumentHash != b[0].Narrative.NormalizedDocumentHash {
+		t.Error("同一份文档两次产出的 hash 不同")
+	}
+	if a[0].Narrative.NormalizedDocumentHash == c[0].Narrative.NormalizedDocumentHash {
+		t.Error("改了正文 hash 却没变")
+	}
+}
+
+// TestValidatorRejectsPartialCoverage 直接喂坏数据给校验器——上面那些用例
+// 走的都是正确实现，抓不到"校验器本身太宽松"。
+func TestValidatorRejectsPartialCoverage(t *testing.T) {
+	from, to := 0, 10
+	ok := narrativeMetadata{
+		SchemaVersion: narrativeMetadataSchemaVersion, BoundaryKind: boundaryNone,
+		Segments: []narrativeSegment{{ChunkStart: 0, ChunkEnd: 10, DocumentStart: &from, DocumentEnd: &to}},
+	}
+	if err := validateNarrativeMetadata(ok, 10); err != nil {
+		t.Fatalf("合法元数据被拒：%v", err)
+	}
+	bad := map[string]narrativeMetadata{
+		"只覆盖了一半": {SchemaVersion: 1, BoundaryKind: boundaryNone,
+			Segments: []narrativeSegment{{ChunkStart: 0, ChunkEnd: 5, DocumentStart: &from, DocumentEnd: &to}}},
+		"段之间有空洞": {SchemaVersion: 1, BoundaryKind: boundaryNone,
+			Segments: []narrativeSegment{
+				{ChunkStart: 0, ChunkEnd: 3, DocumentStart: &from, DocumentEnd: &to},
+				{ChunkStart: 5, ChunkEnd: 10, DocumentStart: &from, DocumentEnd: &to}}},
+		"可定位段没有文档区间": {SchemaVersion: 1, BoundaryKind: boundaryNone,
+			Segments: []narrativeSegment{{ChunkStart: 0, ChunkEnd: 10}}},
+		"不可引用段却带着区间": {SchemaVersion: 1, BoundaryKind: boundaryNone,
+			Segments: []narrativeSegment{{ChunkStart: 0, ChunkEnd: 10, IsOverlapCopy: true,
+				DocumentStart: &from, DocumentEnd: &to}}},
+		"章节号填了 0": {SchemaVersion: 1, BoundaryKind: boundaryChapter, ChapterNumber: &from,
+			Segments: []narrativeSegment{{ChunkStart: 0, ChunkEnd: 10, DocumentStart: &from, DocumentEnd: &to}}},
+		"未知的 schema 版本": {SchemaVersion: 99, BoundaryKind: boundaryNone,
+			Segments: []narrativeSegment{{ChunkStart: 0, ChunkEnd: 10, DocumentStart: &from, DocumentEnd: &to}}},
+		"未知的边界类型": {SchemaVersion: 1, BoundaryKind: "whatever",
+			Segments: []narrativeSegment{{ChunkStart: 0, ChunkEnd: 10, DocumentStart: &from, DocumentEnd: &to}}},
+	}
+	for name, meta := range bad {
+		if err := validateNarrativeMetadata(meta, 10); err == nil {
+			t.Errorf("「%s」本该被校验器拒绝", name)
+		}
+	}
+}
+
+// TestSegmentsReproduceTheirOwnText——⭐ 每个可定位段的文档区间取出来的原文，
+// 必须**逐字**等于该段在块内容里对应的那一截（忽略空白）。
+//
+// ⚠️ 这条是一次真实缺陷的回归，而且是结构校验**抓不到**的那一类：
+// PrefixRunes 原本在 TrimSpace **之前**计算，而 overlap 种子是前一块的尾巴、
+// 完全可以以空白开头。trim 掉之后前缀就长了几个 rune，段边界落进了真正的正文，
+// 那几个字于是被算进"不可引用的 overlap 段"。元数据结构照样合法、
+// validate 照样通过——只有把区间真的切回原文比一次才看得见。
+// 当时的规模：阿Q 2/61、西游 1-20 回 19/433、全本 116/2031，约 5%。
+func TestSegmentsReproduceTheirOwnText(t *testing.T) {
+	text := "第一章　甲\n" + strings.Repeat("甲的正文。", 80) + "\n\n" +
+		strings.Repeat("另一段。", 40) + "\n第二章　乙\n" + strings.Repeat("乙的正文。", 80) + "\n"
+	normalized := []rune(strings.ReplaceAll(text, "\r\n", "\n"))
+	for _, overlap := range []int{0, 20, 60} {
+		var checked int
+		for _, p := range chunkNarrative(text, 150, overlap) {
+			content := []rune(p.Content)
+			for i, seg := range p.Narrative.Segments {
+				if seg.DocumentStart == nil {
+					continue
+				}
+				checked++
+				got := stripWS(string(normalized[*seg.DocumentStart:*seg.DocumentEnd]))
+				want := stripWS(string(content[seg.ChunkStart:seg.ChunkEnd]))
+				if got != want {
+					t.Errorf("overlap=%d 段 %d 的区间 [%d,%d) 取出来对不上：\n got=%.50q\nwant=%.50q",
+						overlap, i, *seg.DocumentStart, *seg.DocumentEnd, got, want)
+				}
+			}
+		}
+		if checked < 3 {
+			t.Fatalf("overlap=%d 只检查了 %d 段，夹具太弱", overlap, checked)
+		}
+	}
+}
+
+// TestDecodeRejectsUnknownSchema——⭐ 变异测试逼出来的缺口：
+// 读到未知 schema 版本必须**报错**，不能返回一个半解析出来的结构。
+// 将来 v2 换了区间语义（比如改回字节、或改成闭区间）而 v1 代码照读不误，
+// 得到的偏移会全部错位，且每一条都能干净地解析出来——正是最难发现的那种错。
+//
+// ⚠️ 这里的取舍与 notice.go 的缺页列表**相反**：那边损坏降级成"没有提示"，
+// 因为代价只是少一条建议；这边损坏必须报错，因为一个悄悄丢了来源坐标的片段
+// 照样会被检索到、被引用，指向无法核实的地方。
+func TestDecodeRejectsUnknownSchema(t *testing.T) {
+	ok := pqtype.NullRawMessage{Valid: true, RawMessage: []byte(
+		`{"schema_version":1,"boundary_kind":"none","segments":[]}`)}
+	if _, err := decodeNarrativeMetadata(ok); err != nil {
+		t.Fatalf("当前版本本该能解码：%v", err)
+	}
+	for name, blob := range map[string]string{
+		"未来版本":    `{"schema_version":2,"boundary_kind":"none","segments":[]}`,
+		"缺少版本号":   `{"boundary_kind":"none","segments":[]}`,
+		"不是 JSON": `not json at all`,
+	} {
+		if _, err := decodeNarrativeMetadata(pqtype.NullRawMessage{
+			Valid: true, RawMessage: []byte(blob)}); err == nil {
+			t.Errorf("「%s」本该解码失败", name)
+		}
+	}
+	// NULL / 空值是合法的「非叙事片段」，不是错误。
+	for name, raw := range map[string]pqtype.NullRawMessage{
+		"SQL NULL": {},
+		"空字节":      {Valid: true, RawMessage: []byte{}},
+	} {
+		meta, err := decodeNarrativeMetadata(raw)
+		if err != nil || meta != nil {
+			t.Errorf("「%s」应解码成 (nil, nil)，得到 (%v, %v)", name, meta, err)
+		}
 	}
 }

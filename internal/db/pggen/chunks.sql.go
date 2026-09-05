@@ -12,6 +12,7 @@ import (
 
 	"github.com/lib/pq"
 	pgvector "github.com/pgvector/pgvector-go"
+	"github.com/sqlc-dev/pqtype"
 )
 
 const countChunksByDocumentVersion = `-- name: CountChunksByDocumentVersion :one
@@ -49,25 +50,26 @@ const createChunk = `-- name: CreateChunk :exec
 INSERT INTO chunks (
     id, knowledge_base_id, document_id, chunk_index, content,
     content_length, embedding, embedding_dimension, document_version, is_published,
-    document_name, page_number, section_title, page_end
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    document_name, page_number, section_title, page_end, narrative_metadata
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 `
 
 type CreateChunkParams struct {
-	ID                 string          `json:"id"`
-	KnowledgeBaseID    string          `json:"knowledge_base_id"`
-	DocumentID         string          `json:"document_id"`
-	ChunkIndex         int32           `json:"chunk_index"`
-	Content            string          `json:"content"`
-	ContentLength      int32           `json:"content_length"`
-	Embedding          pgvector.Vector `json:"embedding"`
-	EmbeddingDimension int32           `json:"embedding_dimension"`
-	DocumentVersion    int64           `json:"document_version"`
-	IsPublished        bool            `json:"is_published"`
-	DocumentName       string          `json:"document_name"`
-	PageNumber         sql.NullInt32   `json:"page_number"`
-	SectionTitle       sql.NullString  `json:"section_title"`
-	PageEnd            sql.NullInt32   `json:"page_end"`
+	ID                 string                `json:"id"`
+	KnowledgeBaseID    string                `json:"knowledge_base_id"`
+	DocumentID         string                `json:"document_id"`
+	ChunkIndex         int32                 `json:"chunk_index"`
+	Content            string                `json:"content"`
+	ContentLength      int32                 `json:"content_length"`
+	Embedding          pgvector.Vector       `json:"embedding"`
+	EmbeddingDimension int32                 `json:"embedding_dimension"`
+	DocumentVersion    int64                 `json:"document_version"`
+	IsPublished        bool                  `json:"is_published"`
+	DocumentName       string                `json:"document_name"`
+	PageNumber         sql.NullInt32         `json:"page_number"`
+	SectionTitle       sql.NullString        `json:"section_title"`
+	PageEnd            sql.NullInt32         `json:"page_end"`
+	NarrativeMetadata  pqtype.NullRawMessage `json:"narrative_metadata"`
 }
 
 // 新版本 chunks 一律以 is_published=false 写入——"新版本写入"这一步不改变
@@ -92,6 +94,10 @@ type CreateChunkParams struct {
 // 符实（page_number 一直在被真实写入并被 Citation V1 读取）。这条注释是
 // 该功能"页码过滤有数据可过滤"这一前提的直接反证，留着会误导后来者，故一
 // 并更正——只改注释文字，SQL 语义未动。
+// 010：narrative_metadata 与 chunk 在**同一条 INSERT**里写入，不另开一次
+// UPDATE。分两步的话崩溃点会落在中间，留下一批「有正文没有来源坐标」的片段——
+// 它们检索得到、但任何引用都定位不了，而且没有任何报错。
+// 非叙事模式传 NULL，与改动前完全一致。
 func (q *Queries) CreateChunk(ctx context.Context, arg CreateChunkParams) error {
 	_, err := q.db.ExecContext(ctx, createChunk,
 		arg.ID,
@@ -108,6 +114,7 @@ func (q *Queries) CreateChunk(ctx context.Context, arg CreateChunkParams) error 
 		arg.PageNumber,
 		arg.SectionTitle,
 		arg.PageEnd,
+		arg.NarrativeMetadata,
 	)
 	return err
 }
@@ -380,6 +387,146 @@ func (q *Queries) FindPublishedNeighborChunksBatch(ctx context.Context, arg Find
 			&i.PageNumber,
 			&i.SectionTitle,
 			&i.PageEnd,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getPublishedNarrativeChunksByIDs = `-- name: GetPublishedNarrativeChunksByIDs :many
+SELECT id, chunk_index, content, document_name, page_number, page_end,
+       section_title, narrative_metadata
+FROM chunks
+WHERE document_id = $1 AND document_version = $2 AND is_published = true
+  AND id = ANY($3::text[])
+ORDER BY chunk_index, id
+`
+
+type GetPublishedNarrativeChunksByIDsParams struct {
+	DocumentID      string   `json:"document_id"`
+	DocumentVersion int64    `json:"document_version"`
+	Column3         []string `json:"column_3"`
+}
+
+type GetPublishedNarrativeChunksByIDsRow struct {
+	ID                string                `json:"id"`
+	ChunkIndex        int32                 `json:"chunk_index"`
+	Content           string                `json:"content"`
+	DocumentName      string                `json:"document_name"`
+	PageNumber        sql.NullInt32         `json:"page_number"`
+	PageEnd           sql.NullInt32         `json:"page_end"`
+	SectionTitle      sql.NullString        `json:"section_title"`
+	NarrativeMetadata pqtype.NullRawMessage `json:"narrative_metadata"`
+}
+
+// 010：入模前批量核验引用的片段仍然存在且仍属于当前已发布版本。
+//
+// ⚠️ 这是**批量**接口，不是给调用方循环调用的单条接口。逐条查是 Phase 7
+// 邻接查询踩过的同一个 N+1。ids 上限由调用方按 200 收口。
+//
+// ⚠️ 过滤 is_published 不是可选的：一条引用如果指向已被取代的版本，
+// 展示出来的原文和用户现在看到的文档对不上，而两边都不会报错。
+func (q *Queries) GetPublishedNarrativeChunksByIDs(ctx context.Context, arg GetPublishedNarrativeChunksByIDsParams) ([]GetPublishedNarrativeChunksByIDsRow, error) {
+	rows, err := q.db.QueryContext(ctx, getPublishedNarrativeChunksByIDs, arg.DocumentID, arg.DocumentVersion, pq.Array(arg.Column3))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GetPublishedNarrativeChunksByIDsRow{}
+	for rows.Next() {
+		var i GetPublishedNarrativeChunksByIDsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChunkIndex,
+			&i.Content,
+			&i.DocumentName,
+			&i.PageNumber,
+			&i.PageEnd,
+			&i.SectionTitle,
+			&i.NarrativeMetadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPublishedNarrativeChunks = `-- name: ListPublishedNarrativeChunks :many
+SELECT id, chunk_index, content, document_name, page_number, page_end,
+       section_title, narrative_metadata
+FROM chunks
+WHERE document_id = $1 AND document_version = $2 AND is_published = true
+  AND chunk_index > $3
+ORDER BY chunk_index, id
+LIMIT $4
+`
+
+type ListPublishedNarrativeChunksParams struct {
+	DocumentID      string `json:"document_id"`
+	DocumentVersion int64  `json:"document_version"`
+	ChunkIndex      int32  `json:"chunk_index"`
+	Limit           int32  `json:"limit"`
+}
+
+type ListPublishedNarrativeChunksRow struct {
+	ID                string                `json:"id"`
+	ChunkIndex        int32                 `json:"chunk_index"`
+	Content           string                `json:"content"`
+	DocumentName      string                `json:"document_name"`
+	PageNumber        sql.NullInt32         `json:"page_number"`
+	PageEnd           sql.NullInt32         `json:"page_end"`
+	SectionTitle      sql.NullString        `json:"section_title"`
+	NarrativeMetadata pqtype.NullRawMessage `json:"narrative_metadata"`
+}
+
+// 010：初始化抽取作业时按 chunk_index 游标顺序枚举一份文档已发布的全部片段。
+//
+// ⚠️ 只取 is_published = true 的当前版本。取到未发布版本的后果是作业挂在
+// 一批**永远不会成为真相**的片段上，产出的关系记录指向不存在的引用。
+// document_version 由调用方显式传入，不从 documents 表现查——中间隔着一次
+// 往返，文档可能已经改版。
+//
+// ORDER BY chunk_index, id：id 收尾是为了在 chunk_index 万一重复时也有确定
+// 顺序（宪法第 V 条）。走 000006 新建的
+// (document_id, document_version, chunk_index, id) 索引。
+func (q *Queries) ListPublishedNarrativeChunks(ctx context.Context, arg ListPublishedNarrativeChunksParams) ([]ListPublishedNarrativeChunksRow, error) {
+	rows, err := q.db.QueryContext(ctx, listPublishedNarrativeChunks,
+		arg.DocumentID,
+		arg.DocumentVersion,
+		arg.ChunkIndex,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPublishedNarrativeChunksRow{}
+	for rows.Next() {
+		var i ListPublishedNarrativeChunksRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChunkIndex,
+			&i.Content,
+			&i.DocumentName,
+			&i.PageNumber,
+			&i.PageEnd,
+			&i.SectionTitle,
+			&i.NarrativeMetadata,
 		); err != nil {
 			return nil, err
 		}

@@ -36,6 +36,10 @@ type Querier interface {
 	// 符实（page_number 一直在被真实写入并被 Citation V1 读取）。这条注释是
 	// 该功能"页码过滤有数据可过滤"这一前提的直接反证，留着会误导后来者，故一
 	// 并更正——只改注释文字，SQL 语义未动。
+	// 010：narrative_metadata 与 chunk 在**同一条 INSERT**里写入，不另开一次
+	// UPDATE。分两步的话崩溃点会落在中间，留下一批「有正文没有来源坐标」的片段——
+	// 它们检索得到、但任何引用都定位不了，而且没有任何报错。
+	// 非叙事模式传 NULL，与改动前完全一致。
 	CreateChunk(ctx context.Context, arg CreateChunkParams) error
 	// 整份文档删除用（DeleteDocument）：不分版本、不看发布状态，全部清空。
 	DeleteChunksByDocument(ctx context.Context, documentID string) error
@@ -136,6 +140,25 @@ type Querier interface {
 	// 排序只是为了让同一份请求集合两次调用返回确定性一致的行序，方便测试断言
 	// 和排查问题。
 	FindPublishedNeighborChunksBatch(ctx context.Context, arg FindPublishedNeighborChunksBatchParams) ([]FindPublishedNeighborChunksBatchRow, error)
+	// 010：入模前批量核验引用的片段仍然存在且仍属于当前已发布版本。
+	//
+	// ⚠️ 这是**批量**接口，不是给调用方循环调用的单条接口。逐条查是 Phase 7
+	// 邻接查询踩过的同一个 N+1。ids 上限由调用方按 200 收口。
+	//
+	// ⚠️ 过滤 is_published 不是可选的：一条引用如果指向已被取代的版本，
+	// 展示出来的原文和用户现在看到的文档对不上，而两边都不会报错。
+	GetPublishedNarrativeChunksByIDs(ctx context.Context, arg GetPublishedNarrativeChunksByIDsParams) ([]GetPublishedNarrativeChunksByIDsRow, error)
+	// 010：初始化抽取作业时按 chunk_index 游标顺序枚举一份文档已发布的全部片段。
+	//
+	// ⚠️ 只取 is_published = true 的当前版本。取到未发布版本的后果是作业挂在
+	// 一批**永远不会成为真相**的片段上，产出的关系记录指向不存在的引用。
+	// document_version 由调用方显式传入，不从 documents 表现查——中间隔着一次
+	// 往返，文档可能已经改版。
+	//
+	// ORDER BY chunk_index, id：id 收尾是为了在 chunk_index 万一重复时也有确定
+	// 顺序（宪法第 V 条）。走 000006 新建的
+	// (document_id, document_version, chunk_index, id) 索引。
+	ListPublishedNarrativeChunks(ctx context.Context, arg ListPublishedNarrativeChunksParams) ([]ListPublishedNarrativeChunksRow, error)
 	// 发布步骤的"发布新版本"半部分。
 	PublishChunkVersion(ctx context.Context, arg PublishChunkVersionParams) error
 	// pg_trgm 字符级 trigram/word-similarity 关键词检索（lexical search）——

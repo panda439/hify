@@ -351,6 +351,10 @@ type Chunk struct {
 	SectionTitle       *string
 	CreatedAt          time.Time
 
+	// NarrativeMetadata 是叙事片段的来源坐标（010 FR-006）。
+	// 非叙事片段为 nil，落库写 NULL——存量片段与关闭模式的行为完全不变。
+	NarrativeMetadata *narrativeMetadata
+
 	// DocumentVersion identifies which processing attempt (see Document's
 	// doc comment) this chunk belongs to — Phase 4's neighbor-window
 	// expansion (neighbor.go) is the reason this needs to exist on Chunk at

@@ -343,6 +343,12 @@ func chunkNarrative(text string, size, overlap int) []chunkPiece {
 	// offsets to another — the intervals would still look plausible.
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 
+	// Built once per document: byte->rune conversion for the persisted
+	// offsets, and the hash that identifies this coordinate system.
+	ri := newRuneIndex(text)
+	docHash := normalizedDocumentHash(text)
+	sourceOrder := 0
+
 	var pieces []chunkPiece
 	// perChapter numbers scenes WITHIN each chapter across the whole
 	// document. ⚠️ narrativeUnit.SceneIndex cannot be used directly:
@@ -377,6 +383,14 @@ func chunkNarrative(text string, size, overlap int) []chunkPiece {
 				title := scene.ChapterTitle
 				piece.SectionTitle = &title
 			}
+			// source_order is the chunk's linear position in the whole
+			// book. ⚠️ It is what everything downstream sorts by — NOT the
+			// chapter number, because a flashback chapter's number does not
+			// match its position in the text (FR-008).
+			meta := buildNarrativeMetadata(ri, docHash, piece, sourceOrder,
+				len([]rune(body.Text)), body.PrefixRunes)
+			sourceOrder++
+			piece.Narrative = &meta
 			pieces = append(pieces, piece)
 		}
 	}

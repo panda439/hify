@@ -397,6 +397,13 @@ func (r *Repository) createChunks(ctx context.Context, chunks []Chunk, version i
 	return platform.WithTx(ctx, r.pgdb, func(tx *sql.Tx) error {
 		q := r.pgQueries.WithTx(tx)
 		for _, c := range chunks {
+			// ⚠️ 序列化失败必须让整个事务失败，不能降级成"写个 NULL 继续"。
+			// 降级的结果是一批检索得到、却任何引用都定位不了的片段，
+			// 而且不报错——正是这一列存在的意义被悄悄抹掉。
+			meta, err := encodeNarrativeMetadata(c.NarrativeMetadata)
+			if err != nil {
+				return fmt.Errorf("knowledge: encode narrative metadata for chunk %s: %w", c.ID, err)
+			}
 			if err := q.CreateChunk(ctx, pggen.CreateChunkParams{
 				ID:                 c.ID,
 				KnowledgeBaseID:    c.KnowledgeBaseID,
@@ -412,6 +419,7 @@ func (r *Repository) createChunks(ctx context.Context, chunks []Chunk, version i
 				PageNumber:         intPtrToNullInt32(c.PageNumber),
 				PageEnd:            intPtrToNullInt32(c.PageEnd),
 				SectionTitle:       stringPtrToNullString(c.SectionTitle),
+				NarrativeMetadata:  meta,
 			}); err != nil {
 				return fmt.Errorf("knowledge: create chunk: %w", err)
 			}

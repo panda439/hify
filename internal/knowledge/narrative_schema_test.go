@@ -2,9 +2,11 @@ package knowledge
 
 import (
 	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 
+	"hify/internal/db/pggen"
 	"hify/internal/testutil"
 )
 
@@ -251,4 +253,161 @@ func TestNarrativeMetadataDefaultsToNull(t *testing.T) {
 	if meta.Valid {
 		t.Errorf("未开叙事模式的片段带上了元数据：%s", meta.String)
 	}
+}
+
+// ---- 元数据落库往返（PG 000006）----
+
+func narrativeRepo(t *testing.T) *Repository {
+	t.Helper()
+	return NewRepository(testutil.MySQL(t, "narrschema"), testutil.Postgres(t, "narrschema"))
+}
+
+func narrativeChunk(id string, idx int, content string, meta *narrativeMetadata) Chunk {
+	return Chunk{
+		ID: id, KnowledgeBaseID: "kb-n", DocumentID: "doc-n", DocumentName: "书.txt",
+		ChunkIndex: idx, Content: content, ContentLength: len([]rune(content)),
+		Embedding: []float32{0.1}, EmbeddingDimension: 1, NarrativeMetadata: meta,
+	}
+}
+
+// TestNarrativeMetadataRoundTrip——写进去什么，读回来必须是什么。
+// ⚠️ 一并盯着「同一条 INSERT 写入」：元数据不是事后 UPDATE 补的，
+// 否则崩溃点会落在中间，留下一批有正文没有来源坐标的片段——
+// 它们检索得到、任何引用都定位不了，而且不报错。
+func TestNarrativeMetadataRoundTrip(t *testing.T) {
+	repo := narrativeRepo(t)
+	ctx := t.Context()
+
+	pieces := chunkNarrative("第七章　甲\n"+strings.Repeat("甲的正文。", 60)+"\n", 150, 30)
+	if len(pieces) < 3 {
+		t.Fatalf("夹具只切出 %d 块", len(pieces))
+	}
+	chunks := make([]Chunk, 0, len(pieces))
+	for i, p := range pieces {
+		chunks = append(chunks, narrativeChunk(fmt.Sprintf("nc-%d", i), i, p.Content, p.Narrative))
+	}
+	if err := repo.createChunks(ctx, chunks, 1); err != nil {
+		t.Fatalf("createChunks: %v", err)
+	}
+	if err := repo.publishDocumentVersion(ctx, "doc-n", 1); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	rows, err := repo.pgQueries.ListPublishedNarrativeChunks(ctx,
+		pggen.ListPublishedNarrativeChunksParams{
+			DocumentID: "doc-n", DocumentVersion: 1, ChunkIndex: -1, Limit: 200,
+		})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(rows) != len(chunks) {
+		t.Fatalf("读回 %d 块，写了 %d 块", len(rows), len(chunks))
+	}
+	for i, row := range rows {
+		got, err := decodeNarrativeMetadata(row.NarrativeMetadata)
+		if err != nil {
+			t.Fatalf("第 %d 块元数据解码失败：%v", i, err)
+		}
+		if got == nil {
+			t.Fatalf("第 %d 块元数据是 NULL", i)
+		}
+		want := pieces[i].Narrative
+		if got.SourceOrder != want.SourceOrder ||
+			got.NormalizedDocumentHash != want.NormalizedDocumentHash ||
+			got.BoundaryKind != want.BoundaryKind ||
+			len(got.Segments) != len(want.Segments) {
+			t.Errorf("第 %d 块往返后不一致：\n got=%+v\nwant=%+v", i, *got, *want)
+			continue
+		}
+		if got.ChapterNumber == nil || *got.ChapterNumber != 7 {
+			t.Errorf("第 %d 块章节号往返丢了：%v", i, got.ChapterNumber)
+		}
+		for j := range got.Segments {
+			// ⚠️ 不能直接用 != 比 narrativeSegment：它有指针字段，
+			// 比的是地址而不是值，往返后必然不相等——第一版就是这么写的，
+			// 报出来的差异里两边数字一模一样、只有指针不同。
+			if !sameSegment(got.Segments[j], want.Segments[j]) {
+				t.Errorf("第 %d 块段 %d 往返后不一致：%s vs %s",
+					i, j, showSegment(got.Segments[j]), showSegment(want.Segments[j]))
+			}
+		}
+		// 存回来的区间必须仍然指得回原文（不是只有结构对）。
+		if err := validateNarrativeMetadata(*got, len([]rune(row.Content))); err != nil {
+			t.Errorf("第 %d 块读回后校验不过：%v", i, err)
+		}
+	}
+}
+
+// TestNonNarrativeChunkStoresNull——关闭模式必须与改动前逐字节一致。
+// 这一列默认写成 '{}' 之类的"空对象"就会让存量片段看起来像叙事片段。
+func TestNonNarrativeChunkStoresNull(t *testing.T) {
+	repo := narrativeRepo(t)
+	ctx := t.Context()
+	if err := repo.createChunks(ctx, []Chunk{
+		narrativeChunk("plain-0", 0, "普通片段", nil),
+	}, 7); err != nil {
+		t.Fatalf("createChunks: %v", err)
+	}
+	var meta sql.NullString
+	if err := repo.pgdb.QueryRowContext(ctx,
+		`SELECT narrative_metadata FROM chunks WHERE id='plain-0'`).Scan(&meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta.Valid {
+		t.Errorf("非叙事片段存成了 %q，应为 NULL", meta.String)
+	}
+}
+
+// TestBatchLookupFiltersUnpublished——⭐ 批量核验必须过滤 is_published。
+// 一条引用如果指向已被取代的版本，展示出来的原文和用户现在看到的文档对不上，
+// 而两边都不会报错。
+func TestBatchLookupFiltersUnpublished(t *testing.T) {
+	repo := narrativeRepo(t)
+	ctx := t.Context()
+	mk := func(id string, idx int) Chunk { return narrativeChunk(id, idx, "正文"+id, nil) }
+	if err := repo.createChunks(ctx, []Chunk{mk("pub-0", 0), mk("pub-1", 1)}, 3); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.publishDocumentVersion(ctx, "doc-n", 3); err != nil {
+		t.Fatal(err)
+	}
+	// 第 4 版写进去但**不发布**——它不是真相。
+	if err := repo.createChunks(ctx, []Chunk{mk("draft-0", 0)}, 4); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := repo.pgQueries.GetPublishedNarrativeChunksByIDs(ctx,
+		pggen.GetPublishedNarrativeChunksByIDsParams{
+			DocumentID: "doc-n", DocumentVersion: 4, Column3: []string{"draft-0", "pub-0"},
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Errorf("未发布版本的片段被核验通过了：%d 条", len(rows))
+	}
+}
+
+func sameIntPtr(a, b *int) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
+func sameSegment(a, b narrativeSegment) bool {
+	return a.ChunkStart == b.ChunkStart && a.ChunkEnd == b.ChunkEnd &&
+		sameIntPtr(a.DocumentStart, b.DocumentStart) &&
+		sameIntPtr(a.DocumentEnd, b.DocumentEnd) &&
+		sameIntPtr(a.Page, b.Page) &&
+		a.IsGeneratedSeparator == b.IsGeneratedSeparator &&
+		a.IsOverlapCopy == b.IsOverlapCopy
+}
+
+func showSegment(s narrativeSegment) string {
+	d := "nil"
+	if s.DocumentStart != nil && s.DocumentEnd != nil {
+		d = fmt.Sprintf("[%d,%d)", *s.DocumentStart, *s.DocumentEnd)
+	}
+	return fmt.Sprintf("chunk[%d,%d) doc%s copy=%v sep=%v",
+		s.ChunkStart, s.ChunkEnd, d, s.IsOverlapCopy, s.IsGeneratedSeparator)
 }

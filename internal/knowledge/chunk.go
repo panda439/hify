@@ -38,6 +38,16 @@ type textSpan struct {
 	Text  string
 	Start int
 	End   int
+	// PrefixRunes counts leading runes of Text that are an OVERLAP COPY —
+	// text carried over from the previous chunk, whose real home is that
+	// chunk's source range, not [Start,End).
+	//
+	// ⚠️ It exists so a consumer can tell which part of a chunk is NOT
+	// citable. Without it the only options are to attribute the copied
+	// runes to this chunk's interval (a citation pointing at the wrong
+	// place) or to leave part of the content unmapped (a coverage check
+	// that silently passes on incomplete data).
+	PrefixRunes int
 }
 
 func spanTexts(spans []textSpan) []string {
@@ -198,6 +208,10 @@ type chunkPiece struct {
 	// the narrative chunker.
 	SourceStart *int
 	SourceEnd   *int
+	// Narrative is the persisted source map (narrative_metadata.go).
+	// Set only by the narrative chunker; nil everywhere else, which is
+	// what keeps every existing chunk's stored metadata NULL.
+	Narrative *narrativeMetadata
 }
 
 // chunkDocument dispatches to the structure-aware chunker for fileType.
@@ -624,6 +638,31 @@ func splitSentenceSpans(text string, base int) []textSpan {
 // common case for content with no real sentence structure) falls back to
 // chunkText, which is what keeps chunkPlainText byte-for-byte compatible
 // with the old flat chunker for structureless content.
+// trimmedPrefixRunes re-bases an overlap-seed prefix length from the
+// untrimmed joined body onto the trimmed text that is actually emitted.
+//
+// ⚠️ The seed is a TAIL of the previous chunk, so it can perfectly well
+// begin with whitespace, which TrimSpace then removes. Counting the prefix
+// before the trim left it a few runes too long — the segment boundary then
+// sat inside real content, and that content got attributed to the
+// un-citable overlap segment instead of to its true source position.
+// It showed up as ~5% of chunks whose stored interval did not reproduce
+// their own text (2/61 阿Q, 19/433 西遊記 1-20, 116/2031 全本), and nothing
+// else reported a problem: the metadata was still structurally valid.
+func trimmedPrefixRunes(body, trimmed string, prefix int) int {
+	if prefix <= 0 {
+		return 0
+	}
+	lead := len([]rune(body)) - len([]rune(strings.TrimLeftFunc(body, unicode.IsSpace)))
+	if prefix -= lead; prefix < 0 {
+		return 0
+	}
+	if n := len([]rune(trimmed)); prefix > n {
+		return n
+	}
+	return prefix
+}
+
 // shiftSpans moves spans from a substring's own frame into the enclosing
 // text's frame.
 func shiftSpans(spans []textSpan, by int) []textSpan {
@@ -678,6 +717,7 @@ func chunkBySentenceSpans(text string, base, size, overlap int) []textSpan {
 		if t := strings.TrimSpace(body); t != "" {
 			chunks = append(chunks, textSpan{
 				Text: t, Start: acc[0].Start, End: acc[len(acc)-1].End,
+				PrefixRunes: trimmedPrefixRunes(body, t, acc[0].PrefixRunes),
 			})
 		}
 		if carryOverlap && overlap > 0 {
@@ -709,6 +749,7 @@ func chunkBySentenceSpans(text string, base, size, overlap int) []textSpan {
 		if len(acc) == 0 && pendingOverlap != "" {
 			// ⚠️ Text gains the seed; Start/End deliberately do NOT.
 			next.Text = prependOverlap(pendingOverlap, " ", sentence.Text, size)
+			next.PrefixRunes = len([]rune(next.Text)) - len([]rune(sentence.Text))
 			pendingOverlap = ""
 		}
 		acc = append(acc, next)
@@ -764,6 +805,7 @@ func chunkPlainTextSpans(text string, size, overlap int) []textSpan {
 		if t := strings.TrimSpace(body); t != "" {
 			chunks = append(chunks, textSpan{
 				Text: t, Start: acc[0].Start, End: acc[len(acc)-1].End,
+				PrefixRunes: trimmedPrefixRunes(body, t, acc[0].PrefixRunes),
 			})
 		}
 		if carryOverlap && overlap > 0 {
@@ -792,6 +834,7 @@ func chunkPlainTextSpans(text string, size, overlap int) []textSpan {
 		if len(acc) == 0 && pendingOverlap != "" {
 			// ⚠️ Text gains the seed; Start/End deliberately do NOT.
 			next.Text = prependOverlap(pendingOverlap, "\n", para.Text, size)
+			next.PrefixRunes = len([]rune(next.Text)) - len([]rune(para.Text))
 			pendingOverlap = ""
 		}
 		acc = append(acc, next)
