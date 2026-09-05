@@ -60,6 +60,34 @@ func (q *Queries) BumpItemAttemptCount(ctx context.Context, arg BumpItemAttemptC
 	return result.RowsAffected()
 }
 
+const bumpJobItemOutcome = `-- name: BumpJobItemOutcome :execrows
+UPDATE relation_extraction_jobs
+SET succeeded_items = succeeded_items + ?, failed_items = failed_items + ?,
+    updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ? AND epoch = ?
+`
+
+type BumpJobItemOutcomeParams struct {
+	SucceededItems int32  `json:"succeeded_items"`
+	FailedItems    int32  `json:"failed_items"`
+	ID             string `json:"id"`
+	Epoch          int32  `json:"epoch"`
+}
+
+// ⚠️ 守卫 epoch：过期 worker 的迟到发布不得改动计数。
+func (q *Queries) BumpJobItemOutcome(ctx context.Context, arg BumpJobItemOutcomeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, bumpJobItemOutcome,
+		arg.SucceededItems,
+		arg.FailedItems,
+		arg.ID,
+		arg.Epoch,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const claimRelationExtractionJob = `-- name: ClaimRelationExtractionJob :execrows
 UPDATE relation_extraction_jobs
 SET epoch = epoch + 1, lease_until = ?, heartbeat_at = ?,
@@ -196,6 +224,37 @@ func (q *Queries) CountRelationExtractionItems(ctx context.Context, jobID string
 	return count, err
 }
 
+const createNarrativeCharacter = `-- name: CreateNarrativeCharacter :exec
+
+INSERT INTO narrative_characters
+    (id, job_id, display_name, first_source_order, identity_evidence, has_ambiguity)
+VALUES (?, ?, ?, ?, ?, ?)
+`
+
+type CreateNarrativeCharacterParams struct {
+	ID               string          `json:"id"`
+	JobID            string          `json:"job_id"`
+	DisplayName      string          `json:"display_name"`
+	FirstSourceOrder int64           `json:"first_source_order"`
+	IdentityEvidence json.RawMessage `json:"identity_evidence"`
+	HasAmbiguity     bool            `json:"has_ambiguity"`
+}
+
+// ---------------------------------------------------------------------
+// 成功结果的发布：人物 / 关系 / 证据 / item 状态 / 计数，同一个事务
+// ---------------------------------------------------------------------
+func (q *Queries) CreateNarrativeCharacter(ctx context.Context, arg CreateNarrativeCharacterParams) error {
+	_, err := q.db.ExecContext(ctx, createNarrativeCharacter,
+		arg.ID,
+		arg.JobID,
+		arg.DisplayName,
+		arg.FirstSourceOrder,
+		arg.IdentityEvidence,
+		arg.HasAmbiguity,
+	)
+	return err
+}
+
 const createRelationExtractionItem = `-- name: CreateRelationExtractionItem :exec
 INSERT INTO relation_extraction_items (id, job_id, chunk_id, chunk_index, content_hash)
 VALUES (?, ?, ?, ?, ?)
@@ -291,6 +350,43 @@ func (q *Queries) FailRelationExtractionJob(ctx context.Context, arg FailRelatio
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const findReplayableAttempt = `-- name: FindReplayableAttempt :one
+SELECT id, raw_response, response_hash, finish_reason
+FROM relation_extraction_attempts
+WHERE item_id = ? AND phase = ? AND state = 'completed' AND raw_response IS NOT NULL
+ORDER BY attempt_number DESC
+LIMIT 1
+`
+
+type FindReplayableAttemptParams struct {
+	ItemID string `json:"item_id"`
+	Phase  string `json:"phase"`
+}
+
+type FindReplayableAttemptRow struct {
+	ID           string         `json:"id"`
+	RawResponse  sql.NullString `json:"raw_response"`
+	ResponseHash sql.NullString `json:"response_hash"`
+	FinishReason sql.NullString `json:"finish_reason"`
+}
+
+// 回放：这个 item 的这个阶段是否已经有一次**成功且原始响应已落盘**的尝试。
+//
+// ⭐ 有的话，恢复的 worker 必须拿它接着算，**不能再打一次模型**。
+// 再打一次的后果不是"结果不一致"，是那笔钱白花第二遍，而账目上看起来
+// 完全正常——两次都是真实发生的调用。
+func (q *Queries) FindReplayableAttempt(ctx context.Context, arg FindReplayableAttemptParams) (FindReplayableAttemptRow, error) {
+	row := q.db.QueryRowContext(ctx, findReplayableAttempt, arg.ItemID, arg.Phase)
+	var i FindReplayableAttemptRow
+	err := row.Scan(
+		&i.ID,
+		&i.RawResponse,
+		&i.ResponseHash,
+		&i.FinishReason,
+	)
+	return i, err
 }
 
 const getDocumentExtractionState = `-- name: GetDocumentExtractionState :one
@@ -420,6 +516,22 @@ func (q *Queries) GetItemAttemptCounts(ctx context.Context, id string) (GetItemA
 	var i GetItemAttemptCountsRow
 	err := row.Scan(&i.ExtractAttemptCount, &i.AliasAttemptCount, &i.State)
 	return i, err
+}
+
+const getNarrativeRelationByKey = `-- name: GetNarrativeRelationByKey :one
+SELECT id FROM narrative_relations WHERE job_id = ? AND relation_key_hash = ?
+`
+
+type GetNarrativeRelationByKeyParams struct {
+	JobID           string `json:"job_id"`
+	RelationKeyHash []byte `json:"relation_key_hash"`
+}
+
+func (q *Queries) GetNarrativeRelationByKey(ctx context.Context, arg GetNarrativeRelationByKeyParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getNarrativeRelationByKey, arg.JobID, arg.RelationKeyHash)
+	var id string
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getRelationExtractionJob = `-- name: GetRelationExtractionJob :one
@@ -650,6 +762,55 @@ func (q *Queries) MarkAttemptUnknown(ctx context.Context, arg MarkAttemptUnknown
 	return result.RowsAffected()
 }
 
+const markItemFailed = `-- name: MarkItemFailed :execrows
+UPDATE relation_extraction_items
+SET state = 'failed', last_error_code = ?, updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ? AND job_id = ? AND state NOT IN ('succeeded', 'failed')
+`
+
+type MarkItemFailedParams struct {
+	LastErrorCode sql.NullString `json:"last_error_code"`
+	ID            string         `json:"id"`
+	JobID         string         `json:"job_id"`
+}
+
+func (q *Queries) MarkItemFailed(ctx context.Context, arg MarkItemFailedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markItemFailed, arg.LastErrorCode, arg.ID, arg.JobID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const markItemSucceeded = `-- name: MarkItemSucceeded :execrows
+UPDATE relation_extraction_items
+SET state = 'succeeded', extract_response = ?, alias_response = ?,
+    last_error_code = NULL, updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ? AND job_id = ? AND state <> 'succeeded'
+`
+
+type MarkItemSucceededParams struct {
+	ExtractResponse json.RawMessage `json:"extract_response"`
+	AliasResponse   json.RawMessage `json:"alias_response"`
+	ID              string          `json:"id"`
+	JobID           string          `json:"job_id"`
+}
+
+// ⚠️ 守卫 state <> 'succeeded'：一个 item 只能成功一次，否则
+// succeeded_items 会被重复累加，而它是覆盖率的分子。
+func (q *Queries) MarkItemSucceeded(ctx context.Context, arg MarkItemSucceededParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markItemSucceeded,
+		arg.ExtractResponse,
+		arg.AliasResponse,
+		arg.ID,
+		arg.JobID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const recordJobDispatchOutcome = `-- name: RecordJobDispatchOutcome :execrows
 UPDATE relation_extraction_jobs
 SET confirmed_dispatches = confirmed_dispatches + ?,
@@ -871,4 +1032,89 @@ func (q *Queries) SettleExtractionAttempt(ctx context.Context, arg SettleExtract
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const upsertNarrativeRelation = `-- name: UpsertNarrativeRelation :exec
+INSERT IGNORE INTO narrative_relations
+    (id, job_id, subject_id, object_id, relation_type, is_directed,
+     relation_key_hash, first_source_order, chapter_number, chapter_title)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type UpsertNarrativeRelationParams struct {
+	ID               string         `json:"id"`
+	JobID            string         `json:"job_id"`
+	SubjectID        string         `json:"subject_id"`
+	ObjectID         string         `json:"object_id"`
+	RelationType     string         `json:"relation_type"`
+	IsDirected       bool           `json:"is_directed"`
+	RelationKeyHash  []byte         `json:"relation_key_hash"`
+	FirstSourceOrder int64          `json:"first_source_order"`
+	ChapterNumber    sql.NullInt32  `json:"chapter_number"`
+	ChapterTitle     sql.NullString `json:"chapter_title"`
+}
+
+// ⚠️ INSERT IGNORE 而不是普通 INSERT：同一条关系可能因为回放（响应已落盘、
+// 发布前崩溃）被再写一次。唯一键 (job_id, relation_key_hash) 让第二次成为
+// 无操作，而不是让整个回放失败。
+//
+// ⚠️ 这里的"重复"只指**同一处出处的同一条关系**。跨章、同章不同场景的
+// 同类型关系 key 不同，会各自成行——关系历史不按当前状态覆盖，
+// 那是这个功能的立论。
+func (q *Queries) UpsertNarrativeRelation(ctx context.Context, arg UpsertNarrativeRelationParams) error {
+	_, err := q.db.ExecContext(ctx, upsertNarrativeRelation,
+		arg.ID,
+		arg.JobID,
+		arg.SubjectID,
+		arg.ObjectID,
+		arg.RelationType,
+		arg.IsDirected,
+		arg.RelationKeyHash,
+		arg.FirstSourceOrder,
+		arg.ChapterNumber,
+		arg.ChapterTitle,
+	)
+	return err
+}
+
+const upsertNarrativeRelationEvidence = `-- name: UpsertNarrativeRelationEvidence :exec
+INSERT IGNORE INTO narrative_relation_evidence
+    (id, job_id, relation_id, chunk_id, document_version, source_order,
+     source_start, source_end, quote, source_segments, evidence_key_hash)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type UpsertNarrativeRelationEvidenceParams struct {
+	ID              string          `json:"id"`
+	JobID           string          `json:"job_id"`
+	RelationID      string          `json:"relation_id"`
+	ChunkID         string          `json:"chunk_id"`
+	DocumentVersion int32           `json:"document_version"`
+	SourceOrder     int64           `json:"source_order"`
+	SourceStart     int32           `json:"source_start"`
+	SourceEnd       int32           `json:"source_end"`
+	Quote           string          `json:"quote"`
+	SourceSegments  json.RawMessage `json:"source_segments"`
+	EvidenceKeyHash []byte          `json:"evidence_key_hash"`
+}
+
+// ⚠️ 唯一键是 (relation_id, evidence_key_hash)，而 evidence_key 由
+// **规范源区间 + quote hash** 算出，**不含 chunk_id**：相邻 chunk 因 overlap
+// 会包含同一段原文，按 chunk_id 去重会把同一处出处记成两条证据，
+// 虚增后面要写进报告的证据条数。
+func (q *Queries) UpsertNarrativeRelationEvidence(ctx context.Context, arg UpsertNarrativeRelationEvidenceParams) error {
+	_, err := q.db.ExecContext(ctx, upsertNarrativeRelationEvidence,
+		arg.ID,
+		arg.JobID,
+		arg.RelationID,
+		arg.ChunkID,
+		arg.DocumentVersion,
+		arg.SourceOrder,
+		arg.SourceStart,
+		arg.SourceEnd,
+		arg.Quote,
+		arg.SourceSegments,
+		arg.EvidenceKeyHash,
+	)
+	return err
 }

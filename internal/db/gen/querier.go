@@ -19,6 +19,8 @@ type Querier interface {
 	// 计数归零，于是一个永远会失败的 item 被无限重试下去，把预算烧光——
 	// 而每一轮看起来都正常。这是自动恢复最容易引入的一种死循环。
 	BumpItemAttemptCount(ctx context.Context, arg BumpItemAttemptCountParams) (int64, error)
+	// ⚠️ 守卫 epoch：过期 worker 的迟到发布不得改动计数。
+	BumpJobItemOutcome(ctx context.Context, arg BumpJobItemOutcomeParams) (int64, error)
 	// 以下都是文档处理状态机的 CAS 转换——见 knowledge/service.go 的
 	// ProcessDocument。每条都带 id+version+旧状态三重限定，0 行受影响是预期
 	// 内的常见结果（并发重复到达、任务已过期、租约续约被抢），不是错误。
@@ -98,6 +100,10 @@ type Querier interface {
 	// 单条插入，由 repository.go 在写 assistant message 的同一个 MySQL 事务里
 	// 循环调用（一轮 turn 最多 maxTopK=50 条，批量不值得单独写一条多值 INSERT）。
 	CreateMessageCitation(ctx context.Context, arg CreateMessageCitationParams) error
+	// ---------------------------------------------------------------------
+	// 成功结果的发布：人物 / 关系 / 证据 / item 状态 / 计数，同一个事务
+	// ---------------------------------------------------------------------
+	CreateNarrativeCharacter(ctx context.Context, arg CreateNarrativeCharacterParams) error
 	CreateProvider(ctx context.Context, arg CreateProviderParams) error
 	CreateProviderModel(ctx context.Context, arg CreateProviderModelParams) error
 	CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) error
@@ -127,6 +133,12 @@ type Querier interface {
 	// ⚠️ 只在 job 还没结束时生效。已经 succeeded/failed 的 job 不该被一条迟到的
 	// 失败改写——那条失败属于一个早就被取代的 epoch。
 	FailRelationExtractionJob(ctx context.Context, arg FailRelationExtractionJobParams) (int64, error)
+	// 回放：这个 item 的这个阶段是否已经有一次**成功且原始响应已落盘**的尝试。
+	//
+	// ⭐ 有的话，恢复的 worker 必须拿它接着算，**不能再打一次模型**。
+	// 再打一次的后果不是"结果不一致"，是那笔钱白花第二遍，而账目上看起来
+	// 完全正常——两次都是真实发生的调用。
+	FindReplayableAttempt(ctx context.Context, arg FindReplayableAttemptParams) (FindReplayableAttemptRow, error)
 	FinishWorkflowRun(ctx context.Context, arg FinishWorkflowRunParams) error
 	GetAgentByID(ctx context.Context, id string) (Agent, error)
 	GetConversationByID(ctx context.Context, id string) (Conversation, error)
@@ -139,6 +151,7 @@ type Querier interface {
 	GetKnowledgeBaseByID(ctx context.Context, id string) (KnowledgeBase, error)
 	GetMCPServerByID(ctx context.Context, id string) (McpServer, error)
 	GetMCPToolByID(ctx context.Context, id string) (McpTool, error)
+	GetNarrativeRelationByKey(ctx context.Context, arg GetNarrativeRelationByKeyParams) (string, error)
 	GetProviderByID(ctx context.Context, id string) (ModelProvider, error)
 	GetProviderModelByID(ctx context.Context, id string) (ProviderModel, error)
 	GetRefreshTokenByHash(ctx context.Context, tokenHash string) (RefreshToken, error)
@@ -285,6 +298,10 @@ type Querier interface {
 	// 路径把 publishing 阶段刚写对的值清空——那正是 008 要修的缺陷，反而被固化，
 	// 而且表现是"用户看不到提示"，没有任何报错。变异测试专门盯着这一条。
 	MarkDocumentReady(ctx context.Context, arg MarkDocumentReadyParams) (int64, error)
+	MarkItemFailed(ctx context.Context, arg MarkItemFailedParams) (int64, error)
+	// ⚠️ 守卫 state <> 'succeeded'：一个 item 只能成功一次，否则
+	// succeeded_items 会被重复累加，而它是覆盖率的分子。
+	MarkItemSucceeded(ctx context.Context, arg MarkItemSucceededParams) (int64, error)
 	// 人工重试 API 用：pending/failed -> pending 且 version 前进一位，让旧
 	// version 的任何延迟到达的任务实例在后续 CAS 里天然被判定过期。pending/
 	// failed 从不持有租约，不需要touch lease_expires_at。
@@ -359,6 +376,19 @@ type Querier interface {
 	// description/input_schema for tools that still exist and reactivates a
 	// tool that had previously disappeared and come back.
 	UpsertMCPTool(ctx context.Context, arg UpsertMCPToolParams) error
+	// ⚠️ INSERT IGNORE 而不是普通 INSERT：同一条关系可能因为回放（响应已落盘、
+	// 发布前崩溃）被再写一次。唯一键 (job_id, relation_key_hash) 让第二次成为
+	// 无操作，而不是让整个回放失败。
+	//
+	// ⚠️ 这里的"重复"只指**同一处出处的同一条关系**。跨章、同章不同场景的
+	// 同类型关系 key 不同，会各自成行——关系历史不按当前状态覆盖，
+	// 那是这个功能的立论。
+	UpsertNarrativeRelation(ctx context.Context, arg UpsertNarrativeRelationParams) error
+	// ⚠️ 唯一键是 (relation_id, evidence_key_hash)，而 evidence_key 由
+	// **规范源区间 + quote hash** 算出，**不含 chunk_id**：相邻 chunk 因 overlap
+	// 会包含同一段原文，按 chunk_id 去重会把同一处出处记成两条证据，
+	// 虚增后面要写进报告的证据条数。
+	UpsertNarrativeRelationEvidence(ctx context.Context, arg UpsertNarrativeRelationEvidenceParams) error
 }
 
 var _ Querier = (*Queries)(nil)
