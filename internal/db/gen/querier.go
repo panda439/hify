@@ -122,9 +122,20 @@ type Querier interface {
 	GetProviderByID(ctx context.Context, id string) (ModelProvider, error)
 	GetProviderModelByID(ctx context.Context, id string) (ProviderModel, error)
 	GetRefreshTokenByHash(ctx context.Context, tokenHash string) (RefreshToken, error)
-	GetRelationExtractionJob(ctx context.Context, id string) (RelationExtractionJob, error)
+	// ⚠️ **故意不选三个 JSON 列**（config_snapshot / archived_ledger_summary /
+	// budget_operations）。两个理由：
+	//  1. 这是热路径——租约心跳每 30 秒就要用它做一次"我还是不是当前作业"的
+	//     检查，没必要每次都把配置快照和账目归档整块拉回来；
+	//  2. sqlc 把可空 JSON 映射成 json.RawMessage，而它扫不了 NULL
+	//     （unsupported Scan, storing driver.Value type <nil>），
+	//     那两列在作业刚建好时**正常就是 NULL**。
+	// 需要它们的报表/预算路径走 GetRelationExtractionJobPayload。
+	GetRelationExtractionJob(ctx context.Context, id string) (GetRelationExtractionJobRow, error)
 	// 幂等键重放：同一个 start/restart 请求打第二次，返回已有的 run 而不是新开。
 	GetRelationExtractionJobByOperationKey(ctx context.Context, arg GetRelationExtractionJobByOperationKeyParams) (GetRelationExtractionJobByOperationKeyRow, error)
+	// 三个 JSON 列单独取。⚠️ 可空的两列在 Go 侧用 sql.NullString 承接
+	// （见上面的注释），由 repository 转成领域类型时再解析。
+	GetRelationExtractionJobPayload(ctx context.Context, id string) (GetRelationExtractionJobPayloadRow, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id string) (User, error)
 	GetWorkflowByID(ctx context.Context, id string) (Workflow, error)

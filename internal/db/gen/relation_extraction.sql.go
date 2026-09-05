@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"time"
 )
 
 const claimRelationExtractionJob = `-- name: ClaimRelationExtractionJob :execrows
@@ -220,21 +221,65 @@ func (q *Queries) GetDocumentExtractionState(ctx context.Context, id string) (Ge
 
 const getRelationExtractionJob = `-- name: GetRelationExtractionJob :one
 SELECT id, document_id, knowledge_base_id, document_version, run_number,
-       model_id, config_hash, config_snapshot, source_hash,
+       model_id, config_hash, source_hash,
        state, stop_reason, epoch, lease_until, heartbeat_at, initialization_complete,
        total_items, succeeded_items, failed_items,
        approved_item_limit, call_limit, active_ms_limit, retry_rounds,
        reserved_calls, confirmed_dispatches, unknown_attempts,
        active_ms_used, active_ms_reserved,
-       started_at, finished_at, archived_ledger_summary,
-       operation_key_hash, operation_request_hash, budget_operations,
+       started_at, finished_at,
+       operation_key_hash, operation_request_hash,
        created_at, updated_at
 FROM relation_extraction_jobs WHERE id = ?
 `
 
-func (q *Queries) GetRelationExtractionJob(ctx context.Context, id string) (RelationExtractionJob, error) {
+type GetRelationExtractionJobRow struct {
+	ID                     string         `json:"id"`
+	DocumentID             string         `json:"document_id"`
+	KnowledgeBaseID        string         `json:"knowledge_base_id"`
+	DocumentVersion        int32          `json:"document_version"`
+	RunNumber              int32          `json:"run_number"`
+	ModelID                string         `json:"model_id"`
+	ConfigHash             []byte         `json:"config_hash"`
+	SourceHash             sql.NullString `json:"source_hash"`
+	State                  string         `json:"state"`
+	StopReason             sql.NullString `json:"stop_reason"`
+	Epoch                  int32          `json:"epoch"`
+	LeaseUntil             sql.NullTime   `json:"lease_until"`
+	HeartbeatAt            sql.NullTime   `json:"heartbeat_at"`
+	InitializationComplete bool           `json:"initialization_complete"`
+	TotalItems             int32          `json:"total_items"`
+	SucceededItems         int32          `json:"succeeded_items"`
+	FailedItems            int32          `json:"failed_items"`
+	ApprovedItemLimit      int32          `json:"approved_item_limit"`
+	CallLimit              int32          `json:"call_limit"`
+	ActiveMsLimit          int64          `json:"active_ms_limit"`
+	RetryRounds            int32          `json:"retry_rounds"`
+	ReservedCalls          int32          `json:"reserved_calls"`
+	ConfirmedDispatches    int32          `json:"confirmed_dispatches"`
+	UnknownAttempts        int32          `json:"unknown_attempts"`
+	ActiveMsUsed           int64          `json:"active_ms_used"`
+	ActiveMsReserved       int64          `json:"active_ms_reserved"`
+	StartedAt              sql.NullTime   `json:"started_at"`
+	FinishedAt             sql.NullTime   `json:"finished_at"`
+	OperationKeyHash       sql.NullString `json:"operation_key_hash"`
+	OperationRequestHash   sql.NullString `json:"operation_request_hash"`
+	CreatedAt              time.Time      `json:"created_at"`
+	UpdatedAt              time.Time      `json:"updated_at"`
+}
+
+// ⚠️ **故意不选三个 JSON 列**（config_snapshot / archived_ledger_summary /
+// budget_operations）。两个理由：
+//  1. 这是热路径——租约心跳每 30 秒就要用它做一次"我还是不是当前作业"的
+//     检查，没必要每次都把配置快照和账目归档整块拉回来；
+//  2. sqlc 把可空 JSON 映射成 json.RawMessage，而它扫不了 NULL
+//     （unsupported Scan, storing driver.Value type <nil>），
+//     那两列在作业刚建好时**正常就是 NULL**。
+//
+// 需要它们的报表/预算路径走 GetRelationExtractionJobPayload。
+func (q *Queries) GetRelationExtractionJob(ctx context.Context, id string) (GetRelationExtractionJobRow, error) {
 	row := q.db.QueryRowContext(ctx, getRelationExtractionJob, id)
-	var i RelationExtractionJob
+	var i GetRelationExtractionJobRow
 	err := row.Scan(
 		&i.ID,
 		&i.DocumentID,
@@ -243,7 +288,6 @@ func (q *Queries) GetRelationExtractionJob(ctx context.Context, id string) (Rela
 		&i.RunNumber,
 		&i.ModelID,
 		&i.ConfigHash,
-		&i.ConfigSnapshot,
 		&i.SourceHash,
 		&i.State,
 		&i.StopReason,
@@ -265,10 +309,8 @@ func (q *Queries) GetRelationExtractionJob(ctx context.Context, id string) (Rela
 		&i.ActiveMsReserved,
 		&i.StartedAt,
 		&i.FinishedAt,
-		&i.ArchivedLedgerSummary,
 		&i.OperationKeyHash,
 		&i.OperationRequestHash,
-		&i.BudgetOperations,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -310,6 +352,28 @@ func (q *Queries) GetRelationExtractionJobByOperationKey(ctx context.Context, ar
 		&i.OperationKeyHash,
 		&i.OperationRequestHash,
 	)
+	return i, err
+}
+
+const getRelationExtractionJobPayload = `-- name: GetRelationExtractionJobPayload :one
+SELECT config_snapshot,
+       CAST(archived_ledger_summary AS CHAR) AS archived_ledger_summary,
+       CAST(budget_operations AS CHAR) AS budget_operations
+FROM relation_extraction_jobs WHERE id = ?
+`
+
+type GetRelationExtractionJobPayloadRow struct {
+	ConfigSnapshot        json.RawMessage `json:"config_snapshot"`
+	ArchivedLedgerSummary interface{}     `json:"archived_ledger_summary"`
+	BudgetOperations      interface{}     `json:"budget_operations"`
+}
+
+// 三个 JSON 列单独取。⚠️ 可空的两列在 Go 侧用 sql.NullString 承接
+// （见上面的注释），由 repository 转成领域类型时再解析。
+func (q *Queries) GetRelationExtractionJobPayload(ctx context.Context, id string) (GetRelationExtractionJobPayloadRow, error) {
+	row := q.db.QueryRowContext(ctx, getRelationExtractionJobPayload, id)
+	var i GetRelationExtractionJobPayloadRow
+	err := row.Scan(&i.ConfigSnapshot, &i.ArchivedLedgerSummary, &i.BudgetOperations)
 	return i, err
 }
 

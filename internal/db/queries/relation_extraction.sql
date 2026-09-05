@@ -13,16 +13,32 @@ INSERT INTO relation_extraction_jobs (
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'initializing');
 
 -- name: GetRelationExtractionJob :one
+-- ⚠️ **故意不选三个 JSON 列**（config_snapshot / archived_ledger_summary /
+-- budget_operations）。两个理由：
+--  1. 这是热路径——租约心跳每 30 秒就要用它做一次"我还是不是当前作业"的
+--     检查，没必要每次都把配置快照和账目归档整块拉回来；
+--  2. sqlc 把可空 JSON 映射成 json.RawMessage，而它扫不了 NULL
+--     （unsupported Scan, storing driver.Value type <nil>），
+--     那两列在作业刚建好时**正常就是 NULL**。
+-- 需要它们的报表/预算路径走 GetRelationExtractionJobPayload。
 SELECT id, document_id, knowledge_base_id, document_version, run_number,
-       model_id, config_hash, config_snapshot, source_hash,
+       model_id, config_hash, source_hash,
        state, stop_reason, epoch, lease_until, heartbeat_at, initialization_complete,
        total_items, succeeded_items, failed_items,
        approved_item_limit, call_limit, active_ms_limit, retry_rounds,
        reserved_calls, confirmed_dispatches, unknown_attempts,
        active_ms_used, active_ms_reserved,
-       started_at, finished_at, archived_ledger_summary,
-       operation_key_hash, operation_request_hash, budget_operations,
+       started_at, finished_at,
+       operation_key_hash, operation_request_hash,
        created_at, updated_at
+FROM relation_extraction_jobs WHERE id = ?;
+
+-- name: GetRelationExtractionJobPayload :one
+-- 三个 JSON 列单独取。⚠️ 可空的两列在 Go 侧用 sql.NullString 承接
+-- （见上面的注释），由 repository 转成领域类型时再解析。
+SELECT config_snapshot,
+       CAST(archived_ledger_summary AS CHAR) AS archived_ledger_summary,
+       CAST(budget_operations AS CHAR) AS budget_operations
 FROM relation_extraction_jobs WHERE id = ?;
 
 -- name: GetRelationExtractionJobByOperationKey :one
