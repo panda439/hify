@@ -197,6 +197,14 @@ func (r *Repository) initializeExtractionJob(ctx context.Context, spec extractio
 
 	err = platform.WithTx(ctx, r.db, func(tx *sql.Tx) error {
 		q := r.queries.WithTx(tx)
+		// ⭐ 锁顺序 document → job → item：每个涉及多张表的事务都从锁文档
+		// 开始，顺序不一致会造成偶发死锁（见 LockDocumentForExtraction）。
+		if _, err := q.LockDocumentForExtraction(ctx, spec.DocumentID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrDocumentNotFound
+			}
+			return fmt.Errorf("knowledge: lock document: %w", err)
+		}
 		if err := q.CreateRelationExtractionJob(ctx, gen.CreateRelationExtractionJobParams{
 			ID: spec.JobID, DocumentID: spec.DocumentID, KnowledgeBaseID: spec.KnowledgeBaseID,
 			DocumentVersion: int32(spec.DocumentVersion), RunNumber: int32(spec.RunNumber),
@@ -227,6 +235,17 @@ func (r *Repository) initializeExtractionJob(ctx context.Context, spec extractio
 		if n == 0 {
 			// 另一个 worker 已经初始化过这个 job。
 			return ErrExtractionSourceChanged
+		}
+		// ⭐ 把这份文档上此前的作业全部标为 superseded，**与建新作业同事务**。
+		//
+		// ⚠️ 只把文档指针改到新作业是不够的：旧作业的 state 还是 running，
+		// 恢复扫描会把它当成"崩溃的作业"捡回来接着跑——于是两个 run 同时对
+		// 同一份文档花钱，而两者看起来都健康。
+		if _, err := q.SupersedePriorExtractionJobs(ctx, gen.SupersedePriorExtractionJobsParams{
+			FinishedAt: sql.NullTime{Time: startedAt, Valid: true},
+			DocumentID: spec.DocumentID, ID: spec.JobID,
+		}); err != nil {
+			return fmt.Errorf("knowledge: supersede prior jobs: %w", err)
 		}
 		m, err := q.SetDocumentRelationJob(ctx, gen.SetDocumentRelationJobParams{
 			ActiveRelationJobID: sql.NullString{String: spec.JobID, Valid: true},

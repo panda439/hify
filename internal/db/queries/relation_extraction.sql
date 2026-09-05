@@ -306,3 +306,30 @@ WHERE state IN ('initializing', 'running')
   AND id > ?
 ORDER BY id
 LIMIT ?;
+
+-- name: LockDocumentForExtraction :one
+-- ⭐ 锁顺序的第一环：document → job → item。
+--
+-- ⚠️ 顺序不一致的表现是**偶发死锁**：两个 worker 各持一半的锁互相等，
+-- MySQL 超时后杀掉其中一个。它只在并发操作同一份文档时出现，
+-- 单元测试跑一百次可能一次都不复现，而生产上会周期性地丢掉一个 item
+-- 并留下一条难以归因的错误。所以每个涉及多张表的事务都从这里开始。
+SELECT id, status, version, is_narrative, is_relation_extraction_enabled
+FROM documents WHERE id = ? FOR UPDATE;
+
+-- name: SupersedePriorExtractionJobs :execrows
+-- restart：把这份文档上此前的作业全部标为 superseded。
+--
+-- ⚠️ 只把文档指针改到新作业是不够的：旧作业的 state 还是 running，
+-- 恢复扫描会把它当成"崩溃的作业"捡回来接着跑——于是两个 run 同时对同一份
+-- 文档花钱，而两者看起来都健康。
+--
+-- ⚠️ paused / budget_exhausted 也一并取代。它们不该被**自动**恢复
+-- （见 ListRecoverableExtractionJobs），但用户显式 restart 就是在替换它们；
+-- 留着不动会让文档上挂着两个都不是 superseded 的历史作业，
+-- 账目查询分不清哪一个是当前 run。
+UPDATE relation_extraction_jobs
+SET state = 'superseded', finished_at = ?, lease_until = NULL,
+    updated_at = CURRENT_TIMESTAMP(3)
+WHERE document_id = ? AND id <> ?
+  AND state IN ('initializing', 'running', 'paused', 'budget_exhausted');

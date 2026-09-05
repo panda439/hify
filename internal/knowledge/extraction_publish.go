@@ -87,6 +87,20 @@ func (r *Repository) publishItemOutcome(ctx context.Context, in publishInput) er
 	return platform.WithTx(ctx, r.db, func(tx *sql.Tx) error {
 		q := r.queries.WithTx(tx)
 
+		// ⭐ 锁顺序的第一环：document → job → item。每个涉及多张表的事务
+		// 都从锁文档开始，顺序不一致会造成偶发死锁（见 LockDocumentForExtraction
+		// 的注释）。
+		//
+		// ⭐ 顺便也是「这份结果还配不配套」的检查。一次调用发出去时一切正常，
+		// 等它回来时文档可能已经被重新处理或删除——此刻手上那份结果算的是
+		// **已经不存在的那个版本**。
+		// ⚠️ 不挡的话不会报错：关系照样插得进去，端点、章节号、引文全都合法，
+		// 只是指向的原文不再是用户现在看到的那份。用户点开引用会看到一段
+		// 对不上的文字，而系统认为自己一切正常。
+		if err := r.verifyJobSourceStillCurrent(ctx, q, in.JobID); err != nil {
+			return err
+		}
+
 		// 本地引用 -> 真实人物 ID。
 		// ⚠️ 顺序遍历 Characters 而不是 range 一个 map：ID 是新生成的，
 		// 但**生成顺序**决定了 first_source_order 相同时的排序结果，
@@ -283,4 +297,39 @@ func nullStringPtr(v *string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: *v, Valid: true}
+}
+
+// verifyJobSourceStillCurrent 锁住文档并确认作业与它仍然配套。
+//
+// ⭐ 三件事一起查，因为它们的失败后果相同（结果指向已经不存在的版本），
+// 而给调用方的下一步也相同（丢弃这份结果）：
+//   - 文档还在吗（跨库没有外键，删掉文档不会连带删掉这些行）；
+//   - 版本还是作业初始化时那个吗；
+//   - 文档现在指向的还是这个作业吗（restart 会换掉）。
+//
+// ⚠️ 必须在**发布事务内部**做，不能在事务外先查一次：事务外查完到事务提交
+// 之间那段窗口，正是"删除期间响应返回"这类故障发生的地方。
+func (r *Repository) verifyJobSourceStillCurrent(ctx context.Context, q *gen.Queries, jobID string) error {
+	job, err := q.GetRelationExtractionJob(ctx, jobID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrExtractionSourceChanged
+		}
+		return fmt.Errorf("knowledge: load job for publish: %w", err)
+	}
+	doc, err := q.LockDocumentForExtraction(ctx, job.DocumentID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// 文档已被删除。
+			return ErrExtractionSourceChanged
+		}
+		return fmt.Errorf("knowledge: lock document for publish: %w", err)
+	}
+	if doc.Status != StatusReady || doc.Version != int64(job.DocumentVersion) {
+		return ErrExtractionSourceChanged
+	}
+	if job.State == jobStateSuperseded {
+		return ErrExtractionSourceChanged
+	}
+	return nil
 }
