@@ -55,6 +55,10 @@ type Querier interface {
 	CreateAgentKnowledgeBase(ctx context.Context, arg CreateAgentKnowledgeBaseParams) error
 	CreateAgentMCPTool(ctx context.Context, arg CreateAgentMCPToolParams) error
 	CreateConversation(ctx context.Context, arg CreateConversationParams) error
+	// 010：is_narrative / is_relation_extraction_enabled 在**上传时一次写定**，
+	// 之后没有任何查询会改它们（见 000017 的注释：允许切换等于允许同一份文档的
+	// 不同片段用不同分块方式产生，而 chunk_index 的含义会因此在文档内部不一致，
+	// 且不报错）。默认全 0，旧调用方不传就是旧行为。
 	CreateDocument(ctx context.Context, arg CreateDocumentParams) error
 	CreateKnowledgeBase(ctx context.Context, arg CreateKnowledgeBaseParams) error
 	CreateMCPServer(ctx context.Context, arg CreateMCPServerParams) error

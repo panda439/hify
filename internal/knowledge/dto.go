@@ -79,10 +79,13 @@ type documentResponse struct {
 	// says "run OCR on these", the latter says "OCR will not help, re-export
 	// with another tool". A client that merges them into one "N pages
 	// missing" line throws away the only part that tells the user what to do.
-	UnparseablePages []int     `json:"unparseable_pages"`
-	Version          int64     `json:"version"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	UnparseablePages []int `json:"unparseable_pages"`
+	// 010：上传时写定的两个开关，只读回显。存量文档恒为 false。
+	IsNarrative                 bool      `json:"is_narrative"`
+	IsRelationExtractionEnabled bool      `json:"is_relation_extraction_enabled"`
+	Version                     int64     `json:"version"`
+	CreatedAt                   time.Time `json:"created_at"`
+	UpdatedAt                   time.Time `json:"updated_at"`
 }
 
 func toDocumentResponse(d Document) documentResponse {
@@ -95,11 +98,13 @@ func toDocumentResponse(d Document) documentResponse {
 		ErrorMessage: d.ErrorMessage,
 		ChunkCount:   d.ChunkCount,
 		// nil stays nil so it serialises as JSON null, not [].
-		UnextractedPages: d.UnextractedPages,
-		UnparseablePages: d.UnparseablePages,
-		Version:          d.Version,
-		CreatedAt:        d.CreatedAt,
-		UpdatedAt:        d.UpdatedAt,
+		UnextractedPages:            d.UnextractedPages,
+		UnparseablePages:            d.UnparseablePages,
+		IsNarrative:                 d.IsNarrative,
+		IsRelationExtractionEnabled: d.IsRelationExtractionEnabled,
+		Version:                     d.Version,
+		CreatedAt:                   d.CreatedAt,
+		UpdatedAt:                   d.UpdatedAt,
 	}
 }
 

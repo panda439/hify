@@ -97,20 +97,27 @@ func (q *Queries) CountDocumentsByKnowledgeBase(ctx context.Context, knowledgeBa
 
 const createDocument = `-- name: CreateDocument :exec
 INSERT INTO documents (
-    id, knowledge_base_id, file_name, file_type, file_size, storage_path, created_by
-) VALUES (?, ?, ?, ?, ?, ?, ?)
+    id, knowledge_base_id, file_name, file_type, file_size, storage_path, created_by,
+    is_narrative, is_relation_extraction_enabled
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateDocumentParams struct {
-	ID              string `json:"id"`
-	KnowledgeBaseID string `json:"knowledge_base_id"`
-	FileName        string `json:"file_name"`
-	FileType        string `json:"file_type"`
-	FileSize        int32  `json:"file_size"`
-	StoragePath     string `json:"storage_path"`
-	CreatedBy       string `json:"created_by"`
+	ID                          string `json:"id"`
+	KnowledgeBaseID             string `json:"knowledge_base_id"`
+	FileName                    string `json:"file_name"`
+	FileType                    string `json:"file_type"`
+	FileSize                    int32  `json:"file_size"`
+	StoragePath                 string `json:"storage_path"`
+	CreatedBy                   string `json:"created_by"`
+	IsNarrative                 bool   `json:"is_narrative"`
+	IsRelationExtractionEnabled bool   `json:"is_relation_extraction_enabled"`
 }
 
+// 010：is_narrative / is_relation_extraction_enabled 在**上传时一次写定**，
+// 之后没有任何查询会改它们（见 000017 的注释：允许切换等于允许同一份文档的
+// 不同片段用不同分块方式产生，而 chunk_index 的含义会因此在文档内部不一致，
+// 且不报错）。默认全 0，旧调用方不传就是旧行为。
 func (q *Queries) CreateDocument(ctx context.Context, arg CreateDocumentParams) error {
 	_, err := q.db.ExecContext(ctx, createDocument,
 		arg.ID,
@@ -120,6 +127,8 @@ func (q *Queries) CreateDocument(ctx context.Context, arg CreateDocumentParams) 
 		arg.FileSize,
 		arg.StoragePath,
 		arg.CreatedBy,
+		arg.IsNarrative,
+		arg.IsRelationExtractionEnabled,
 	)
 	return err
 }

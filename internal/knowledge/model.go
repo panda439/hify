@@ -250,6 +250,23 @@ type KnowledgeBase struct {
 // it has been superseded and exit without republishing stale chunks — see
 // service.go's ProcessDocument. LeaseExpiresAt is non-nil only while
 // Status is processing or publishing — see leaseDuration.
+// UploadOptions 是上传时的分块/抽取选择（010）。
+//
+// ⭐ **零值就是改动前的行为**：两个开关都关，走原来的按格式分块，
+// 不产出任何叙事元数据。这不是巧合而是硬要求——旧调用方、旧测试、
+// 存量文档都必须逐字节保持原样，而"默认值等于旧行为"是唯一能让这件事
+// 由类型系统保证、而不是靠人记得的写法。
+type UploadOptions struct {
+	// Narrative 让这份文档按场景切分而不是按长度切。
+	// ⚠️ 上传时固定，之后不可切换。
+	Narrative bool
+	// RelationExtraction 是独立于 Narrative 的第二个开关。
+	// 分开两个的理由见 000017：叙事分块是确定性纯函数，抽取要调模型、
+	// 花钱、可能失败。绑成一个开关，用户就无法选"只要场景分块、不要抽取"，
+	// 而那恰恰是默认想要的组合。
+	RelationExtraction bool
+}
+
 type Document struct {
 	ID              string
 	KnowledgeBaseID string
@@ -260,6 +277,11 @@ type Document struct {
 	Status          string
 	ErrorMessage    string
 	ChunkCount      int
+
+	// IsNarrative / IsRelationExtractionEnabled 是上传时写定的两个开关（010）。
+	// 存量文档全为 false，行为与本功能上线前完全一致。
+	IsNarrative                 bool
+	IsRelationExtractionEnabled bool
 
 	// UnextractedPages 是这次处理中**没能提取到文本**的页码（1-indexed、升序、
 	// 去重）。典型来源是夹在电子文档中间的扫描页——一份 50 页合同后 5 页是扫描

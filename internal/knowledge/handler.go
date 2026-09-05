@@ -156,7 +156,16 @@ func (h *Handler) UploadDocument(c *gin.Context) error {
 		return ErrInvalidRequest
 	}
 
-	doc, err := h.service.UploadDocument(
+	// ⚠️ multipart 里的开关用**显式白名单**解析，不用 strconv.ParseBool：
+	// ParseBool 会把 "0"/"f"/"FALSE" 都当合法，也会把打错的 "ture" 当成错误
+	// 返回，而这里想要的是"只有明确的 true 才算开，其余一律当没勾"。
+	// 表单字段缺失是最常见的情况（旧客户端），必须等于关闭。
+	opts := UploadOptions{
+		Narrative:          c.PostForm("is_narrative") == "true",
+		RelationExtraction: c.PostForm("is_relation_extraction_enabled") == "true",
+	}
+
+	doc, err := h.service.UploadDocumentWithOptions(
 		c.Request.Context(),
 		c.Param("id"),
 		middleware.UserIDFrom(c),
@@ -164,6 +173,7 @@ func (h *Handler) UploadDocument(c *gin.Context) error {
 		fileHeader.Filename,
 		fileType,
 		content,
+		opts,
 	)
 	if err != nil {
 		return err

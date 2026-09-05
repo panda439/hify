@@ -377,7 +377,7 @@ func TestChunkDocumentNonPDFNeverCarriesPages(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.fileType, func(t *testing.T) {
-			pieces := chunkDocument(tc.fileType, tc.parsed, 100, 10)
+			pieces := chunkDocument(tc.fileType, tc.parsed, 100, 10, false)
 			if len(pieces) == 0 {
 				t.Fatal("expected pieces")
 			}

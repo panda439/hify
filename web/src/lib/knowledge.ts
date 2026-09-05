@@ -82,6 +82,9 @@ export interface KnowledgeDocument {
   file_name: string;
   file_type: "txt" | "md" | "pdf";
   file_size: number;
+  // 这份文档是否按场景切分（010）。上传时写定，之后不可改；存量文档恒为 false。
+  is_narrative: boolean;
+  is_relation_extraction_enabled: boolean;
   status: DocumentStatus;
   error_message: string;
   chunk_count: number;
@@ -132,12 +135,22 @@ export function useDocuments(kbId: string | null) {
   });
 }
 
+// 上传选项（010）。⭐ 省略等于全关，与这两个开关出现之前完全一致——
+// 后端也是按「字段缺失 = 关闭」解析的，两边同一口径。
+export interface UploadOptions {
+  narrative?: boolean;
+}
+
 export function useUploadDocument(kbId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (file: File) => {
+    mutationFn: ({ file, options }: { file: File; options?: UploadOptions }) => {
       const form = new FormData();
       form.append("file", file);
+      // ⚠️ 只在开启时才 append。后端只认精确的 "true"，其余一律当没勾；
+      // 无脑 append String(false) 也能工作，但会让"没传"和"传了 false"
+      // 在抓包和日志里长得不一样，排查时多一层噪音。
+      if (options?.narrative) form.append("is_narrative", "true");
       return api.postForm<KnowledgeDocument>(`/knowledge-bases/${kbId}/documents`, form);
     },
     onSuccess: () => {

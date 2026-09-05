@@ -184,7 +184,7 @@ func TestChunkPDFCrossPageParagraphStaysWhole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseFile: %v", err)
 	}
-	pieces := chunkDocument(FileTypePDF, parsed, 400, 40)
+	pieces := chunkDocument(FileTypePDF, parsed, 400, 40, false)
 	if len(pieces) == 0 {
 		t.Fatalf("expected chunks from a 5-page pdf, got none")
 	}
@@ -252,7 +252,7 @@ func BenchmarkPDFExtractAndChunk(b *testing.B) {
 		if err != nil {
 			b.Fatalf("parseFile: %v", err)
 		}
-		if pieces := chunkDocument(FileTypePDF, parsed, 500, 50); len(pieces) == 0 {
+		if pieces := chunkDocument(FileTypePDF, parsed, 500, 50, false); len(pieces) == 0 {
 			b.Fatalf("no chunks produced")
 		}
 	}
@@ -310,7 +310,7 @@ func TestChunkPDFHeaderFooterNeverReachChunks(t *testing.T) {
 	cleaned, records := stripLayoutNoise(parsed.Pages)
 	parsed.Pages = cleaned
 
-	pieces := chunkDocument(FileTypePDF, parsed, 400, 40)
+	pieces := chunkDocument(FileTypePDF, parsed, 400, 40, false)
 	if len(pieces) == 0 {
 		t.Fatal("expected chunks from a 6-page pdf")
 	}

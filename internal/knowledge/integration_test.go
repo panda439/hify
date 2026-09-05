@@ -4425,7 +4425,7 @@ func TestIntegrationPDFChunkingIsByteForByteRepeatable(t *testing.T) {
 		t.Fatalf("parseFile: %v", err)
 	}
 
-	first := chunkDocument(FileTypePDF, parsed, 400, 40)
+	first := chunkDocument(FileTypePDF, parsed, 400, 40, false)
 	if len(first) == 0 {
 		t.Fatal("expected chunks")
 	}
@@ -4450,7 +4450,7 @@ func TestIntegrationPDFChunkingIsByteForByteRepeatable(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parseFile run %d: %v", i, err)
 		}
-		if got := render(chunkDocument(FileTypePDF, reparsed, 400, 40)); got != want {
+		if got := render(chunkDocument(FileTypePDF, reparsed, 400, 40, false)); got != want {
 			t.Fatalf("run %d produced different chunks/page intervals:\n got:\n%s\nwant:\n%s", i, got, want)
 		}
 	}

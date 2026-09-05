@@ -598,15 +598,15 @@ func TestChunkMarkdownEmptyDocument(t *testing.T) {
 // --- chunkDocument dispatch ---
 
 func TestChunkDocumentDispatchesByFileType(t *testing.T) {
-	md := chunkDocument(FileTypeMD, parsedContent{Text: "# H\n\nbody"}, 200, 0)
+	md := chunkDocument(FileTypeMD, parsedContent{Text: "# H\n\nbody"}, 200, 0, false)
 	if len(md) != 1 || md[0].SectionTitle == nil {
 		t.Fatalf("md dispatch = %+v, want one chunk with a section title", md)
 	}
-	txt := chunkDocument(FileTypeTxt, parsedContent{Text: "plain body"}, 200, 0)
+	txt := chunkDocument(FileTypeTxt, parsedContent{Text: "plain body"}, 200, 0, false)
 	if len(txt) != 1 || txt[0].SectionTitle != nil || txt[0].PageNumber != nil {
 		t.Fatalf("txt dispatch = %+v, want one chunk with no metadata", txt)
 	}
-	pdfPieces := chunkDocument(FileTypePDF, parsedContent{Pages: []pdfPage{{Number: 1, Text: "page one body"}}}, 200, 0)
+	pdfPieces := chunkDocument(FileTypePDF, parsedContent{Pages: []pdfPage{{Number: 1, Text: "page one body"}}}, 200, 0, false)
 	if len(pdfPieces) != 1 || pdfPieces[0].PageNumber == nil || *pdfPieces[0].PageNumber != 1 {
 		t.Fatalf("pdf dispatch = %+v, want one chunk tagged page 1", pdfPieces)
 	}
@@ -722,7 +722,7 @@ func TestParseFileAndChunkPDFEndToEndPageIntervalsStayHonest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseFile: %v", err)
 	}
-	pieces := chunkDocument(FileTypePDF, parsed, 30, 5)
+	pieces := chunkDocument(FileTypePDF, parsed, 30, 5, false)
 	if len(pieces) == 0 {
 		t.Fatalf("expected chunks from a 2-page pdf, got none")
 	}
@@ -768,7 +768,7 @@ func TestParseFileScannedPDFWithNoTextYieldsEmptyContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseFile: %v", err)
 	}
-	pieces := chunkDocument(FileTypePDF, parsed, 200, 0)
+	pieces := chunkDocument(FileTypePDF, parsed, 200, 0, false)
 	if pieces != nil {
 		t.Fatalf("expected no chunks from a textless pdf, got %+v", pieces)
 	}

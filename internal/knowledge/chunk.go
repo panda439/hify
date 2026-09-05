@@ -217,7 +217,15 @@ type chunkPiece struct {
 // chunkDocument dispatches to the structure-aware chunker for fileType.
 // Every branch still bottoms out at chunkText for any single structural
 // unit that doesn't fit in size runes — see each chunker's doc comment.
-func chunkDocument(fileType string, parsed parsedContent, size, overlap int) []chunkPiece {
+func chunkDocument(fileType string, parsed parsedContent, size, overlap int, narrative bool) []chunkPiece {
+	// ⭐ 叙事分支在格式分发**之前**：场景边界是文档级的语义结构，
+	// 与"这是 txt 还是 md"无关。放到 default 分支里的话，一份 md 小说
+	// 会走标题栈而不是场景切分，而两者都不报错。
+	// 只有 txt/md 能走到这里——PDF 在 UploadDocument 就被明确拒绝了
+	// （见 ErrNarrativeUnsupportedFileType），不是在这里静默回退。
+	if narrative {
+		return chunkNarrative(parsed.Text, size, overlap)
+	}
 	switch fileType {
 	case FileTypeMD:
 		return chunkMarkdown(parsed.Text, size, overlap)

@@ -97,3 +97,30 @@ var (
 
 	ErrDocumentNotRetryable = apperr.Conflict("knowledge.document_not_retryable", "文档当前状态不支持重试，仅 pending/failed 状态可重试")
 )
+
+// --- 010-narrative-scene-chunking-and-relation-extraction ---
+
+// ErrNarrativeUnsupportedFileType：只有 txt/md 支持按场景切分。
+//
+// ⚠️ 这里**明确报错而不是静默忽略开关**。静默忽略的表现是：用户勾了"叙事
+// 分块"、拿到的却是按长度切的块，而界面上没有任何东西说明这件事——正是这个
+// 功能存在的意义被悄悄抹掉，且无法从结果反推。PDF 要支持还需要把场景切分
+// 接到跨页段落流上并保留页码映射，那是独立的一块工作。
+var ErrNarrativeUnsupportedFileType = apperr.InvalidInput(
+	"knowledge.narrative_unsupported_file_type",
+	"按场景分块目前只支持 txt 和 md 文件")
+
+// ErrRelationExtractionUnavailable：关系抽取的作业编排尚未接入。
+//
+// ⚠️ 同样是"宁可报错也不静默接受"。接受并存下这个开关、却什么都不发生，
+// 用户会一直等一个永远不会开始的抽取，而系统不会说任何话。
+// Phase 3 接上作业编排后删掉这条守卫。
+var ErrRelationExtractionUnavailable = apperr.InvalidInput(
+	"knowledge.relation_extraction_unavailable",
+	"关系抽取功能尚未开放，请先只开启按场景分块")
+
+// ErrRelationExtractionRequiresNarrative 与 000017 的 CHECK 约束同义，
+// 在 Service 层先挡一道，让用户拿到中文提示而不是数据库错误。
+var ErrRelationExtractionRequiresNarrative = apperr.InvalidInput(
+	"knowledge.relation_extraction_requires_narrative",
+	"关系抽取只能在开启按场景分块的文档上使用")

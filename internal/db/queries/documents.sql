@@ -1,7 +1,12 @@
 -- name: CreateDocument :exec
+-- 010：is_narrative / is_relation_extraction_enabled 在**上传时一次写定**，
+-- 之后没有任何查询会改它们（见 000017 的注释：允许切换等于允许同一份文档的
+-- 不同片段用不同分块方式产生，而 chunk_index 的含义会因此在文档内部不一致，
+-- 且不报错）。默认全 0，旧调用方不传就是旧行为。
 INSERT INTO documents (
-    id, knowledge_base_id, file_name, file_type, file_size, storage_path, created_by
-) VALUES (?, ?, ?, ?, ?, ?, ?);
+    id, knowledge_base_id, file_name, file_type, file_size, storage_path, created_by,
+    is_narrative, is_relation_extraction_enabled
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetDocumentByID :one
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,

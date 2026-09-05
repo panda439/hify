@@ -28,7 +28,10 @@ type Service interface {
 	// creator or admin only — see CLAUDE.md's permission model note.
 	UpdateKnowledgeBase(ctx context.Context, id, userID, role string, input UpdateKnowledgeBaseInput) (KnowledgeBase, error)
 
+	// UploadDocument 保留原签名，等价于 opts 全零——旧调用方与旧测试
+	// 一个字都不用改，而"零值 = 旧行为"由 UploadOptions 的定义保证。
 	UploadDocument(ctx context.Context, kbID, userID, role, fileName, fileType string, content []byte) (Document, error)
+	UploadDocumentWithOptions(ctx context.Context, kbID, userID, role, fileName, fileType string, content []byte, opts UploadOptions) (Document, error)
 	ListDocuments(ctx context.Context, kbID string, limit, offset int) ([]Document, int, error)
 	GetDocument(ctx context.Context, id string) (Document, error)
 
@@ -262,6 +265,10 @@ func (s *service) validateEmbeddingModel(ctx context.Context, modelID string) er
 }
 
 func (s *service) UploadDocument(ctx context.Context, kbID, userID, role, fileName, fileType string, content []byte) (Document, error) {
+	return s.UploadDocumentWithOptions(ctx, kbID, userID, role, fileName, fileType, content, UploadOptions{})
+}
+
+func (s *service) UploadDocumentWithOptions(ctx context.Context, kbID, userID, role, fileName, fileType string, content []byte, opts UploadOptions) (Document, error) {
 	kb, err := s.repo.getKnowledgeBase(ctx, kbID)
 	if err != nil {
 		return Document{}, err
@@ -274,6 +281,9 @@ func (s *service) UploadDocument(ctx context.Context, kbID, userID, role, fileNa
 	}
 	if len(content) > maxFileSizeBytes {
 		return Document{}, ErrFileTooLarge
+	}
+	if err := validateUploadOptions(fileType, opts); err != nil {
+		return Document{}, err
 	}
 
 	docID := platform.NewID()
@@ -291,6 +301,9 @@ func (s *service) UploadDocument(ctx context.Context, kbID, userID, role, fileNa
 		StoragePath:     storagePath,
 		Status:          StatusPending,
 		CreatedBy:       userID,
+
+		IsNarrative:                 opts.Narrative,
+		IsRelationExtractionEnabled: opts.RelationExtraction,
 	}
 	if err := s.repo.createDocument(ctx, doc); err != nil {
 		return Document{}, err
@@ -308,6 +321,27 @@ func (s *service) UploadDocument(ctx context.Context, kbID, userID, role, fileNa
 	}
 
 	return s.repo.getDocument(ctx, docID)
+}
+
+// validateUploadOptions 把上传选项的所有拒绝理由集中在一处。
+//
+// ⚠️ 三条守卫的共同点是：不满足时**明确报错**，绝不"接受开关然后什么都不做"。
+// 静默接受的表现都一样——用户勾了一个开关，界面显示已开启，而实际行为
+// 与没勾完全相同，且没有任何东西说明这件事。
+func validateUploadOptions(fileType string, opts UploadOptions) error {
+	if opts.RelationExtraction && !opts.Narrative {
+		// 与 000017 的 CHECK 同义，在这里先挡一道，让用户拿到中文提示
+		// 而不是一条数据库约束错误。
+		return ErrRelationExtractionRequiresNarrative
+	}
+	if opts.RelationExtraction {
+		// Phase 3 接上作业编排后删掉这条。
+		return ErrRelationExtractionUnavailable
+	}
+	if opts.Narrative && fileType != FileTypeTxt && fileType != FileTypeMD {
+		return ErrNarrativeUnsupportedFileType
+	}
+	return nil
 }
 
 func (s *service) saveFile(kbID, docID, fileName string, content []byte) (string, error) {
@@ -546,7 +580,7 @@ func (s *service) ProcessDocument(ctx context.Context, documentID string, versio
 	// and reports the page INTERVAL it covers. Every path still falls
 	// back to the fixed-length chunkText for a single structural unit
 	// too large to fit in kb.ChunkSize on its own.
-	pieces := chunkDocument(doc.FileType, parsed, kb.ChunkSize, kb.ChunkOverlap)
+	pieces := chunkDocument(doc.FileType, parsed, kb.ChunkSize, kb.ChunkOverlap, doc.IsNarrative)
 	if len(pieces) == 0 {
 		return s.failDocument(ctx, documentID, version, ErrEmptyContent)
 	}
@@ -629,6 +663,8 @@ func (s *service) ProcessDocument(ctx context.Context, documentID string, versio
 			PageNumber:         piece.PageNumber,
 			PageEnd:            piece.PageEnd,
 			SectionTitle:       piece.SectionTitle,
+			// 关闭模式下 piece.Narrative 恒为 nil，落库写 NULL。
+			NarrativeMetadata: piece.Narrative,
 		})
 	}
 	if err := s.repo.createChunks(ctx, chunks, version); err != nil {

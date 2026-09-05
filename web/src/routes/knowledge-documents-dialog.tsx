@@ -131,6 +131,8 @@ export function KnowledgeDocumentsDialog({
   const deleteDocument = useDeleteDocument(kbId);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // ⚠️ 默认 false：不勾就是这个开关出现之前的行为。
+  const [narrative, setNarrative] = useState(false);
 
   const documents = data?.items ?? [];
 
@@ -139,8 +141,12 @@ export function KnowledgeDocumentsDialog({
     e.target.value = ""; // allow re-selecting the same file later
     if (!file) return;
     try {
-      await uploadDocument.mutateAsync(file);
-      toast.success(`${file.name} 已上传，正在处理`);
+      await uploadDocument.mutateAsync({ file, options: { narrative } });
+      toast.success(
+        narrative
+          ? `${file.name} 已上传，将按场景切分`
+          : `${file.name} 已上传，正在处理`,
+      );
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "上传失败");
     }
@@ -210,6 +216,22 @@ export function KnowledgeDocumentsDialog({
             className="hidden"
             onChange={handleFileChange}
           />
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={narrative}
+              onChange={(e) => setNarrative(e.target.checked)}
+              disabled={uploadDocument.isPending}
+            />
+            <span>
+              按场景切分（小说等叙事文本）
+              <span className="block text-xs text-muted-foreground">
+                按章节标题和场景分隔线切，而不是按长度硬切。仅支持 txt / md，
+                上传后不可更改。
+              </span>
+            </span>
+          </label>
           <Button
             className="w-full"
             variant="outline"

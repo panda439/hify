@@ -88,13 +88,15 @@ func (r *Repository) updateKnowledgeBase(ctx context.Context, kb KnowledgeBase) 
 
 func (r *Repository) createDocument(ctx context.Context, d Document) error {
 	if err := r.queries.CreateDocument(ctx, gen.CreateDocumentParams{
-		ID:              d.ID,
-		KnowledgeBaseID: d.KnowledgeBaseID,
-		FileName:        d.FileName,
-		FileType:        d.FileType,
-		FileSize:        int32(d.FileSize),
-		StoragePath:     d.StoragePath,
-		CreatedBy:       d.CreatedBy,
+		ID:                          d.ID,
+		KnowledgeBaseID:             d.KnowledgeBaseID,
+		FileName:                    d.FileName,
+		FileType:                    d.FileType,
+		FileSize:                    int32(d.FileSize),
+		StoragePath:                 d.StoragePath,
+		CreatedBy:                   d.CreatedBy,
+		IsNarrative:                 d.IsNarrative,
+		IsRelationExtractionEnabled: d.IsRelationExtractionEnabled,
 	}); err != nil {
 		return fmt.Errorf("knowledge: create document: %w", err)
 	}
@@ -787,9 +789,12 @@ func toDomainDocument(row gen.Document) Document {
 		// share this one mapping — there is no per-query place to forget.
 		UnextractedPages: decodePageList(row.UnextractedPages),
 		UnparseablePages: decodePageList(row.UnparseablePages),
-		CreatedBy:        row.CreatedBy,
-		CreatedAt:        row.CreatedAt,
-		UpdatedAt:        row.UpdatedAt,
+		// 同上：五条文档查询共用同一份列清单，因此也共用这一处映射。
+		IsNarrative:                 row.IsNarrative,
+		IsRelationExtractionEnabled: row.IsRelationExtractionEnabled,
+		CreatedBy:                   row.CreatedBy,
+		CreatedAt:                   row.CreatedAt,
+		UpdatedAt:                   row.UpdatedAt,
 	}
 }
 
