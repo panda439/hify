@@ -61,11 +61,11 @@ description: "Task list for 009-evidence-boundary-awareness"
 
 ## Phase 1: Setup（改动前基线）
 
-- [ ] T001 `make app-down` + `make db-up`；`go version` 报 1.26.5
-- [ ] T002 [P] 归档既有检索门禁基线到 `/tmp/gate-baseline-009.json`（本期不碰检索，逐字节不变是**证明**）
-- [ ] T003 [P] 归档 `go test ./... -race -count=1` 全绿输出到 `/tmp/tests-before-009.txt`
-- [ ] T004 [US1] 在 `internal/conversation/context_test.go` 新增空检索信号的验收用例：构造一次"检索执行且无匹配"，断言送给模型的消息序列里存在该信号；只写用例不写实现，`tee /tmp/sc001-before-009.txt`，⭐ **必须 FAIL**
-- [ ] T005 [US2] 同上，新增"命中不完整文档 → 资料里带该文档不完整说明"的验收用例，`tee /tmp/sc002-before-009.txt`，⭐ **必须 FAIL**。⚠️ 用例引用的任何新类型字段按模板规则划进本阶段一起加
+- [x] T001 `make app-down` + `make db-up`；`go version` 报 1.26.5
+- [x] T002 [P] 归档既有检索门禁基线到 `/tmp/gate-baseline-009.json`（本期不碰检索，逐字节不变是**证明**）
+- [x] T003 [P] 归档 `go test ./... -race -count=1` 全绿输出到 `/tmp/tests-before-009.txt`
+- [x] T004 [US1] 在 `internal/conversation/context_test.go` 新增空检索信号的验收用例：构造一次"检索执行且无匹配"，断言送给模型的消息序列里存在该信号；只写用例不写实现，`tee /tmp/sc001-before-009.txt`，⭐ **必须 FAIL**
+- [x] T005 [US2] 同上，新增"命中不完整文档 → 资料里带该文档不完整说明"的验收用例，`tee /tmp/sc002-before-009.txt`，⭐ **必须 FAIL**。⚠️ 用例引用的任何新类型字段按模板规则划进本阶段一起加
 
 **Checkpoint**: 两条 FAIL 在手。
 
@@ -73,39 +73,39 @@ description: "Task list for 009-evidence-boundary-awareness"
 
 ## Phase 2: Foundational（批量取数）
 
-- [ ] T006 在 `internal/knowledge/service.go` 的 `Service` 接口新增**批量**查询：给一组
+- [x] T006 在 `internal/knowledge/service.go` 的 `Service` 接口新增**批量**查询：给一组
       document ID，返回它们的缺页情况。⚠️ **接口形态必须是批量的**——按文档循环查是
       Phase 7 批量邻接查询踩过的同一个 N+1，不要再造一次
-- [ ] T007 在 `internal/knowledge/repository.go` 实现：一次往返按 ID 取 documents 的两列。
+- [x] T007 在 `internal/knowledge/repository.go` 实现：一次往返按 ID 取 documents 的两列。
       ⚠️ 只读，**不新增任何 SQL 语义变更**
-- [ ] T008 [P] 纯函数单测：空输入、部分 ID 不存在、两类都为空的文档不出现在结果里
+- [x] T008 [P] 纯函数单测：空输入、部分 ID 不存在、两类都为空的文档不出现在结果里
       （FR-008——"没有话说就不要说话"要在取数层就成立，不要留给上层过滤）
 
 ---
 
 ## Phase 3: User Story 1 - 空检索时不再冒充有依据 (P1) 🎯 MVP
 
-- [ ] T009 [US1] 改 `internal/conversation/context.go`：**检索确实执行且无证据通过**时注入
+- [x] T009 [US1] 改 `internal/conversation/context.go`：**检索确实执行且无证据通过**时注入
       裁定 1 的那一句。⚠️ 没绑知识库、检索失败降级**都不注入**（FR-002/FR-003）——
       三种成因必须在代码里能分辨，不能只判 `len(evidence) == 0`
-- [ ] T010 [US1] 改 `internal/conversation/budget.go`：新增字符计进 `computeFixedBudget`。
+- [x] T010 [US1] 改 `internal/conversation/budget.go`：新增字符计进 `computeFixedBudget`。
       ⚠️ **包括空检索那条**——那是目前 `evidenceChars = 0` 的分支。漏掉的表现是上下文
       **悄悄超预算**：不报错，只会让历史被多截掉一点（FR-010 / SC-006）
-- [ ] T011 [US1] 跑 T004 的用例，⭐ **必须 PASS**
-- [ ] T012 [P] [US1] 断言 FR-002/FR-003：没绑库、检索失败两种情况下注入内容**逐字节同改动前**
+- [x] T011 [US1] 跑 T004 的用例，⭐ **必须 PASS**
+- [x] T012 [P] [US1] 断言 FR-002/FR-003：没绑库、检索失败两种情况下注入内容**逐字节同改动前**
 
 ---
 
 ## Phase 4: User Story 2 - 资料不完整时模型看得见 (P1)
 
-- [ ] T013 [US2] 改 `internal/conversation/context.go`：命中文档有缺页时，在
+- [x] T013 [US2] 改 `internal/conversation/context.go`：命中文档有缺页时，在
       `<retrieved_sources>` 内加裁定 1 的汇总元素。**按文档 ID 排序后输出**——
       ⚠️ 不得依赖 map 迭代顺序或命中顺序，否则同一批证据会产出两种文本（宪法第 V 条 / SC-008）
-- [ ] T014 [US2] 取数失败时**静默降级为不注入说明**，资料照常送、对话照常进行。
+- [x] T014 [US2] 取数失败时**静默降级为不注入说明**，资料照常送、对话照常进行。
       一个展示性的补充信息绝不能拖垮对话
-- [ ] T015 [US2] 跑 T005 的用例，⭐ **必须 PASS**
-- [ ] T016 [P] [US2] 断言 SC-005：完整文档上说明出现次数为 **0**；多份命中时只列不完整的那几份
-- [ ] T017 [P] [US2] 断言 FR-009：汇总元素与 `<source>` 在结构上可区分，不会被当成资料正文
+- [x] T015 [US2] 跑 T005 的用例，⭐ **必须 PASS**
+- [x] T016 [P] [US2] 断言 SC-005：完整文档上说明出现次数为 **0**；多份命中时只列不完整的那几份
+- [x] T017 [P] [US2] 断言 FR-009：汇总元素与 `<source>` 在结构上可区分，不会被当成资料正文
 
 ---
 
@@ -114,34 +114,34 @@ description: "Task list for 009-evidence-boundary-awareness"
 ⚠️ 这一阶段的价值**超出本期**：上下文组装是整条对话链路上最容易被无声改坏的地方——
 改错了不报错，只会让回答慢慢变差，而没人会把它和某次提交联系起来。
 
-- [ ] T018 新增 `make eval-context-gate`：跑裁定 2 的六个场景，把 `assembleContext` 产出的
+- [x] T018 新增 `make eval-context-gate`：跑裁定 2 的六个场景，把 `assembleContext` 产出的
       **完整消息序列**写成人类可读的 JSON 报告（沿用 `eval-retrieval-gate` 的形态与落点）
-- [ ] T019 ⚠️ **基线必须在 Phase 3/4 的改动之前归档**——否则它记录的是改动后的样子，
+- [x] T019 ⚠️ **基线必须在 Phase 3/4 的改动之前归档**——否则它记录的是改动后的样子，
       场景 1 与 4 的"逐字节同改动前"就无从验证。若已经改完才想起来，**必须回退到改动前
       重新归档**，不得用改动后的输出充当基线
-- [ ] T020 场景 1 与 4 比对基线 MUST **逐字节一致**（SC-003 / SC-004）
-- [ ] T021 同一输入连续跑 20 次以上，输出 MUST 完全相同（SC-008）
-- [ ] T022 把新门禁写进 `README.md` 的验证命令一节，与 `eval-retrieval-gate` 并列
+- [x] T020 场景 1 与 4 比对基线 MUST **逐字节一致**（SC-003 / SC-004）
+- [x] T021 同一输入连续跑 20 次以上，输出 MUST 完全相同（SC-008）
+- [x] T022 把新门禁写进 `README.md` 的验证命令一节，与 `eval-retrieval-gate` 并列
 
 ---
 
 ## Phase 6: Polish & 验收
 
-- [ ] T023 `make check-deps` OK；`go vet ./...` 无输出
-- [ ] T024 `go test ./... -race -count=1` 全绿，**无 skip**
-- [ ] T025 既有 `make eval-retrieval-gate` 与 `/tmp/gate-baseline-009.json` **IDENTICAL**（本期不碰检索）
-- [ ] T026 ⚠️ 全程**未使用** `make eval` 作为任何结论的证据
-- [ ] T027 **变异测试**（跑完还原）：只判 `len(evidence)==0` 就注入（没绑库也注入）→ SC-004；
+- [x] T023 `make check-deps` OK；`go vet ./...` 无输出
+- [x] T024 `go test ./... -race -count=1` 全绿，**无 skip**
+- [x] T025 既有 `make eval-retrieval-gate` 与 `/tmp/gate-baseline-009.json` **IDENTICAL**（本期不碰检索）
+- [x] T026 ⚠️ 全程**未使用** `make eval` 作为任何结论的证据
+- [x] T027 **变异测试**（跑完还原）：只判 `len(evidence)==0` 就注入（没绑库也注入）→ SC-004；
       检索失败时也注入 → FR-003 的断言；汇总说明按命中顺序而非文档 ID 排序 → SC-008 的 20 次循环；
       新增字符不计进预算 → SC-006；说明挂到完整文档上 → SC-005；注入文本里加一句行为指令 →
       门禁场景 3 的逐字节比对
-- [ ] T028 `/smoke-test`
-- [ ] T029 产出 `docs/eval-phase16-evidence-boundary-report.md`，**必须如实包含**：
+- [x] T028 `/smoke-test`
+- [x] T029 产出 `docs/eval-phase16-evidence-boundary-report.md`，**必须如实包含**：
       ① 本期结论**全部是机制证明**，"模型会因此答得更好"是**假设不是结论**，本仓库测不了；
       ② "过度声明不确定"这个风险**没有度量、只有缓解**（只陈述事实不给指令），
       不得写成"已验证无副作用"；③ 检索失败与没绑知识库对模型**不可区分**，这是知情取舍；
       ④ 新增的上下文门禁只覆盖 `assembleContext` 的产出，**不覆盖模型的回答**
-- [ ] T030 ⚠️ **不擅自 commit/push**——验收跑完向所有者汇报
+- [x] T030 ⚠️ **不擅自 commit/push**——验收跑完向所有者汇报
 
 ---
 
@@ -162,3 +162,25 @@ Phase 1 → Phase 2 → Phase 3 (US1, MVP) → Phase 4 (US2) → Phase 5 (门禁
 **MVP = Phase 1+2+3（US1）**：空检索不再静默——这是"一本正经编答案"最直接的土壤，
 且覆盖每一次空检索，收益面比 US2 宽。
 Phase 4 补上 007/008 那条线索的终点，Phase 5 留下一条比本功能本身更耐用的东西。
+
+
+---
+
+## 实施期的发现
+
+- ⭐ **门禁当场抓到一个自欺的场景**：`evidence_present_incomplete_docs` 第一次比对时
+  改动前后逐字节没变——夹具里文档只是**被起名叫** `doc-incomplete`，却没配缺页数据，
+  实际测的是"完整文档"，与场景 1 完全重复。没有门禁的话它会以这个形态长期绿着，
+  而名字看起来完全正当。这是"回归基线 / 预期改变"两类分开标注的直接收益：
+  **本该变却没变，和本该不变却变了，同样是失败。**
+- **一条既有断言被迫重写**（见报告 §5）：防幽灵预留的那条用例原本数消息条数，
+  009 之后条数合法地变了。改成断言它真正要防的事，并在注释里写明不许改成宽松的
+  "条数 >= 4"——那样幽灵预留回来了也不会被发现。
+- ⭐ **变异测试逼出第二条自欺的断言**："新增字符不计进预算" 一度逃逸——既有那条预算
+  用例的历史行是 100 字一条、预算宽松，20 字的信号加不加**根本改变不了保留条数**。
+  我第一次把断言从 ">= 2" 收紧成精确的 "== 3" 仍然抓不住，因为那个场景下两种实现
+  产出的条数**本来就相同**。最后单开一条用 200 条 20 字历史把预算真正压满的用例才抓住。
+  教训：**一条抓不住自己要防的缺陷的断言，比没有断言更糟**——它让人以为验过了。
+- **T019 的硬约束确实要紧**：门禁基线在 Phase 3/4 改动**之前**归档，
+  三个回归场景才有得比。先改再录基线的话，基线记的是改动后的样子，
+  而门禁照样会绿——一个看起来一切正常、实际什么都没验的结果。

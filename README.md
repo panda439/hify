@@ -98,7 +98,15 @@ make eval JUDGE_MODEL_ID=<UUID> EVAL_USER_ID=<UUID>
 
 ```bash
 make eval-retrieval-gate
+make eval-context-gate
 ```
+
+`eval-retrieval-gate` 守**检索**（候选与顺序逐字节可复现），`eval-context-gate` 守
+**上下文组装**（送给模型的完整消息序列）。后者是 009 新增的：上下文组装是整条对话链路
+上最容易被无声改坏的地方——改错了不报错、不会有任何测试变红，只会让回答慢慢变差，
+而没人会把它和某次改提示词的提交联系起来。⚠️ 两条门禁都只证明"送出去的东西正是我们打算
+送的"，**都不证明"回答更好"**——后者本仓库测不了（`make eval` 带 LLM 裁判、同一份代码
+跑两次都不一致）。
 
 这套门禁走真实 MySQL + PostgreSQL/pgvector/pg_trgm + fake embedding，直接调用公开的 `knowledge.Service.Retrieve`（不是绕过公开入口直接测纯函数），固定的九个 case：Phase 6 起的六个覆盖语义向量命中、强关键词命中进 topK、同一 chunk 被向量/关键词同时召回不重复、不同 ID 相同正文只保留最高排名者唯一候选补位、核心块优先于重复邻接块、空结果场景不制造命中；Phase 8 新增三个负样本/边界 case（非空知识库 + 无关查询返回空、仅有低于 0.35 门槛的向量候选返回空、前部拒绝项不占 topK 让后续合格候选补位），且这三个负样本各自有独立断言，不会因为 `ExpectedConfigured=false` 被 Hit@K/MRR 平均值排除后就失去门禁作用。判定失败就是真的 `go test` 失败（非零退出码），不是只生成报告等人看——`internal/eval/retrieval` 的 `EvaluateGate` 是纯函数，"健康结果通过""任意一项指标退化则失败"两条路径都各有独立单测（不碰数据库），保证门禁本身不会形同虚设。数据库不可达时和其它集成测试一样打印原因后 SKIP（`internal/testutil` 既定约定），不是静默跳过。`go test` 的工作目录是包目录而不是仓库根，所以评测报告默认写进 `t.TempDir()`（自动清理，普通 `go test ./...`/CI 不会弄脏工作区）；`make eval-retrieval-gate` 通过 `HIFY_RETRIEVAL_GATE_REPORT_PATH` 环境变量显式指定仓库根目录路径，才会在 `eval/runs/phase6-retrieval-gate-latest.json`（已在 `.gitignore`）留下人类可读报告，只含 case 名、chunk/document ID、rank、`NeighborOf`、计数与聚合指标，不含检索到的正文、查询原文、embedding 或分数。详见 [docs/eval-phase6-retrieval-gate-report.md](docs/eval-phase6-retrieval-gate-report.md)。
 
