@@ -191,6 +191,8 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 	mux := asynq.NewServeMux()
 	mux.Handle(knowledge.TaskTypeProcessDocument, knowledge.NewTaskHandler(knowledgeSvc))
 	mux.Handle(knowledge.TaskTypeReconcileDocuments, knowledge.NewReconcileTaskHandler(knowledgeSvc))
+	mux.Handle(knowledge.TaskTypeReconcileRelationExtractions,
+		knowledge.NewRelationExtractionReconcileHandler(knowledgeSvc))
 	mux.Handle(auth.TaskTypeCleanupRefreshTokens, auth.NewCleanupTaskHandler(authSvc))
 	asynqServer := platform.NewAsynqServer(redisCfg, cfg.AsynqConcurrency)
 	if err := asynqServer.Start(mux); err != nil {
@@ -216,6 +218,15 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 		asynqServer.Shutdown()
 		cleanup()
 		return nil, nil, nil, fmt.Errorf("register document reconciliation schedule: %w", err)
+	}
+	// 抽取作业的恢复：每分钟一次。⚠️ 比文档恢复（5 分钟）频繁，
+	// 因为这边有租约在滴答——一个崩掉的 worker 留下的作业，最坏要等
+	// 「租约 TTL + 扫描间隔」才会被接手，而那段时间里作业是完全停滞的。
+	if _, err := scheduler.Register("@every 1m",
+		asynq.NewTask(knowledge.TaskTypeReconcileRelationExtractions, nil)); err != nil {
+		asynqServer.Shutdown()
+		cleanup()
+		return nil, nil, nil, fmt.Errorf("register relation extraction reconciliation schedule: %w", err)
 	}
 	if err := scheduler.Start(); err != nil {
 		asynqServer.Shutdown()
