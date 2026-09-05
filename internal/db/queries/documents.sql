@@ -6,14 +6,14 @@ INSERT INTO documents (
 -- name: GetDocumentByID :one
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at, unextracted_pages
+       version, lease_expires_at, unextracted_pages, unparseable_pages
 FROM documents
 WHERE id = ?;
 
 -- name: ListDocumentsByKnowledgeBase :many
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at, unextracted_pages
+       version, lease_expires_at, unextracted_pages, unparseable_pages
 FROM documents
 WHERE knowledge_base_id = ?
 ORDER BY created_at DESC
@@ -57,8 +57,25 @@ WHERE id = sqlc.arg(id) AND version = sqlc.arg(version) AND status = sqlc.arg(st
 -- is_published=false 写入 PG 之后才能到这一步——这一步"锁定"了"活儿已经
 -- 干完，只差发布"，reconciliation 之后即使要恢复也不需要重新跑一遍
 -- Embedding，只需要重跑幂等的 PG 发布（见 MarkDocumentReady）。
+--
+-- ⭐ 008-unparseable-page-notice 把两类缺页列表的写入**移到了这一条**
+-- （原先在 MarkDocumentReady）。理由就在上面那句话里：**这一步"锁定"了"活儿
+-- 已经干完，只差发布"**——而缺页列表正是那个"活儿的结果"的一部分，它应该和
+-- "活儿干完了"这个事实一起被锁定。
+--
+-- 原先放在 MarkDocumentReady 留了个洞：ReconcileStuckDocuments 恢复一份卡在
+-- publishing 的文档时**没有重新解析过文件**，不知道有没有缺页，只能传 NULL——
+-- 于是由恢复路径完成的文档拿不到任何提示。移到这里之后，恢复流程只调
+-- MarkDocumentReady，而那条语句不再触碰这两列，publishing 阶段写下的值原样存活。
+--
+-- 并发保护一点没丢：这一条同样带 version + status = 'processing' 的 CAS，
+-- 所以"提示属于赢下这一轮的那次尝试"依然成立，只是提前锁定。
+-- "每次尝试整体覆盖、没有缺页就写 NULL"也依然成立，因此"重新处理后提示消失"
+-- 仍然是免费得到的，只是从一条语句挪到了另一条。
 UPDATE documents
-SET status = 'publishing', lease_expires_at = sqlc.arg(lease_expires_at)
+SET status = 'publishing', lease_expires_at = sqlc.arg(lease_expires_at),
+    unextracted_pages = sqlc.narg(unextracted_pages),
+    unparseable_pages = sqlc.narg(unparseable_pages)
 WHERE id = sqlc.arg(id) AND version = sqlc.arg(version) AND status = 'processing';
 
 -- name: MarkDocumentReady :execrows
@@ -67,21 +84,22 @@ WHERE id = sqlc.arg(id) AND version = sqlc.arg(version) AND status = 'processing
 -- 这一步。0 行受影响说明这次尝试已经被别的 runner（原 worker 自己，或者
 -- reconciliation 的恢复流程）抢先完成了——不是错误，是良性的幂等竞争。
 --
--- ⭐ 007-document-processing-notice 把 unextracted_pages 的写入并进了这一条，
--- 而不是单开一条语句。这里是"一个版本成为 ready"的**唯一**入口，而且它已经
--- 带着本功能需要的全部保证：
---   * WHERE version = ? AND status = 'publishing' 保证写进去的提示属于**最终
---     生效的那一次**处理，而不是被淘汰的那次——本功能因此一行并发代码都不用写；
---   * 它已经在无条件清 error_message，把 unextracted_pages 加在旁边语义完全对称：
---     **每次成功整体覆盖，没有缺页就写 NULL**。「重新处理后不再缺页则提示消失」
---     由此是**免费得到的**，不需要任何额外语句。
+-- ⚠️ 这一条**不写** unextracted_pages / unparseable_pages。
 --
--- ⚠️ **禁止**为清除提示单开一条语句。两条语句之间没有事务，就有一个窗口，
--- 窗口里文档的状态和提示是不一致的——而这种不一致没有任何报错，只会让用户
--- 看到一条过期的提示。
+-- 007 当初把 unextracted_pages 的写入放在这里，理由是"这是一个版本成为 ready 的
+-- 唯一入口"——那是对的，但它留了个洞：ReconcileStuckDocuments 恢复一份卡在
+-- publishing 的文档时调的也是这一条，而它**没有重新解析过文件**，不知道有没有
+-- 缺页，只能传 NULL，于是由恢复路径完成的文档拿不到任何提示。
+--
+-- 008 因此把写入前移到 MarkDocumentPublishing（见那里的说明）：那一步"锁定了
+-- 活儿已经干完"，缺页列表正是那个活儿的结果，且它带着同样的 version + status
+-- CAS 保护。前移之后恢复流程调这一条不再影响两列，publishing 阶段写下的值原样存活。
+--
+-- ⛔ **绝不要把赋值加回来。** 恢复流程调这一条时只能传 NULL，加回来就等于让恢复
+-- 路径把 publishing 阶段刚写对的值清空——那正是 008 要修的缺陷，反而被固化，
+-- 而且表现是"用户看不到提示"，没有任何报错。变异测试专门盯着这一条。
 UPDATE documents
-SET status = 'ready', error_message = NULL, chunk_count = ?,
-    unextracted_pages = ?, lease_expires_at = NULL
+SET status = 'ready', error_message = NULL, chunk_count = ?, lease_expires_at = NULL
 WHERE id = ? AND version = ? AND status = 'publishing';
 
 -- name: MarkDocumentFailed :execrows
@@ -143,7 +161,7 @@ WHERE id = sqlc.arg(id) AND version = sqlc.arg(version) AND status = 'publishing
 -- 崩溃留下的孤儿任务。LIMIT 防止单次 reconciliation 运行处理量失控。
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at, unextracted_pages
+       version, lease_expires_at, unextracted_pages, unparseable_pages
 FROM documents
 WHERE status = 'processing' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?
 LIMIT 100;
@@ -154,7 +172,7 @@ LIMIT 100;
 -- CAS ready 之前崩溃）。
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at, unextracted_pages
+       version, lease_expires_at, unextracted_pages, unparseable_pages
 FROM documents
 WHERE status = 'publishing' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?
 LIMIT 100;
@@ -165,7 +183,7 @@ LIMIT 100;
 -- 持有过租约，"入队丢了"这个问题只能靠 updated_at 阈值判断。
 SELECT id, knowledge_base_id, file_name, file_type, file_size, storage_path,
        status, error_message, chunk_count, created_by, created_at, updated_at,
-       version, lease_expires_at, unextracted_pages
+       version, lease_expires_at, unextracted_pages, unparseable_pages
 FROM documents
 WHERE status = 'pending' AND updated_at < ?
 LIMIT 100;

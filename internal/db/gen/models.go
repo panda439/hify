@@ -69,6 +69,7 @@ type Document struct {
 	Version          int64          `json:"version"`
 	LeaseExpiresAt   sql.NullTime   `json:"lease_expires_at"`
 	UnextractedPages sql.NullString `json:"unextracted_pages"`
+	UnparseablePages sql.NullString `json:"unparseable_pages"`
 }
 
 type KnowledgeBase struct {

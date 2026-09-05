@@ -69,7 +69,17 @@ type documentResponse struct {
 	// a later attempt that FAILED leaves the previous success's list in
 	// place, and showing it then would describe a state the document is no
 	// longer in (FR-005 / contract C5).
-	UnextractedPages []int     `json:"unextracted_pages"`
+	UnextractedPages []int `json:"unextracted_pages"`
+
+	// UnparseablePages are pages the parser could not read at all
+	// (008-unparseable-page-notice). Same serialisation rules as above.
+	//
+	// ⚠️ Parallel to UnextractedPages but NOT interchangeable: the two exist
+	// as separate fields because the user's next step differs — the former
+	// says "run OCR on these", the latter says "OCR will not help, re-export
+	// with another tool". A client that merges them into one "N pages
+	// missing" line throws away the only part that tells the user what to do.
+	UnparseablePages []int     `json:"unparseable_pages"`
 	Version          int64     `json:"version"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
@@ -86,6 +96,7 @@ func toDocumentResponse(d Document) documentResponse {
 		ChunkCount:   d.ChunkCount,
 		// nil stays nil so it serialises as JSON null, not [].
 		UnextractedPages: d.UnextractedPages,
+		UnparseablePages: d.UnparseablePages,
 		Version:          d.Version,
 		CreatedAt:        d.CreatedAt,
 		UpdatedAt:        d.UpdatedAt,

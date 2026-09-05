@@ -274,6 +274,24 @@ type Document struct {
 	// 内容不完整。失败原因走 ErrorMessage，两条通道完全独立（FR-002）——
 	// 一份文档绝不因为携带提示而被视为失败。
 	UnextractedPages []int
+
+	// UnparseablePages 是这次处理中**根本没能被解析**、因而被整页跳过的页码
+	// （1-indexed、升序、去重）。来源是 006 给 rsc.io/pdf 加的逐页 recover：
+	// 那个库遇到损坏或不受支持的页面结构会 panic，兜住之后这一页就被跳过了。
+	//
+	// ⚠️ 它与 UnextractedPages **平行但语义不同，绝不可合并**：两者唯一的共同点
+	// 是"这页没进去"，而用户拿它做的事完全不同——
+	//   * UnextractedPages（无文本层）→ 用 OCR 工具转换后重新上传；
+	//   * UnparseablePages（解析失败）→ **OCR 对它没有用**，那页是损坏或不受支持
+	//     的结构，得换工具重新导出。
+	// 一条消息服务不了两种下一步，这是它们各占一列的全部理由。
+	//
+	// **两者互不重叠**：解析失败的页在 extractPDFPages 里就被跳过，根本进不了
+	// textLayerCoverage 的视野，物理上不可能同时出现在两个列表里。这一点由断言
+	// 看守而不是由去重代码保证——一旦不成立，说明上游的跳过逻辑变了。
+	//
+	// nil 的含义与 UnextractedPages 相同：没有**或者**不知道。
+	UnparseablePages []int
 	Version          int64
 	LeaseExpiresAt   *time.Time
 	CreatedBy        string

@@ -675,7 +675,7 @@ func TestExtractPDFPagesReturnsTextPerPageWithCorrectNumbers(t *testing.T) {
 		"This is page three the final page here",
 	))
 
-	pages, err := extractPDFPages(path)
+	pages, _, err := extractPDFPages(path)
 	if err != nil {
 		t.Fatalf("extractPDFPages: %v", err)
 	}
@@ -830,6 +830,27 @@ func pdfLinesFromStrings(pages ...string) [][]testLine {
 
 func writeTestPDF(t testing.TB, pages [][]testLine) string {
 	t.Helper()
+	return writeTestPDFWithBrokenPages(t, pages, nil)
+}
+
+// writeTestPDFWithBrokenPages is writeTestPDF plus the ability to make
+// specific pages UNPARSEABLE: their /Contents points at an object that does
+// not exist, which is what makes rsc.io/pdf panic inside Page.Content().
+//
+// 008-unparseable-page-notice needs this because a page can fail to reach
+// the knowledge base in TWO ways, and the two need different fixtures: a
+// page with no text layer (an empty content stream — the existing helper
+// already produces that) and a page the parser cannot read at all. Only the
+// first was reachable before, which is exactly why the second went
+// unnoticed until a real arXiv paper hit it.
+//
+// brokenPages is 1-indexed, matching page numbers everywhere else.
+func writeTestPDFWithBrokenPages(t testing.TB, pages [][]testLine, brokenPages []int) string {
+	t.Helper()
+	broken := make(map[int]bool, len(brokenPages))
+	for _, p := range brokenPages {
+		broken[p] = true
+	}
 	n := len(pages)
 	fontObj := 3 + 2*n
 	totalObjs := fontObj
@@ -857,7 +878,14 @@ func writeTestPDF(t testing.TB, pages [][]testLine) string {
 	for i, pageLines := range pages {
 		pageID := 3 + i
 		contentID := 3 + n + i
-		writeObj(pageID, fmt.Sprintf("<< /Type /Page /Parent 2 0 R /Contents %d 0 R >>", contentID))
+		if broken[i+1] {
+			// Dangling reference: object 9999 is never written. rsc.io/pdf
+			// panics reaching for it, which is precisely the path 006's
+			// safePageText recover was added to contain.
+			writeObj(pageID, "<< /Type /Page /Parent 2 0 R /Contents 9999 0 R >>")
+		} else {
+			writeObj(pageID, fmt.Sprintf("<< /Type /Page /Parent 2 0 R /Contents %d 0 R >>", contentID))
+		}
 
 		// One BT/ET block per line, each with its own absolute Td — Td is
 		// relative to the text-object origin, so restarting the block per
@@ -981,7 +1009,7 @@ func TestWriteTestPDFEmitsDistinctLines(t *testing.T) {
 		{Text: "short tail"},
 	}})
 
-	pages, err := extractPDFPages(path)
+	pages, _, err := extractPDFPages(path)
 	if err != nil {
 		t.Fatalf("extractPDFPages: %v", err)
 	}

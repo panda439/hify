@@ -181,11 +181,27 @@ func (r *Repository) renewDocumentLease(ctx context.Context, id string, version 
 // lease. Splitting this out from markDocumentReady is what lets
 // ReconcileStuckDocuments recover a stuck document by only retrying the
 // (idempotent) publish, never redoing the embedding work.
-func (r *Repository) markDocumentPublishing(ctx context.Context, id string, version int64, leaseExpiresAt time.Time) (bool, error) {
+// markDocumentPublishing also records the two ways pages failed to make it
+// into this version — pages with no text layer, and pages the parser could
+// not read at all.
+//
+// ⭐ They are written HERE, not at markDocumentReady, because this step is
+// the one that locks in "the work is done, only publishing is left" — and
+// these lists are part of that work's result. Publishing confirmation can
+// be performed by a recovery pass that never parsed the file and therefore
+// cannot know them; recording them here means that pass has nothing to
+// overwrite. The (id, version, status='processing') guard gives the same
+// "belongs to the attempt that won" property the previous location had.
+//
+// Passing nil for either list clears it, so a document that no longer has
+// that kind of failure stops reporting it.
+func (r *Repository) markDocumentPublishing(ctx context.Context, id string, version int64, leaseExpiresAt time.Time, unextractedPages, unparseablePages []int) (bool, error) {
 	n, err := r.queries.MarkDocumentPublishing(ctx, gen.MarkDocumentPublishingParams{
-		ID:             id,
-		Version:        version,
-		LeaseExpiresAt: toNullTime(leaseExpiresAt),
+		ID:               id,
+		Version:          version,
+		LeaseExpiresAt:   toNullTime(leaseExpiresAt),
+		UnextractedPages: encodePageList(unextractedPages),
+		UnparseablePages: encodePageList(unparseablePages),
 	})
 	if err != nil {
 		return false, fmt.Errorf("knowledge: mark document publishing: %w", err)
@@ -198,20 +214,18 @@ func (r *Repository) markDocumentPublishing(ctx context.Context, id string, vers
 // another runner (the original worker, or a concurrent reconciliation
 // recovery pass) already completed this exact transition — a benign
 // idempotent race, not an error.
-// markDocumentReady also carries this attempt's unextracted-page list.
+// markDocumentReady no longer touches the two page-list columns.
 //
-// Writing it here rather than in a statement of its own is what makes
-// "the notice always matches the version that actually won" free: this
-// UPDATE is already guarded by (id, version, status='publishing'), so a
-// losing attempt cannot overwrite the winner's notice. Passing nil clears
-// any previous notice, which is how a document that no longer has missing
-// pages stops showing one — also free, for the same reason.
-func (r *Repository) markDocumentReady(ctx context.Context, id string, version int64, chunkCount int, unextractedPages []int) (bool, error) {
+// ⚠️ Do not add them back. ReconcileStuckDocuments calls this too, and it
+// has not re-parsed the file, so it could only pass nil — which would wipe
+// the values markDocumentPublishing just wrote correctly. That is the exact
+// defect 008 exists to fix, and it fails silently: the user simply sees no
+// notice. See queries/documents.sql for the full reasoning.
+func (r *Repository) markDocumentReady(ctx context.Context, id string, version int64, chunkCount int) (bool, error) {
 	n, err := r.queries.MarkDocumentReady(ctx, gen.MarkDocumentReadyParams{
-		ChunkCount:       int32(chunkCount),
-		UnextractedPages: encodeUnextractedPages(unextractedPages),
-		ID:               id,
-		Version:          version,
+		ChunkCount: int32(chunkCount),
+		ID:         id,
+		Version:    version,
 	})
 	if err != nil {
 		return false, fmt.Errorf("knowledge: mark document ready: %w", err)
@@ -763,7 +777,8 @@ func toDomainDocument(row gen.Document) Document {
 		LeaseExpiresAt:  fromNullTime(row.LeaseExpiresAt),
 		// All five document queries share this column list, so they all
 		// share this one mapping — there is no per-query place to forget.
-		UnextractedPages: decodeUnextractedPages(row.UnextractedPages),
+		UnextractedPages: decodePageList(row.UnextractedPages),
+		UnparseablePages: decodePageList(row.UnparseablePages),
 		CreatedBy:        row.CreatedBy,
 		CreatedAt:        row.CreatedAt,
 		UpdatedAt:        row.UpdatedAt,

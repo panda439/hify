@@ -20,6 +20,12 @@ import (
 type parsedContent struct {
 	Text  string
 	Pages []pdfPage
+	// UnreadablePages are the pages the parser could not read at all and
+	// skipped (008-unparseable-page-notice). They are NOT in Pages, which
+	// is precisely why they need carrying separately: anything computed
+	// from Pages — including "which pages have no text layer" — cannot see
+	// them, so without this field the fact that they existed is lost.
+	UnreadablePages []int
 }
 
 // pdfPage is one page's reconstructed plain text plus its 1-indexed
@@ -89,11 +95,11 @@ func parseFile(storagePath, fileType string) (parsedContent, error) {
 		}
 		return parsedContent{Text: string(data)}, nil
 	case FileTypePDF:
-		pages, err := extractPDFPages(storagePath)
+		pages, unreadable, err := extractPDFPages(storagePath)
 		if err != nil {
 			return parsedContent{}, err
 		}
-		return parsedContent{Pages: pages}, nil
+		return parsedContent{Pages: pages, UnreadablePages: unreadable}, nil
 	default:
 		return parsedContent{}, fmt.Errorf("knowledge: unsupported file type %q", fileType)
 	}
@@ -123,21 +129,21 @@ func parseFile(storagePath, fileType string) (parsedContent, error) {
 // for it (see its doc comment); if every page comes back empty the
 // end-to-end effect is ProcessDocument failing with ErrEmptyContent, which
 // is the correct, honest outcome for a scanned PDF. OCR is out of scope.
-func extractPDFPages(storagePath string) ([]pdfPage, error) {
+func extractPDFPages(storagePath string) ([]pdfPage, []int, error) {
 	f, err := os.Open(storagePath)
 	if err != nil {
-		return nil, fmt.Errorf("knowledge: open pdf: %w", err)
+		return nil, nil, fmt.Errorf("knowledge: open pdf: %w", err)
 	}
 	defer f.Close()
 
 	info, err := f.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("knowledge: stat pdf: %w", err)
+		return nil, nil, fmt.Errorf("knowledge: stat pdf: %w", err)
 	}
 
 	doc, err := safeNewPDFReader(f, info.Size())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	pages := make([]pdfPage, 0, doc.NumPage())
@@ -225,14 +231,17 @@ func extractPDFPages(storagePath string) ([]pdfPage, error) {
 	// unreadable, not empty and not a scan. Saying so is the whole point —
 	// see ErrPDFUnreadable.
 	if len(pages) == 0 && len(unreadable) > 0 {
-		return nil, ErrPDFUnreadable
+		return nil, nil, ErrPDFUnreadable
 	}
 	if len(unreadable) > 0 {
+		// 008: this list used to end here, in a developer-facing log line,
+		// while the uploader saw a "ready" document with no hint that a page
+		// was missing. It now travels out to become something they can see.
 		slog.Warn("knowledge: some pdf pages could not be parsed and were skipped",
 			"unreadable_pages", unreadable,
 			"readable_pages", len(pages))
 	}
-	return pages, nil
+	return pages, unreadable, nil
 }
 
 // safeNewPDFReader / safePageText contain rsc.io/pdf's panics.

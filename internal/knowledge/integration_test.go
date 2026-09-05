@@ -684,7 +684,7 @@ func TestIntegrationDeleteDuringProcessingLeavesNoSearchableOrphan(t *testing.T)
 	}
 
 	// processing -> publishing 网关必须拒绝：文档行已经不存在，CAS 影响 0 行。
-	publishing, err := repo.markDocumentPublishing(ctx, "doc-race", 1, time.Now().Add(leaseDuration))
+	publishing, err := repo.markDocumentPublishing(ctx, "doc-race", 1, time.Now().Add(leaseDuration), nil, nil)
 	if err != nil {
 		t.Fatalf("markDocumentPublishing: %v", err)
 	}
@@ -834,7 +834,7 @@ func TestIntegrationCASFailureDoesNotOverwriteNewerState(t *testing.T) {
 
 	// 原来（已经过期）的 worker 这时才跑完 Embedding，试图用旧 version=1
 	// 转 publishing——第一个会撞上 fencing 的 CAS。
-	publishing, err := repo.markDocumentPublishing(ctx, "doc-cas", 1, time.Now().Add(leaseDuration))
+	publishing, err := repo.markDocumentPublishing(ctx, "doc-cas", 1, time.Now().Add(leaseDuration), nil, nil)
 	if err != nil {
 		t.Fatalf("markDocumentPublishing: %v", err)
 	}
@@ -868,10 +868,10 @@ func TestIntegrationRetryDocumentOnlyAllowedFromPendingOrFailed(t *testing.T) {
 	if claimed, err := repo.claimDocumentProcessing(ctx, "doc-retry-ready", 1, time.Now().Add(leaseDuration)); err != nil || !claimed {
 		t.Fatalf("claim setup = %v, %v", claimed, err)
 	}
-	if ok, err := repo.markDocumentPublishing(ctx, "doc-retry-ready", 1, time.Now().Add(leaseDuration)); err != nil || !ok {
+	if ok, err := repo.markDocumentPublishing(ctx, "doc-retry-ready", 1, time.Now().Add(leaseDuration), nil, nil); err != nil || !ok {
 		t.Fatalf("markDocumentPublishing setup = %v, %v", ok, err)
 	}
-	if ok, err := repo.markDocumentReady(ctx, "doc-retry-ready", 1, 0, nil); err != nil || !ok {
+	if ok, err := repo.markDocumentReady(ctx, "doc-retry-ready", 1, 0); err != nil || !ok {
 		t.Fatalf("markDocumentReady setup = %v, %v", ok, err)
 	}
 	if _, err := svc.RetryDocument(ctx, "doc-retry-ready", "owner-4", "user"); !errors.Is(err, ErrDocumentNotRetryable) {
@@ -980,7 +980,7 @@ func TestIntegrationReconcileRecoversPublishNeverAttempted(t *testing.T) {
 	}, 1); err != nil {
 		t.Fatalf("createChunks setup: %v", err)
 	}
-	if ok, err := repo.markDocumentPublishing(ctx, "doc-pubfail", 1, time.Now().Add(-time.Minute)); err != nil || !ok {
+	if ok, err := repo.markDocumentPublishing(ctx, "doc-pubfail", 1, time.Now().Add(-time.Minute), nil, nil); err != nil || !ok {
 		t.Fatalf("markDocumentPublishing setup = %v, %v", ok, err)
 	}
 
@@ -1033,7 +1033,7 @@ func TestIntegrationReconcileRecoversPublishSucceededBeforeReadyCrash(t *testing
 	}}, 1); err != nil {
 		t.Fatalf("createChunks setup: %v", err)
 	}
-	if ok, err := repo.markDocumentPublishing(ctx, "doc-pubcrash", 1, time.Now().Add(-time.Minute)); err != nil || !ok {
+	if ok, err := repo.markDocumentPublishing(ctx, "doc-pubcrash", 1, time.Now().Add(-time.Minute), nil, nil); err != nil || !ok {
 		t.Fatalf("markDocumentPublishing setup = %v, %v", ok, err)
 	}
 
@@ -1087,7 +1087,7 @@ func TestIntegrationPublishPermanentFailureReturnsErrorNotReady(t *testing.T) {
 	}}, 1); err != nil {
 		t.Fatalf("createChunks setup: %v", err)
 	}
-	if ok, err := repo.markDocumentPublishing(ctx, "doc-pubdead", 1, time.Now().Add(leaseDuration)); err != nil || !ok {
+	if ok, err := repo.markDocumentPublishing(ctx, "doc-pubdead", 1, time.Now().Add(leaseDuration), nil, nil); err != nil || !ok {
 		t.Fatalf("markDocumentPublishing setup = %v, %v", ok, err)
 	}
 
@@ -1100,7 +1100,7 @@ func TestIntegrationPublishPermanentFailureReturnsErrorNotReady(t *testing.T) {
 	svc := &service{repo: repo, providerSvc: newFakeProvider(), storageDir: t.TempDir()}
 	cancelCtx, cancel := context.WithCancel(ctx)
 	cancel()
-	if err := svc.publishAndComplete(cancelCtx, "doc-pubdead", 1, nil); err == nil {
+	if err := svc.publishAndComplete(cancelCtx, "doc-pubdead", 1); err == nil {
 		t.Fatal("publishAndComplete with a dead context returned nil, want a non-nil error")
 	}
 
@@ -1134,7 +1134,7 @@ func TestIntegrationReconcileOnlyRecoversPublishingAfterLeaseExpires(t *testing.
 	}
 
 	// 租约还没过期：reconciliation 不应该碰它。
-	if ok, err := repo.markDocumentPublishing(ctx, "doc-publease", 1, time.Now().Add(leaseDuration)); err != nil || !ok {
+	if ok, err := repo.markDocumentPublishing(ctx, "doc-publease", 1, time.Now().Add(leaseDuration), nil, nil); err != nil || !ok {
 		t.Fatalf("markDocumentPublishing setup = %v, %v", ok, err)
 	}
 	if n, err := svc.ReconcileStuckDocuments(ctx); err != nil || n != 0 {
@@ -1428,7 +1428,7 @@ func TestIntegrationClaimPublishingRecoveryRejectsRenewedLeaseUsingStaleScanSnap
 		t.Fatalf("createChunks setup: %v", err)
 	}
 	// 1. 文档进入 publishing，租约直接种成已过期。
-	if ok, err := repo.markDocumentPublishing(ctx, "doc-toctou-pub", 1, time.Now().Add(-time.Minute)); err != nil || !ok {
+	if ok, err := repo.markDocumentPublishing(ctx, "doc-toctou-pub", 1, time.Now().Add(-time.Minute), nil, nil); err != nil || !ok {
 		t.Fatalf("markDocumentPublishing setup = %v, %v", ok, err)
 	}
 
@@ -1494,7 +1494,7 @@ func TestIntegrationClaimPublishingRecoveryConcurrentOnlyOneWinsThenPublishes(t 
 	}}, 1); err != nil {
 		t.Fatalf("createChunks setup: %v", err)
 	}
-	if ok, err := repo.markDocumentPublishing(ctx, "doc-toctou-pub2", 1, time.Now().Add(-time.Minute)); err != nil || !ok {
+	if ok, err := repo.markDocumentPublishing(ctx, "doc-toctou-pub2", 1, time.Now().Add(-time.Minute), nil, nil); err != nil || !ok {
 		t.Fatalf("markDocumentPublishing setup = %v, %v", ok, err)
 	}
 
@@ -1529,7 +1529,7 @@ func TestIntegrationClaimPublishingRecoveryConcurrentOnlyOneWinsThenPublishes(t 
 	// unexported 方法，和 TestIntegrationPublishPermanentFailureReturnsErrorNotReady
 	// 用的是同一种白盒方式。
 	svc := &service{repo: repo, providerSvc: newFakeProvider(), storageDir: t.TempDir()}
-	if err := svc.publishAndComplete(ctx, "doc-toctou-pub2", 1, nil); err != nil {
+	if err := svc.publishAndComplete(ctx, "doc-toctou-pub2", 1); err != nil {
 		t.Fatalf("publishAndComplete: %v", err)
 	}
 
@@ -5101,8 +5101,8 @@ func TestIntegrationFailedReprocessDoesNotShowStaleNotice(t *testing.T) {
 	t.Logf("失败后残留的 UnextractedPages=%v（这正是前端必须按 status 判断的原因）", got.UnextractedPages)
 }
 
-// TestIntegrationTxtAndMarkdownNeverCarryNotice 是 SC-007 / FR-014：
-// 没有"页"概念的格式恒为空。
+// TestIntegrationTxtAndMarkdownNeverCarryNotice 是 SC-007（007）/ SC-008（008）：
+// 没有"页"概念的格式，**两类**提示都恒为空。
 func TestIntegrationTxtAndMarkdownNeverCarryNotice(t *testing.T) {
 	repo := setupIntegration(t)
 	svc := newTestService(repo, newFakeProvider(), t.TempDir())
@@ -5121,9 +5121,203 @@ func TestIntegrationTxtAndMarkdownNeverCarryNotice(t *testing.T) {
 		if err := svc.ProcessDocument(ctx, tc.id, 1); err != nil {
 			t.Fatalf("ProcessDocument(%s): %v", tc.fileType, err)
 		}
-		if got := docByID(t, repo, tc.id); len(got.UnextractedPages) != 0 {
-			t.Fatalf("%s 文档带上了缺页提示 %v —— 它根本没有「页」这个概念",
-				tc.fileType, got.UnextractedPages)
+		// 008：两类都要断言。只断言其中一类的话，另一类被误写也不会被发现——
+		// 变异测试实证过：把 unparseablePages 改成恒 []int{1}，这条用例照样绿。
+		got := docByID(t, repo, tc.id)
+		if len(got.UnextractedPages) != 0 || len(got.UnparseablePages) != 0 {
+			t.Fatalf("%s 文档带上了缺页提示（unextracted=%v unparseable=%v）—— "+
+				"它根本没有「页」这个概念",
+				tc.fileType, got.UnextractedPages, got.UnparseablePages)
 		}
+	}
+}
+
+// --- 008-unparseable-page-notice US1：解析失败的页也要能被用户看见 ---
+
+// TestIntegrationUnparseablePageNoticeReachesDocumentList 是 SC-001 的验收用例。
+//
+// ⚠️ 这里的"缺失"与 007 那条用例是**不同的机制**：007 覆盖的是「页面没有文本层」
+// （扫描图），本条覆盖的是「页面根本解析不了」——006 给 rsc.io/pdf 加了逐页
+// recover 之后，这种页被整页跳过，于是它**在统计有没有文本层之前就已经消失了**。
+// 结果是 textLayerCoverage 看到的每一页都有文本，缺页列表为空，用户看到一份
+// 「就绪、无提示」的文档，而那一页根本不在里面。
+//
+// 实测撞到过：一篇 15 页的 arXiv 论文第 1 页解析失败被跳过，007 的提示一个字
+// 都不会出现。这就是 007 只覆盖了两种缺失里的一种。
+//
+// 同样刻意走 ListDocuments 而不是单查——用户唯一能看到提示的地方是列表。
+func TestIntegrationUnparseablePageNoticeReachesDocumentList(t *testing.T) {
+	repo := setupIntegration(t)
+	svc := newTestService(repo, newFakeProvider(), t.TempDir())
+	ctx := context.Background()
+
+	// 第 2 页的 /Contents 指向一个不存在的对象：rsc.io/pdf 会在 Page.Content()
+	// 上 panic，正是 006 的 safePageText 兜住的那条路径。其余两页正常。
+	path := writeTestPDFWithBrokenPages(t, pdfLinesFromStrings(
+		"pageone body text standing alone.",
+		"pagetwo body text standing alone.",
+		"pagethree body text standing alone.",
+	), []int{2})
+	seedDocForProcessing(t, repo, "kb-unparseable", "doc-unparseable", "paper.pdf", FileTypePDF, path)
+
+	if err := svc.ProcessDocument(ctx, "doc-unparseable", 1); err != nil {
+		t.Fatalf("有两页正常，文档应当正常入库，实际失败：%v", err)
+	}
+
+	docs, _, err := svc.ListDocuments(ctx, "kb-unparseable", 10, 0)
+	if err != nil {
+		t.Fatalf("ListDocuments: %v", err)
+	}
+	var got *Document
+	for i := range docs {
+		if docs[i].ID == "doc-unparseable" {
+			got = &docs[i]
+			break
+		}
+	}
+	if got == nil {
+		t.Fatalf("文档列表里没有 doc-unparseable：%+v", docs)
+	}
+	if got.Status != StatusReady {
+		t.Fatalf("status=%s，应当是 ready（有两页正常入库了）", got.Status)
+	}
+
+	// ⭐ SC-001 的核心。
+	if len(got.UnparseablePages) != 1 || got.UnparseablePages[0] != 2 {
+		t.Fatalf("解析失败的页码 = %v，应当是 [2]——第 2 页根本没进知识库，"+
+			"而用户在列表上看不到任何迹象。got=%+v", got.UnparseablePages, got)
+	}
+	// FR-003：两类互不重叠。这一页从没进过 textLayerCoverage 的视野。
+	for _, p := range got.UnextractedPages {
+		if p == 2 {
+			t.Fatalf("第 2 页同时出现在两个列表里，两类必须互不重叠（FR-003）："+
+				"unextracted=%v unparseable=%v", got.UnextractedPages, got.UnparseablePages)
+		}
+	}
+}
+
+// TestIntegrationBothFailureKindsStaySeparate 是 US2 / SC-003 / SC-004。
+//
+// ⚠️ 这条用例**是 008 不并进 unextracted_pages 那一列的全部理由**。如果两类最终
+// 仍被搅成一句笼统的「有 N 页没进去」，这一整期的设计成本就白付了——还不如当初
+// 直接塞进去。所以这里断言的不只是"两类都有值"，还有它们**互不重叠**。
+func TestIntegrationBothFailureKindsStaySeparate(t *testing.T) {
+	repo := setupIntegration(t)
+	svc := newTestService(repo, newFakeProvider(), t.TempDir())
+	ctx := context.Background()
+
+	// 5 页：第 2 页无文本层（扫描图），第 4 页解析失败，其余正常。
+	path := writeTestPDFWithBrokenPages(t, pdfLinesFromStrings(
+		"pageone body text standing alone.",
+		"", // 第 2 页：有页面、无文本
+		"pagethree body text standing alone.",
+		"placeholder that will never be read",
+		"pagefive body text standing alone.",
+	), []int{4})
+	seedDocForProcessing(t, repo, "kb-both", "doc-both", "mixed.pdf", FileTypePDF, path)
+	if err := svc.ProcessDocument(ctx, "doc-both", 1); err != nil {
+		t.Fatalf("三页正常，文档应当入库，实际失败：%v", err)
+	}
+
+	got := docByID(t, repo, "doc-both")
+	if len(got.UnextractedPages) != 1 || got.UnextractedPages[0] != 2 {
+		t.Fatalf("无文本层的页 = %v，应当是 [2]", got.UnextractedPages)
+	}
+	if len(got.UnparseablePages) != 1 || got.UnparseablePages[0] != 4 {
+		t.Fatalf("解析失败的页 = %v，应当是 [4]", got.UnparseablePages)
+	}
+
+	// FR-003 / SC-004：互不重叠。这条看起来是废话——解析失败的页在
+	// extractPDFPages 里就被跳过，根本进不了 textLayerCoverage 的视野，物理上
+	// 不可能重叠。**正因为它显然成立才值得断言**：一旦不成立，说明上游的跳过
+	// 逻辑变了，而那是个没有任何报错、也没人会注意到的变化。
+	seen := map[int]bool{}
+	for _, p := range got.UnextractedPages {
+		seen[p] = true
+	}
+	for _, p := range got.UnparseablePages {
+		if seen[p] {
+			t.Fatalf("第 %d 页同时出现在两个列表里：unextracted=%v unparseable=%v",
+				p, got.UnextractedPages, got.UnparseablePages)
+		}
+	}
+}
+
+// TestIntegrationOnlyOneFailureKindLeavesTheOtherEmpty 是 FR-008：只有一类缺失
+// 时另一类必须为空，界面才不会出现一段空提示。没有这条，一个"两类总是一起写"
+// 的实现也能让上面那条通过。
+func TestIntegrationOnlyOneFailureKindLeavesTheOtherEmpty(t *testing.T) {
+	repo := setupIntegration(t)
+	svc := newTestService(repo, newFakeProvider(), t.TempDir())
+	ctx := context.Background()
+
+	// 只有解析失败，没有无文本层的页。
+	path := writeTestPDFWithBrokenPages(t, pdfLinesFromStrings(
+		"pageone body text standing alone.",
+		"placeholder that will never be read",
+		"pagethree body text standing alone.",
+	), []int{2})
+	seedDocForProcessing(t, repo, "kb-onlyone", "doc-onlyone", "one.pdf", FileTypePDF, path)
+	if err := svc.ProcessDocument(ctx, "doc-onlyone", 1); err != nil {
+		t.Fatalf("ProcessDocument: %v", err)
+	}
+	got := docByID(t, repo, "doc-onlyone")
+	if len(got.UnparseablePages) != 1 {
+		t.Fatalf("解析失败的页 = %v，应当是 [2]", got.UnparseablePages)
+	}
+	if len(got.UnextractedPages) != 0 {
+		t.Fatalf("没有无文本层的页，该列表必须为空，实际 %v——"+
+			"否则界面会出现一段空提示", got.UnextractedPages)
+	}
+}
+
+// TestIntegrationNoticeSurvivesReconciliationRecovery 是 US3 / SC-005，
+// 修的是 **007 报告 §6.2 记录的已知缺陷**。
+//
+// 场景：文档已经把活儿干完、进入 publishing，但发布确认那一步没跑完（worker
+// 崩了），由 ReconcileStuckDocuments 接手完成。恢复流程**没有重新解析过文件**，
+// 因此它不可能知道缺页情况——007 时它只能传 nil，于是把提示清空了。
+//
+// 008 把写入前移到 markDocumentPublishing 之后，恢复流程什么都不用知道：
+// publishing 阶段写下的值原样存活。**这条用例在 007 的实现上是 FAIL 的。**
+func TestIntegrationNoticeSurvivesReconciliationRecovery(t *testing.T) {
+	repo := setupIntegration(t)
+	svc := newTestService(repo, newFakeProvider(), t.TempDir())
+	ctx := context.Background()
+
+	path := writeTestPDFWithBrokenPages(t, pdfLinesFromStrings(
+		"pageone body text standing alone.",
+		"placeholder that will never be read",
+		"pagethree body text standing alone.",
+	), []int{2})
+	seedDocForProcessing(t, repo, "kb-recover", "doc-recover-notice", "paper.pdf", FileTypePDF, path)
+	if err := svc.ProcessDocument(ctx, "doc-recover-notice", 1); err != nil {
+		t.Fatalf("ProcessDocument: %v", err)
+	}
+	before := docByID(t, repo, "doc-recover-notice")
+	if len(before.UnparseablePages) != 1 {
+		t.Fatalf("前置条件不成立：应当先有提示，实际 %v", before.UnparseablePages)
+	}
+
+	// 把文档打回 publishing（模拟"活儿干完了、发布确认没跑完"），
+	// 然后走恢复路径完成它——恢复流程只调 markDocumentReady。
+	if _, err := repo.db.ExecContext(ctx,
+		"UPDATE documents SET status = 'publishing', lease_expires_at = ? WHERE id = 'doc-recover-notice'",
+		time.Now().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	svcImpl := &service{repo: repo, providerSvc: newFakeProvider(), storageDir: t.TempDir()}
+	if err := svcImpl.publishAndComplete(ctx, "doc-recover-notice", 1); err != nil {
+		t.Fatalf("publishAndComplete（恢复路径）: %v", err)
+	}
+
+	after := docByID(t, repo, "doc-recover-notice")
+	if after.Status != StatusReady {
+		t.Fatalf("恢复后 status=%s，应当是 ready", after.Status)
+	}
+	if len(after.UnparseablePages) != 1 || after.UnparseablePages[0] != 2 {
+		t.Fatalf("恢复路径把提示弄丢了：恢复前 %v，恢复后 %v。"+
+			"恢复流程没有重新解析过文件，它不该有能力清空 publishing 阶段写对的值",
+			before.UnparseablePages, after.UnparseablePages)
 	}
 }
