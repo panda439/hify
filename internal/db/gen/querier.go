@@ -37,12 +37,28 @@ type Querier interface {
 	// publishing、带着这份新租约，等它自己过期后才轮到下一轮 reconciliation
 	// 再抢，不会被同一轮或紧接着的下一轮重复认领。
 	ClaimExpiredPublishingRecovery(ctx context.Context, arg ClaimExpiredPublishingRecoveryParams) (int64, error)
+	// ⭐ 抢占：epoch + 1，写租约。守卫里的 lease_until 条件是「没人持有，或者
+	// 持有者的租约已经过期」。
+	//
+	// ⚠️ epoch 自增是**唯一**能区分"我还是当前持有者"的东西。worker 之后每次
+	// 写数据都要带上自己抢到的 epoch；租约过期后被别人抢走，旧 worker 迟到的写入
+	// 会因为 epoch 对不上被拒。⚠️ 它**只约束数据发布**——旧 worker 那次外部调用
+	// 该花的钱已经花了，账目照记，见 relation_extraction_attempts。
+	ClaimRelationExtractionJob(ctx context.Context, arg ClaimRelationExtractionJobParams) (int64, error)
+	// ⭐ 初始化完成是一次**带守卫的**状态跃迁，不是无条件 UPDATE。
+	//
+	// 守卫 state='initializing' AND initialization_complete=0：
+	// 两个 worker 同时初始化同一个 job 时，只有一个能跃迁成功，另一个拿到 0 行
+	// 并放弃自己的整个事务。没有这个守卫，第二个会把 total_items 覆盖成自己数出来
+	// 的值——而它枚举的可能是另一个版本的 chunk，数字看起来完全正常。
+	CompleteJobInitialization(ctx context.Context, arg CompleteJobInitializationParams) (int64, error)
 	CountAgents(ctx context.Context) (int64, error)
 	CountConversationsByUser(ctx context.Context, userID string) (int64, error)
 	CountDocumentsByKnowledgeBase(ctx context.Context, knowledgeBaseID string) (int64, error)
 	CountKnowledgeBases(ctx context.Context) (int64, error)
 	CountMCPServers(ctx context.Context) (int64, error)
 	CountProviders(ctx context.Context) (int64, error)
+	CountRelationExtractionItems(ctx context.Context, jobID string) (int64, error)
 	CountUsers(ctx context.Context) (int64, error)
 	CountWorkflowRuns(ctx context.Context, workflowID string) (int64, error)
 	CountWorkflowRunsByCreator(ctx context.Context, arg CountWorkflowRunsByCreatorParams) (int64, error)
@@ -69,6 +85,13 @@ type Querier interface {
 	CreateProvider(ctx context.Context, arg CreateProviderParams) error
 	CreateProviderModel(ctx context.Context, arg CreateProviderModelParams) error
 	CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) error
+	CreateRelationExtractionItem(ctx context.Context, arg CreateRelationExtractionItemParams) error
+	// 010-narrative-scene-chunking-and-relation-extraction：抽取作业的编排与账目。
+	//
+	// ⚠️ 本文件里没有任何一条 SELECT * 或隐式列清单：这些表大半是账目，
+	// 加一列而某条查询没跟上，表现是"某个数字少算了一部分"，不报错。
+	// 建 job。source_hash 为 NULL 表示尚未枚举语料——不是"空文档"。
+	CreateRelationExtractionJob(ctx context.Context, arg CreateRelationExtractionJobParams) error
 	CreateTraceSpan(ctx context.Context, arg CreateTraceSpanParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) error
 	CreateWorkflow(ctx context.Context, arg CreateWorkflowParams) error
@@ -85,16 +108,23 @@ type Querier interface {
 	DeleteAgentMCPTools(ctx context.Context, agentID string) error
 	DeleteDocument(ctx context.Context, id string) error
 	DeleteExpiredRefreshTokens(ctx context.Context, revokedAt sql.NullTime) (int64, error)
+	// ⚠️ 只在 job 还没结束时生效。已经 succeeded/failed 的 job 不该被一条迟到的
+	// 失败改写——那条失败属于一个早就被取代的 epoch。
+	FailRelationExtractionJob(ctx context.Context, arg FailRelationExtractionJobParams) (int64, error)
 	FinishWorkflowRun(ctx context.Context, arg FinishWorkflowRunParams) error
 	GetAgentByID(ctx context.Context, id string) (Agent, error)
 	GetConversationByID(ctx context.Context, id string) (Conversation, error)
 	GetDocumentByID(ctx context.Context, id string) (Document, error)
+	GetDocumentExtractionState(ctx context.Context, id string) (GetDocumentExtractionStateRow, error)
 	GetKnowledgeBaseByID(ctx context.Context, id string) (KnowledgeBase, error)
 	GetMCPServerByID(ctx context.Context, id string) (McpServer, error)
 	GetMCPToolByID(ctx context.Context, id string) (McpTool, error)
 	GetProviderByID(ctx context.Context, id string) (ModelProvider, error)
 	GetProviderModelByID(ctx context.Context, id string) (ProviderModel, error)
 	GetRefreshTokenByHash(ctx context.Context, tokenHash string) (RefreshToken, error)
+	GetRelationExtractionJob(ctx context.Context, id string) (RelationExtractionJob, error)
+	// 幂等键重放：同一个 start/restart 请求打第二次，返回已有的 run 而不是新开。
+	GetRelationExtractionJobByOperationKey(ctx context.Context, arg GetRelationExtractionJobByOperationKeyParams) (GetRelationExtractionJobByOperationKeyRow, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id string) (User, error)
 	GetWorkflowByID(ctx context.Context, id string) (Workflow, error)
@@ -240,13 +270,21 @@ type Querier interface {
 	// 提交的一个能让 lease_expires_at 实际改变，后一个的 WHERE 条件在它执行
 	// 时已经不成立，天然 0 行受影响，不需要额外的分布式锁。
 	ReclaimStaleProcessingDocument(ctx context.Context, arg ReclaimStaleProcessingDocumentParams) (int64, error)
+	ReleaseRelationExtractionLease(ctx context.Context, arg ReleaseRelationExtractionLeaseParams) (int64, error)
 	// worker 每完成一批 Embedding、每个关键阶段前都调它续租；status 作为参数
 	// 传入，processing/publishing 两个阶段复用同一条 SQL。0 行受影响 = 这个
 	// worker 已经被 reconciliation 判定卡死并取代（version 或 status 已经不
 	// 匹配），调用方必须立刻停手，不能再写 chunks 或发布。
 	RenewDocumentLease(ctx context.Context, arg RenewDocumentLeaseParams) (int64, error)
+	// 心跳续租，必须带 epoch：租约已经被别人抢走时返回 0 行，
+	// 持有者据此知道自己已经出局，必须停止调用模型。
+	RenewRelationExtractionLease(ctx context.Context, arg RenewRelationExtractionLeaseParams) (int64, error)
 	RevokeAllUserRefreshTokens(ctx context.Context, userID string) error
 	RevokeRefreshToken(ctx context.Context, id string) error
+	// 把文档的 active_relation_job_id 指向新 run，并落下所选模型。
+	// ⚠️ 守卫 status='ready' AND version=?：文档在这中间改了版本，
+	// 这次开启就该失败，而不是把作业挂到一批已经不是真相的 chunk 上。
+	SetDocumentRelationJob(ctx context.Context, arg SetDocumentRelationJobParams) (int64, error)
 	TouchConversation(ctx context.Context, arg TouchConversationParams) error
 	UpdateAgent(ctx context.Context, arg UpdateAgentParams) error
 	// embedding_model_id/chunk_size/chunk_overlap are deliberately not
