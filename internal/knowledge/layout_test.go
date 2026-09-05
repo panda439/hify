@@ -778,3 +778,62 @@ func TestStripLayoutNoiseBareNumberNeedsCorroboration(t *testing.T) {
 		}
 	})
 }
+
+// TestBuildParagraphStreamCapsMergeSpan 是 006 §7.3 的修复。
+//
+// ⚠️ 发现经过：把一份**全篇没有句末标点**的 10 页 PDF 喂进流水线，每个页边界的
+// 三条合并判据都成立（没有句号、不是列表、满行宽），于是整篇合并成 **1 个单元**，
+// 34 个片段**全部标成「第 1-10 页」**。长度上限确实生效了（FR-004 没破），
+// 但页码区间退化成「本文档某处」，引用价值归零。
+//
+// spec 的 Edge Case 只要求「不得合并成一个超长段落」，没要求「区间不得退化」
+// ——这条边界当时画得不够。
+func TestBuildParagraphStreamCapsMergeSpan(t *testing.T) {
+	// 10 页，每页一行，全篇无句末标点、行宽一致——三条判据在每个页边界都成立。
+	pages := make([]pdfPage, 0, 10)
+	for i := 1; i <= 10; i++ {
+		pages = append(pages, streamPage(i,
+			fmt.Sprintf("page %d text that runs to the margin and never ends a sentence", i)))
+	}
+	stream := buildParagraphStream(pages)
+
+	if len(stream) < 2 {
+		t.Fatalf("10 页无标点文档合并成了 %d 个单元——整篇被吞成一个，页码区间退化成「本文档某处」", len(stream))
+	}
+	for i, u := range stream {
+		span := u.PageEnd - u.PageStart + 1
+		if span > maxMergedPageSpan {
+			t.Fatalf("单元 %d 跨了 %d 页（%d-%d），上限是 %d", i, span, u.PageStart, u.PageEnd, maxMergedPageSpan)
+		}
+	}
+	// 覆盖必须完整：加了上限不等于可以丢内容。
+	seen := map[int]bool{}
+	for _, u := range stream {
+		for p := u.PageStart; p <= u.PageEnd; p++ {
+			seen[p] = true
+		}
+	}
+	for p := 1; p <= 10; p++ {
+		if !seen[p] {
+			t.Fatalf("第 %d 页的内容在加了合并上限之后丢失了", p)
+		}
+	}
+}
+
+// TestBuildParagraphStreamCapDoesNotAffectRealParagraphs：上限不得影响正常
+// 文档——真实散文里一个段落不会跨三页，所以这条上限对它们完全不可见。
+func TestBuildParagraphStreamCapDoesNotAffectRealParagraphs(t *testing.T) {
+	pages := []pdfPage{
+		streamPage(1, "the retention policy applies to every archived record created"),
+		streamPage(2, "before the cutoff date and is reviewed each quarter."),
+		streamPage(3, "an unrelated section starts here and ends cleanly."),
+	}
+	stream := buildParagraphStream(pages)
+	if len(stream) != 2 {
+		t.Fatalf("got %d units, want 2（页 1-2 合并、页 3 独立）：%+v", len(stream), stream)
+	}
+	if stream[0].PageStart != 1 || stream[0].PageEnd != 2 {
+		t.Fatalf("跨页单元 = %d-%d，want 1-2——上限不该影响正常的两页合并",
+			stream[0].PageStart, stream[0].PageEnd)
+	}
+}

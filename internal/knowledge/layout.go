@@ -66,6 +66,31 @@ const (
 	// of the document.
 	headingFontSizeRatio = 1.15
 
+	// maxMergedPageSpan caps how many pages one merged paragraph may cover.
+	//
+	// The merge test leans towards merging, and that lean is justified by an
+	// asymmetry: a wrong split cuts a sentence in half and nothing
+	// downstream can repair it. But the asymmetry has a limit. By the time a
+	// merge has run across three pages without meeting a single
+	// sentence-ending mark, the evidence has changed meaning: this is no
+	// longer "a paragraph that happens to be long", it is a document with no
+	// punctuation at all, and every page boundary in it satisfies all three
+	// criteria for reasons that have nothing to do with paragraphs.
+	//
+	// Left uncapped, such a document collapses into ONE unit: measured on a
+	// ten-page fixture with no full stops, every chunk came out labelled
+	// "pages 1-10". The length limit still held — FR-004 was never in danger
+	// — but the page interval degraded to "somewhere in this document",
+	// which is worth nothing as a citation. Capping the span bounds that
+	// damage while changing nothing for real prose: a genuine paragraph
+	// spanning three pages does not occur in the documents this feature
+	// targets.
+	//
+	// ⚠️ This is a floor on citation quality, not an improvement to merging.
+	// Content in such a document is still merged across two page breaks and
+	// may still be cited slightly wide.
+	maxMergedPageSpan = 3
+
 	// widthBucketPt is the bucket size used when taking the mode of line
 	// widths. Widths are floats that never repeat exactly, so a mode is
 	// only meaningful over buckets; 1pt is fine enough to separate a short
@@ -158,7 +183,7 @@ func buildParagraphStream(pages []pdfPage) []paragraphUnit {
 		if len(pageUnits) == 0 {
 			continue
 		}
-		if n := len(stream); n > 0 && mergeAcrossPageBreak(stream[n-1], pages, page) {
+		if n := len(stream); n > 0 && withinMergeSpan(stream[n-1]) && mergeAcrossPageBreak(stream[n-1], pages, page) {
 			stream[n-1].Content += "\n" + pageUnits[0].Content
 			stream[n-1].PageEnd = page.Number
 			pageUnits = pageUnits[1:]
@@ -815,4 +840,10 @@ func isBareNumberPageMarker(text string, pageCount int) bool {
 		return false
 	}
 	return n >= 1 && n <= pageCount
+}
+
+// withinMergeSpan reports whether a unit may absorb one more page. See
+// maxMergedPageSpan for why the merge bias stops applying past this point.
+func withinMergeSpan(u paragraphUnit) bool {
+	return u.PageEnd-u.PageStart+1 < maxMergedPageSpan
 }
