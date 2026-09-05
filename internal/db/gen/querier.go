@@ -15,6 +15,10 @@ type Querier interface {
 	// 调用方据此停手。把预算检查放在**同一条 UPDATE 的 WHERE 里**而不是先读后写，
 	// 是因为后者在两个 worker 之间必然超发——而超发的表现是账单超了，不报错。
 	AddJobCallReservation(ctx context.Context, arg AddJobCallReservationParams) (int64, error)
+	// ⚠️ 尝试次数落在**数据库**里，不在内存。放内存的表现是：worker 崩溃重启后
+	// 计数归零，于是一个永远会失败的 item 被无限重试下去，把预算烧光——
+	// 而每一轮看起来都正常。这是自动恢复最容易引入的一种死循环。
+	BumpItemAttemptCount(ctx context.Context, arg BumpItemAttemptCountParams) (int64, error)
 	// 以下都是文档处理状态机的 CAS 转换——见 knowledge/service.go 的
 	// ProcessDocument。每条都带 id+version+旧状态三重限定，0 行受影响是预期
 	// 内的常见结果（并发重复到达、任务已过期、租约续约被抢），不是错误。
@@ -124,6 +128,7 @@ type Querier interface {
 	GetExtractionAttempt(ctx context.Context, id string) (GetExtractionAttemptRow, error)
 	// 原始响应单独取：它最大 64 KiB，不该出现在任何列表或统计查询里。
 	GetExtractionAttemptRawResponse(ctx context.Context, id string) (sql.NullString, error)
+	GetItemAttemptCounts(ctx context.Context, id string) (GetItemAttemptCountsRow, error)
 	GetKnowledgeBaseByID(ctx context.Context, id string) (KnowledgeBase, error)
 	GetMCPServerByID(ctx context.Context, id string) (McpServer, error)
 	GetMCPToolByID(ctx context.Context, id string) (McpTool, error)

@@ -195,3 +195,17 @@ WHERE id = ? AND state = 'reserved';
 -- name: CountJobAttemptsByState :many
 SELECT state, COUNT(*) AS n FROM relation_extraction_attempts
 WHERE job_id = ? GROUP BY state ORDER BY state;
+
+-- name: BumpItemAttemptCount :execrows
+-- ⚠️ 尝试次数落在**数据库**里，不在内存。放内存的表现是：worker 崩溃重启后
+-- 计数归零，于是一个永远会失败的 item 被无限重试下去，把预算烧光——
+-- 而每一轮看起来都正常。这是自动恢复最容易引入的一种死循环。
+UPDATE relation_extraction_items
+SET extract_attempt_count = extract_attempt_count + ?,
+    alias_attempt_count = alias_attempt_count + ?,
+    state = 'running', updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ?;
+
+-- name: GetItemAttemptCounts :one
+SELECT extract_attempt_count, alias_attempt_count, state
+FROM relation_extraction_items WHERE id = ?;

@@ -34,6 +34,31 @@ func (q *Queries) AddJobCallReservation(ctx context.Context, arg AddJobCallReser
 	return result.RowsAffected()
 }
 
+const bumpItemAttemptCount = `-- name: BumpItemAttemptCount :execrows
+UPDATE relation_extraction_items
+SET extract_attempt_count = extract_attempt_count + ?,
+    alias_attempt_count = alias_attempt_count + ?,
+    state = 'running', updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ?
+`
+
+type BumpItemAttemptCountParams struct {
+	ExtractAttemptCount int32  `json:"extract_attempt_count"`
+	AliasAttemptCount   int32  `json:"alias_attempt_count"`
+	ID                  string `json:"id"`
+}
+
+// ⚠️ 尝试次数落在**数据库**里，不在内存。放内存的表现是：worker 崩溃重启后
+// 计数归零，于是一个永远会失败的 item 被无限重试下去，把预算烧光——
+// 而每一轮看起来都正常。这是自动恢复最容易引入的一种死循环。
+func (q *Queries) BumpItemAttemptCount(ctx context.Context, arg BumpItemAttemptCountParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, bumpItemAttemptCount, arg.ExtractAttemptCount, arg.AliasAttemptCount, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const claimRelationExtractionJob = `-- name: ClaimRelationExtractionJob :execrows
 UPDATE relation_extraction_jobs
 SET epoch = epoch + 1, lease_until = ?, heartbeat_at = ?,
@@ -352,6 +377,24 @@ func (q *Queries) GetExtractionAttemptRawResponse(ctx context.Context, id string
 	var raw_response sql.NullString
 	err := row.Scan(&raw_response)
 	return raw_response, err
+}
+
+const getItemAttemptCounts = `-- name: GetItemAttemptCounts :one
+SELECT extract_attempt_count, alias_attempt_count, state
+FROM relation_extraction_items WHERE id = ?
+`
+
+type GetItemAttemptCountsRow struct {
+	ExtractAttemptCount int32  `json:"extract_attempt_count"`
+	AliasAttemptCount   int32  `json:"alias_attempt_count"`
+	State               string `json:"state"`
+}
+
+func (q *Queries) GetItemAttemptCounts(ctx context.Context, id string) (GetItemAttemptCountsRow, error) {
+	row := q.db.QueryRowContext(ctx, getItemAttemptCounts, id)
+	var i GetItemAttemptCountsRow
+	err := row.Scan(&i.ExtractAttemptCount, &i.AliasAttemptCount, &i.State)
+	return i, err
 }
 
 const getRelationExtractionJob = `-- name: GetRelationExtractionJob :one
