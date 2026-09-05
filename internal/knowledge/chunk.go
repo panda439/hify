@@ -3,6 +3,8 @@ package knowledge
 import (
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // chunkText splits text into overlapping chunks of at most size runes,
@@ -16,22 +18,81 @@ import (
 // with no punctuation) is larger than size on its own — see each of their
 // doc comments for exactly when that happens.
 func chunkText(text string, size, overlap int) []string {
+	return spanTexts(chunkTextSpans(text, size, overlap))
+}
+
+// textSpan is a produced chunk together with the BYTE interval of the
+// source text it was derived from (010 FR-006: a relation record must be
+// able to point at where in the book it came from).
+//
+// ⚠️ Byte offsets, not rune offsets — Go string slicing is byte-based, so
+// bytes are what a caller can actually slice with, and computing rune
+// offsets would cost an O(n) scan per unit. The rune-based size limit is a
+// separate concern and unaffected.
+//
+// ⚠️ Offsets produced by chunkPlainTextSpans are into the CRLF-NORMALIZED
+// text (see splitParagraphSpans), not into the caller's original string.
+// A caller that stores these intervals must normalize once up front and
+// treat the normalized text as the canonical source — chunkNarrative does.
+type textSpan struct {
+	Text  string
+	Start int
+	End   int
+}
+
+func spanTexts(spans []textSpan) []string {
+	if len(spans) == 0 {
+		return nil
+	}
+	out := make([]string, len(spans))
+	for i, sp := range spans {
+		out[i] = sp.Text
+	}
+	return out
+}
+
+// trimmedSpan returns strings.TrimSpace(src[from:to]) together with the
+// exact byte interval the trimmed text occupies in src.
+//
+// ⚠️ It exists so that trimming never desynchronizes text from offsets.
+// Computing the interval afterwards (searching for the trimmed text) is
+// the trap this whole change is meant to avoid: a repeated paragraph would
+// resolve to its FIRST occurrence every time, silently attributing every
+// copy to one place in the book.
+func trimmedSpan(src string, from, to int) (string, int, int) {
+	seg := src[from:to]
+	left := strings.TrimLeftFunc(seg, unicode.IsSpace)
+	start := from + len(seg) - len(left)
+	trimmed := strings.TrimRightFunc(left, unicode.IsSpace)
+	return trimmed, start, start + len(trimmed)
+}
+
+// chunkTextSpans is chunkText with source intervals attached.
+func chunkTextSpans(text string, size, overlap int) []textSpan {
 	size, overlap = normalizeChunkParams(size, overlap)
 
 	runes := []rune(text)
 	if len(runes) == 0 {
 		return nil
 	}
+	// Byte offset of every rune boundary, computed once.
+	off := make([]int, len(runes)+1)
+	b := 0
+	for i, r := range runes {
+		off[i] = b
+		b += utf8.RuneLen(r)
+	}
+	off[len(runes)] = b
 
 	step := size - overlap
-	var chunks []string
+	var chunks []textSpan
 	for start := 0; start < len(runes); start += step {
 		end := start + size
 		if end > len(runes) {
 			end = len(runes)
 		}
-		if chunk := strings.TrimSpace(string(runes[start:end])); chunk != "" {
-			chunks = append(chunks, chunk)
+		if chunk, from, to := trimmedSpan(text, off[start], off[end]); chunk != "" {
+			chunks = append(chunks, textSpan{Text: chunk, Start: from, End: to})
 		}
 		if end == len(runes) {
 			break
@@ -127,6 +188,16 @@ type chunkPiece struct {
 	PageNumber   *int
 	PageEnd      *int
 	SectionTitle *string
+	// ChapterNumber / SceneKey are set only by the narrative chunker
+	// (010, FR-008). nil ChapterNumber means UNKNOWN — never "chapter 0",
+	// and never a chunk index passed off as a chapter number.
+	ChapterNumber *int
+	SceneKey      *string
+	// SourceStart/SourceEnd are the byte interval of the CRLF-normalized
+	// source document this chunk was derived from (FR-006). Set only by
+	// the narrative chunker.
+	SourceStart *int
+	SourceEnd   *int
 }
 
 // chunkDocument dispatches to the structure-aware chunker for fileType.
@@ -490,13 +561,31 @@ func chunkMarkdown(text string, size, overlap int) []chunkPiece {
 var blankLinePattern = regexp.MustCompile(`\n\s*\n+`)
 
 func splitParagraphs(text string) []string {
+	return spanTexts(splitParagraphSpans(text))
+}
+
+// splitParagraphSpans is splitParagraphs with source intervals.
+//
+// ⚠️ The returned offsets index the CRLF-NORMALIZED text, because that is
+// what the paragraph pattern runs against. For LF-only input (both
+// public-domain corpora, and anything produced by the PDF/MD parsers) the
+// two are identical; for CRLF input they are not, which is why
+// chunkNarrative normalizes the document once before anything else and
+// keeps the normalized form as the source of truth.
+func splitParagraphSpans(text string) []textSpan {
 	normalized := strings.ReplaceAll(text, "\r\n", "\n")
-	var out []string
-	for _, p := range blankLinePattern.Split(normalized, -1) {
-		if t := strings.TrimSpace(p); t != "" {
-			out = append(out, t)
+	var out []textSpan
+	last := 0
+	emit := func(from, to int) {
+		if t, a, b := trimmedSpan(normalized, from, to); t != "" {
+			out = append(out, textSpan{Text: t, Start: a, End: b})
 		}
 	}
+	for _, m := range blankLinePattern.FindAllStringIndex(normalized, -1) {
+		emit(last, m[0])
+		last = m[1]
+	}
+	emit(last, len(normalized))
 	return out
 }
 
@@ -507,18 +596,25 @@ func splitParagraphs(text string) []string {
 var sentenceBoundaryPattern = regexp.MustCompile(`[^。！？.!?]*[。！？.!?]+`)
 
 func splitSentences(text string) []string {
+	return spanTexts(splitSentenceSpans(text, 0))
+}
+
+// splitSentenceSpans is splitSentences with source intervals, shifted by
+// base so a caller can express offsets in the enclosing document's frame.
+func splitSentenceSpans(text string, base int) []textSpan {
 	idxs := sentenceBoundaryPattern.FindAllStringIndex(text, -1)
-	var out []string
+	var out []textSpan
 	last := 0
-	for _, m := range idxs {
-		last = m[1]
-		if t := strings.TrimSpace(text[m[0]:m[1]]); t != "" {
-			out = append(out, t)
+	emit := func(from, to int) {
+		if t, a, b := trimmedSpan(text, from, to); t != "" {
+			out = append(out, textSpan{Text: t, Start: base + a, End: base + b})
 		}
 	}
-	if rest := strings.TrimSpace(text[last:]); rest != "" {
-		out = append(out, rest)
+	for _, m := range idxs {
+		last = m[1]
+		emit(m[0], m[1])
 	}
+	emit(last, len(text))
 	return out
 }
 
@@ -528,14 +624,37 @@ func splitSentences(text string) []string {
 // common case for content with no real sentence structure) falls back to
 // chunkText, which is what keeps chunkPlainText byte-for-byte compatible
 // with the old flat chunker for structureless content.
+// shiftSpans moves spans from a substring's own frame into the enclosing
+// text's frame.
+func shiftSpans(spans []textSpan, by int) []textSpan {
+	for i := range spans {
+		spans[i].Start += by
+		spans[i].End += by
+	}
+	return spans
+}
+
 func chunkBySentence(text string, size, overlap int) []string {
-	sentences := splitSentences(text)
+	return spanTexts(chunkBySentenceSpans(text, 0, size, overlap))
+}
+
+// chunkBySentenceSpans is chunkBySentence with source intervals, shifted
+// by base into the enclosing document's frame.
+//
+// ⚠️ A chunk's interval covers only its OWN sentences — never the carried
+// overlap seed spliced onto its front. The seed's source belongs to the
+// chunk it came from; counting it twice would inflate every interval by a
+// duplicate of its neighbour's, and any downstream "which part of the book
+// is covered" number computed from these intervals would be wrong in the
+// direction that looks better.
+func chunkBySentenceSpans(text string, base, size, overlap int) []textSpan {
+	sentences := splitSentenceSpans(text, base)
 	if len(sentences) == 0 {
 		return nil
 	}
 
-	var chunks []string
-	var acc []string
+	var chunks []textSpan
+	var acc []textSpan
 	var pendingOverlap string
 
 	accRuneLen := func() int {
@@ -544,7 +663,7 @@ func chunkBySentence(text string, size, overlap int) []string {
 		}
 		total := len(acc) - 1 // single space between accumulated sentences
 		for _, s := range acc {
-			total += len([]rune(s))
+			total += len([]rune(s.Text))
 		}
 		return total
 	}
@@ -555,9 +674,11 @@ func chunkBySentence(text string, size, overlap int) []string {
 			}
 			return
 		}
-		body := strings.Join(acc, " ")
+		body := strings.Join(spanTexts(acc), " ")
 		if t := strings.TrimSpace(body); t != "" {
-			chunks = append(chunks, t)
+			chunks = append(chunks, textSpan{
+				Text: t, Start: acc[0].Start, End: acc[len(acc)-1].End,
+			})
 		}
 		if carryOverlap && overlap > 0 {
 			pendingOverlap = tailRunes(body, overlap)
@@ -568,10 +689,15 @@ func chunkBySentence(text string, size, overlap int) []string {
 	}
 
 	for _, sentence := range sentences {
-		sLen := len([]rune(sentence))
+		sLen := len([]rune(sentence.Text))
 		if sLen > size {
 			flush(false)
-			chunks = append(chunks, chunkText(sentence, size, overlap)...)
+			// ⚠️ chunkTextSpans indexes sentence.Text, whose byte 0 is
+			// sentence.Start in the document. Forgetting to shift makes
+			// every character-level fallback chunk claim it came from the
+			// top of the file — plausible-looking offsets that are wrong.
+			chunks = append(chunks, shiftSpans(
+				chunkTextSpans(sentence.Text, size, overlap), sentence.Start)...)
 			continue
 		}
 
@@ -581,7 +707,8 @@ func chunkBySentence(text string, size, overlap int) []string {
 
 		next := sentence
 		if len(acc) == 0 && pendingOverlap != "" {
-			next = prependOverlap(pendingOverlap, " ", sentence, size)
+			// ⚠️ Text gains the seed; Start/End deliberately do NOT.
+			next.Text = prependOverlap(pendingOverlap, " ", sentence.Text, size)
 			pendingOverlap = ""
 		}
 		acc = append(acc, next)
@@ -600,14 +727,20 @@ func chunkBySentence(text string, size, overlap int) []string {
 // exactly — existing knowledge bases built on such content keep chunking
 // identically.
 func chunkPlainText(text string, size, overlap int) []string {
+	return spanTexts(chunkPlainTextSpans(text, size, overlap))
+}
+
+// chunkPlainTextSpans is chunkPlainText with source intervals.
+// ⚠️ Offsets index the CRLF-normalized text — see splitParagraphSpans.
+func chunkPlainTextSpans(text string, size, overlap int) []textSpan {
 	size, overlap = normalizeChunkParams(size, overlap)
-	paragraphs := splitParagraphs(text)
+	paragraphs := splitParagraphSpans(text)
 	if len(paragraphs) == 0 {
 		return nil
 	}
 
-	var chunks []string
-	var acc []string
+	var chunks []textSpan
+	var acc []textSpan
 	var pendingOverlap string
 
 	accRuneLen := func() int {
@@ -616,7 +749,7 @@ func chunkPlainText(text string, size, overlap int) []string {
 		}
 		total := 2 * (len(acc) - 1) // blank line between accumulated paragraphs
 		for _, s := range acc {
-			total += len([]rune(s))
+			total += len([]rune(s.Text))
 		}
 		return total
 	}
@@ -627,9 +760,11 @@ func chunkPlainText(text string, size, overlap int) []string {
 			}
 			return
 		}
-		body := strings.Join(acc, "\n\n")
+		body := strings.Join(spanTexts(acc), "\n\n")
 		if t := strings.TrimSpace(body); t != "" {
-			chunks = append(chunks, t)
+			chunks = append(chunks, textSpan{
+				Text: t, Start: acc[0].Start, End: acc[len(acc)-1].End,
+			})
 		}
 		if carryOverlap && overlap > 0 {
 			pendingOverlap = tailRunes(body, overlap)
@@ -640,10 +775,12 @@ func chunkPlainText(text string, size, overlap int) []string {
 	}
 
 	for _, para := range paragraphs {
-		paraLen := len([]rune(para))
+		paraLen := len([]rune(para.Text))
 		if paraLen > size {
 			flush(false)
-			chunks = append(chunks, chunkBySentence(para, size, overlap)...)
+			// Sentence level indexes para.Text; shift back to the document.
+			chunks = append(chunks,
+				chunkBySentenceSpans(para.Text, para.Start, size, overlap)...)
 			continue
 		}
 
@@ -653,7 +790,8 @@ func chunkPlainText(text string, size, overlap int) []string {
 
 		next := para
 		if len(acc) == 0 && pendingOverlap != "" {
-			next = prependOverlap(pendingOverlap, "\n", para, size)
+			// ⚠️ Text gains the seed; Start/End deliberately do NOT.
+			next.Text = prependOverlap(pendingOverlap, "\n", para.Text, size)
 			pendingOverlap = ""
 		}
 		acc = append(acc, next)
