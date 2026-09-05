@@ -8,6 +8,7 @@ package gen
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 )
 
@@ -162,6 +163,64 @@ func (q *Queries) GetDocumentByID(ctx context.Context, id string) (Document, err
 		&i.UnparseablePages,
 	)
 	return i, err
+}
+
+const listDocumentCoverages = `-- name: ListDocumentCoverages :many
+SELECT id, unextracted_pages, unparseable_pages
+FROM documents
+WHERE id IN (/*SLICE:ids*/?)
+`
+
+type ListDocumentCoveragesRow struct {
+	ID               string         `json:"id"`
+	UnextractedPages sql.NullString `json:"unextracted_pages"`
+	UnparseablePages sql.NullString `json:"unparseable_pages"`
+}
+
+// 009-evidence-boundary-awareness：批量取一组文档"有多少内容没能入库"。
+//
+// ⚠️ 只 SELECT 三列，不是整行。调用方（conversation 组装上下文时）要的是
+// 「这份资料完不完整」这一个事实；把整行递过去会让下游有机会依赖一堆它本不该
+// 关心的字段，而那些字段的变化会无声地波及对话链路。
+//
+// ⚠️ **必须是批量的**。一次检索可能命中十几个文档（邻接窗口更多），按文档循环查
+// 就是 Phase 7 批量邻接查询踩过的同一个 N+1——那一次是在检索路径上，这一次会在
+// 每一轮对话上，代价只多不少。
+//
+// 两列都为 NULL 的文档也会被返回，由 Go 侧过滤掉——在 SQL 里写
+// "WHERE ... IS NOT NULL" 会让"完整"和"不知道"这两件事在这一层就被混掉，
+// 而它们的区分（或者说"都当作没话说"这个决定）属于领域层。
+func (q *Queries) ListDocumentCoverages(ctx context.Context, ids []string) ([]ListDocumentCoveragesRow, error) {
+	query := listDocumentCoverages
+	var queryParams []interface{}
+	if len(ids) > 0 {
+		for _, v := range ids {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:ids*/?", strings.Repeat(",?", len(ids))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDocumentCoveragesRow{}
+	for rows.Next() {
+		var i ListDocumentCoveragesRow
+		if err := rows.Scan(&i.ID, &i.UnextractedPages, &i.UnparseablePages); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listDocumentsByKnowledgeBase = `-- name: ListDocumentsByKnowledgeBase :many

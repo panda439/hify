@@ -102,6 +102,8 @@ type fakeKnowledgeSvc struct {
 	// 检索。这一环特别容易悄悄失效：范围没传下去时，检索照常返回结果、
 	// 对话照常完成，只是范围没生效，没有任何报错能暴露它。
 	optsSeen []knowledge.RetrieveOptions
+	// incompleteDocs 是 009 的 DocumentCoverages 返回值。
+	incompleteDocs map[string]knowledge.DocumentCoverage
 }
 
 func (f *fakeKnowledgeSvc) Retrieve(ctx context.Context, kbIDs []string, query string, topK int, opts knowledge.RetrieveOptions) ([]knowledge.RetrievedChunk, error) {
@@ -1755,4 +1757,22 @@ func TestIntegrationTurnStopsOnTokenBudget(t *testing.T) {
 	if !strings.Contains(final.Content, "不完整") {
 		t.Fatalf("收尾消息必须声明信息可能不完整，实际：%q", final.Content)
 	}
+}
+
+// DocumentCoverages 是 009 给 fakeKnowledgeSvc 补的实现：直接返回预置的映射，
+// 完整的文档由构造方自己不放进去（真实实现在仓储层就过滤掉了）。
+func (f *fakeKnowledgeSvc) DocumentCoverages(ctx context.Context, ids []string) (map[string]knowledge.DocumentCoverage, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if len(f.incompleteDocs) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]knowledge.DocumentCoverage, len(ids))
+	for _, id := range ids {
+		if c, ok := f.incompleteDocs[id]; ok {
+			out[id] = c
+		}
+	}
+	return out, nil
 }

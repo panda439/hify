@@ -7,7 +7,7 @@ export
 DOCKER_BUILDKIT ?= 0
 export DOCKER_BUILDKIT
 
-.PHONY: dev build test test-race migrate-up migrate-down sqlc check-deps db-up db-down web-dev web-build eval eval-retrieval-gate app-build app-up app-down app-logs app-seed-admin
+.PHONY: dev build test test-race migrate-up migrate-down sqlc check-deps db-up db-down web-dev web-build eval eval-retrieval-gate eval-context-gate app-build app-up app-down app-logs app-seed-admin
 
 dev:
 	air
@@ -92,3 +92,14 @@ eval:
 eval-retrieval-gate:
 	HIFY_RETRIEVAL_GATE_REPORT_PATH=$(CURDIR)/eval/runs/phase6-retrieval-gate-latest.json \
 		go test -v -race -count=1 -run TestRetrievalGatePhase6 ./internal/knowledge/
+
+# 009：上下文组装确定性门禁。守的是检索门禁**不覆盖**的那一段——从证据到"送给
+# 模型的完整消息序列"。上下文组装是整条对话链路上最容易被无声改坏的地方：改错了
+# 不报错、不会有任何测试变红，只会让回答慢慢变差，而没人会把它和某次提交联系起来。
+#
+# ⚠️ 它证明的是「送出去的东西正是我们打算送的」，**不证明**「回答更好」。后者本
+# 仓库测不了（make eval 带 LLM 裁判、同一份代码跑两次都不一致）。门禁绿了不等于
+# 效果好，这条边界别忘。
+eval-context-gate:
+	HIFY_CONTEXT_GATE_REPORT_PATH=$(CURDIR)/eval/runs/phase16-context-gate-latest.json \
+		go test -v -race -count=1 -run TestContextGate ./internal/conversation/

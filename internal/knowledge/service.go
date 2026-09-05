@@ -31,6 +31,15 @@ type Service interface {
 	UploadDocument(ctx context.Context, kbID, userID, role, fileName, fileType string, content []byte) (Document, error)
 	ListDocuments(ctx context.Context, kbID string, limit, offset int) ([]Document, int, error)
 	GetDocument(ctx context.Context, id string) (Document, error)
+
+	// DocumentCoverages 批量返回这些文档各自"有多少内容没能入库"（009）。
+	//
+	// ⚠️ 接口是**批量**的，不是单查——一次检索可能命中十几个文档（邻接窗口更多），
+	// 按文档循环查就是 Phase 7 批量邻接查询踩过的同一个 N+1。
+	//
+	// 完整的文档**不会**出现在结果里：没有话说就不要说话，过滤在这一层做完，
+	// 不留给调用方（FR-008）。
+	DocumentCoverages(ctx context.Context, documentIDs []string) (map[string]DocumentCoverage, error)
 	DeleteDocument(ctx context.Context, id, userID, role string) error
 
 	// RetryDocument re-queues a pending/failed document for processing
@@ -1377,4 +1386,12 @@ func (s *service) logStrippedLayoutNoise(documentID string, records []noiseRecor
 		"document_id", documentID,
 		"stripped_total", len(records),
 		"lines_logged", len(logged))
+}
+
+// DocumentCoverages 见 Service 接口上的说明。
+func (s *service) DocumentCoverages(ctx context.Context, documentIDs []string) (map[string]DocumentCoverage, error) {
+	if len(documentIDs) == 0 {
+		return nil, nil
+	}
+	return s.repo.documentCoverages(ctx, documentIDs)
 }

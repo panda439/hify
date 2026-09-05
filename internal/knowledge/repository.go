@@ -843,3 +843,25 @@ func nullStringToStringPtr(n sql.NullString) *string {
 	v := n.String
 	return &v
 }
+
+// documentCoverages 批量取这些文档的缺失情况，完整的（两列都空）不进结果——
+// 过滤在这里做完，调用方拿到的每一条都确实有话可说（009 的 FR-008）。
+func (r *Repository) documentCoverages(ctx context.Context, documentIDs []string) (map[string]DocumentCoverage, error) {
+	rows, err := r.queries.ListDocumentCoverages(ctx, documentIDs)
+	if err != nil {
+		return nil, fmt.Errorf("knowledge: list document coverages: %w", err)
+	}
+	out := make(map[string]DocumentCoverage, len(rows))
+	for _, row := range rows {
+		c := DocumentCoverage{
+			DocumentID:       row.ID,
+			UnextractedPages: decodePageList(row.UnextractedPages),
+			UnparseablePages: decodePageList(row.UnparseablePages),
+		}
+		if c.IsComplete() {
+			continue
+		}
+		out[c.DocumentID] = c
+	}
+	return out, nil
+}

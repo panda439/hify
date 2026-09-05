@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -187,6 +188,9 @@ func (s *service) assembleContext(ctx context.Context, conversationID string, ag
 	}
 
 	var evidence []Evidence
+	// retrievalSucceeded distinguishes "we looked and found nothing" from
+	// "we never looked" and "looking failed" — see the assignment below.
+	retrievalSucceeded := false
 	var retrievedCount, filteredByScore, filteredByBudget int
 	if len(ag.KnowledgeBaseIDs) > 0 {
 		// Query rewrite (US1, FR-001): turns an elliptical follow-up like
@@ -259,6 +263,14 @@ func (s *service) assembleContext(ctx context.Context, conversationID string, ag
 			status = trace.StatusError
 			errMsg = err.Error()
 			candidates = nil
+		} else {
+			// 009: retrieval genuinely ran and returned an answer — even if
+			// that answer was "nothing". This flag is what lets an empty
+			// result be reported as a FACT rather than lumped in with
+			// "there was no knowledge base" and "the lookup broke", which
+			// are the other two ways evidence ends up empty and about which
+			// we have nothing true to say.
+			retrievalSucceeded = true
 		}
 		retrievedCount = len(candidates)
 
@@ -311,8 +323,26 @@ func (s *service) assembleContext(ctx context.Context, conversationID string, ag
 	var evidenceMessageContent string
 	evidenceChars := 0
 	if len(evidence) > 0 {
-		evidenceMessageContent = formatRetrievedSources(evidence)
+		// 009 US2: attach, once per document, the fact that a hit document
+		// is missing content. Best-effort — a lookup failure degrades to
+		// "no note", never to a failed turn: this is supplementary display
+		// information and it must not be able to take a conversation down.
+		coverages := s.incompleteCoverages(ctx, evidence, conversationID)
+		evidenceMessageContent = formatRetrievedSourcesWithCoverage(evidence, coverages)
 		evidenceChars = len([]rune(citationSystemRules)) + len([]rune(evidenceMessageContent))
+	}
+
+	// 009 US1: retrieval ran and matched nothing. Say so — as a fact, with
+	// no behavioural instruction attached (see emptyRetrievalNotice).
+	//
+	// ⚠️ Deliberately NOT emitted when there is no knowledge base (we never
+	// looked) or when retrieval failed (we have nothing true to assert, and
+	// telling the model about an internal fault invites it to relay that to
+	// the user). In both of those cases silence is the only honest option.
+	emptyRetrievalSignal := ""
+	if retrievalSucceeded && len(evidence) == 0 {
+		emptyRetrievalSignal = emptyRetrievalNotice
+		evidenceChars += len([]rune(emptyRetrievalSignal))
 	}
 	historyBudget := fixedBudget - evidenceChars
 	if historyBudget < 0 {
@@ -335,6 +365,9 @@ func (s *service) assembleContext(ctx context.Context, conversationID string, ag
 	}
 	if len(evidence) > 0 {
 		out = append(out, provider.Message{Role: provider.RoleSystem, Content: citationSystemRules})
+	}
+	if emptyRetrievalSignal != "" {
+		out = append(out, provider.Message{Role: provider.RoleSystem, Content: emptyRetrievalSignal})
 	}
 	for _, m := range kept {
 		out = append(out, provider.Message{Role: provider.Role(m.Role), Content: m.Content})
@@ -500,4 +533,133 @@ func reverseMessages(rows []Message) {
 	for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
 		rows[i], rows[j] = rows[j], rows[i]
 	}
+}
+
+// --- 009-evidence-boundary-awareness ---
+
+// emptyRetrievalNotice is what the model is told when retrieval ran and
+// matched nothing.
+//
+// ⛔ It states a FACT and stops there. No "answer carefully", no "say you
+// are unsure", no "do not make things up". Attaching a behavioural
+// instruction here would actively coach the model into hedging — and
+// over-hedging on questions it could have answered well is precisely this
+// feature's main risk, one this repository has NO WAY TO MEASURE
+// (make eval uses an LLM judge and is not reproducible; the deterministic
+// gates cover retrieval and context assembly, not answers). Given that we
+// cannot detect the side effect, the only responsible move is to keep the
+// injected surface as small as a true statement allows.
+const emptyRetrievalNotice = "本轮已检索知识库，未匹配到任何相关内容。"
+
+const (
+	incompleteDocsOpenTag  = "<incomplete_documents>\n"
+	incompleteDocsCloseTag = "</incomplete_documents>\n"
+)
+
+// incompleteCoverages looks up which of this turn's hit documents are
+// missing content. Best-effort by design: any failure yields nil, the
+// sources go out as before, and the turn proceeds. A supplementary note
+// must never be able to fail a conversation.
+func (s *service) incompleteCoverages(ctx context.Context, evidence []Evidence, conversationID string) map[string]knowledge.DocumentCoverage {
+	if s.knowledgeSvc == nil || len(evidence) == 0 {
+		return nil
+	}
+	// One batched lookup for the whole turn. A per-document call here would
+	// be the same N+1 the batch neighbour query (Phase 7) was written to
+	// remove — and it would run on every single turn, not just retrieval.
+	seen := make(map[string]struct{}, len(evidence))
+	ids := make([]string, 0, len(evidence))
+	for _, e := range evidence {
+		if e.DocumentID == "" {
+			continue
+		}
+		if _, dup := seen[e.DocumentID]; dup {
+			continue
+		}
+		seen[e.DocumentID] = struct{}{}
+		ids = append(ids, e.DocumentID)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	coverages, err := s.knowledgeSvc.DocumentCoverages(ctx, ids)
+	if err != nil {
+		slog.Warn("conversation: document coverage lookup failed, sources sent without completeness note",
+			"err", err, "conversation_id", conversationID)
+		return nil
+	}
+	return coverages
+}
+
+// formatRetrievedSourcesWithCoverage is formatRetrievedSources plus, when
+// any hit document is incomplete, a single summary element listing those
+// documents.
+//
+// ⭐ Once per DOCUMENT, not once per source: one document routinely
+// contributes several chunks (the neighbour window multiplies that), and
+// repeating the same sentence beside each of them would cost real budget
+// and hand the model a wall of redundancy for no added information.
+//
+// ⭐ Sorted by document ID, never by hit order or map iteration: the same
+// set of evidence must always render to the same bytes (SC-008), and hit
+// order is a property of scoring, not of the documents involved.
+func formatRetrievedSourcesWithCoverage(evidence []Evidence, coverages map[string]knowledge.DocumentCoverage) string {
+	var sb strings.Builder
+	sb.WriteString(retrievedSourcesOpenTag)
+	for _, e := range evidence {
+		sb.WriteString(formatSource(e))
+	}
+	if note := formatIncompleteDocuments(evidence, coverages); note != "" {
+		sb.WriteString(note)
+	}
+	sb.WriteString(retrievedSourcesCloseTag)
+	return sb.String()
+}
+
+// formatIncompleteDocuments renders the summary element, or "" when every
+// hit document is complete — nothing to say means saying nothing (FR-008).
+func formatIncompleteDocuments(evidence []Evidence, coverages map[string]knowledge.DocumentCoverage) string {
+	if len(coverages) == 0 {
+		return ""
+	}
+	// Display name per document, taken from the evidence (already
+	// display-ready — see Evidence.DocumentName).
+	names := make(map[string]string, len(evidence))
+	ids := make([]string, 0, len(coverages))
+	for _, e := range evidence {
+		if _, ok := coverages[e.DocumentID]; !ok {
+			continue
+		}
+		if _, dup := names[e.DocumentID]; dup {
+			continue
+		}
+		names[e.DocumentID] = e.DocumentName
+		ids = append(ids, e.DocumentID)
+	}
+	if len(ids) == 0 {
+		return ""
+	}
+	sort.Strings(ids)
+
+	var sb strings.Builder
+	sb.WriteString(incompleteDocsOpenTag)
+	for _, id := range ids {
+		c := coverages[id]
+		var parts []string
+		if n := len(c.UnextractedPages); n > 0 {
+			parts = append(parts, fmt.Sprintf("%d 页未提取文本", n))
+		}
+		if n := len(c.UnparseablePages); n > 0 {
+			parts = append(parts, fmt.Sprintf("%d 页无法解析", n))
+		}
+		if len(parts) == 0 {
+			continue
+		}
+		sb.WriteString(escapeXMLBody(names[id]))
+		sb.WriteString("：")
+		sb.WriteString(strings.Join(parts, "、"))
+		sb.WriteString("\n")
+	}
+	sb.WriteString(incompleteDocsCloseTag)
+	return sb.String()
 }

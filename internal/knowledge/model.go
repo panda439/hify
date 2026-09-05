@@ -444,3 +444,25 @@ type UpdateKnowledgeBaseInput struct {
 	Description string
 	IsActive    bool
 }
+
+// DocumentCoverage 描述一份文档**有多少内容没能进入知识库**——它是 007/008 那两列
+// 的只读投影，供 conversation 在组装上下文时使用（009）。
+//
+// 两个列表的语义与 Document 上的同名字段完全相同，包括「互不重叠」和「nil 表示
+// 没有**或者**不知道」。这里不重复那些说明，见 Document.UnextractedPages /
+// UnparseablePages。
+//
+// ⚠️ 它刻意**只带缺失信息**，不带文件名、状态、分片数之类。调用方要的是
+// 「这份资料完不完整」这一个事实；把整个 Document 递过去会让下游有机会依赖
+// 一堆它本不该关心的字段，而那些字段的变化会无声地波及对话链路。
+type DocumentCoverage struct {
+	DocumentID       string
+	UnextractedPages []int
+	UnparseablePages []int
+}
+
+// IsComplete 报告这份文档是否完整。两个列表都为空即为完整——包括"不知道"的情况，
+// 因为没有话说时就不该说话（009 的 FR-008）。
+func (c DocumentCoverage) IsComplete() bool {
+	return len(c.UnextractedPages) == 0 && len(c.UnparseablePages) == 0
+}

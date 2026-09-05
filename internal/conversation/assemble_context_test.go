@@ -117,11 +117,49 @@ func TestIntegrationAssembleContextAllCandidatesBelowThresholdChargesNothingForR
 	if err != nil {
 		t.Fatalf("assembleContext: %v", err)
 	}
-	if len(assembled.Messages) != 4 {
-		t.Fatalf("assembled %d messages, want all 4 history rows kept (every candidate filtered by score must not reserve RAG budget): %+v", len(assembled.Messages), assembled.Messages)
-	}
 	if assembled.FilteredByScore != 1 {
 		t.Fatalf("FilteredByScore = %d, want 1", assembled.FilteredByScore)
+	}
+
+	// 这条用例原本断言的是"共 4 条消息"，用来防**幽灵预留**：候选被分数全部过滤掉、
+	// 证据为空时，绝不能仍按 RAG 全额（citationSystemRules + <retrieved_sources>）
+	// 预留预算，把历史白白挤掉。
+	//
+	// 009 之后这里**确实多了一条消息**：候选被过滤光 = 检索跑了、没匹配到可用内容，
+	// 那正是空检索信号该出现的场合。所以断言从"消息条数"改成它真正要防的那件事——
+	// **只为信号那一句话付费，不为它不存在的 RAG 全额付费**。
+	//
+	// ⚠️ 不要把这条改成宽松的"条数 >= 4"就了事：那样一来幽灵预留回来了也不会被发现，
+	// 而幽灵预留正是这条用例存在的全部理由。
+	var signalCount int
+	var historyCount int
+	for _, m := range assembled.Messages {
+		switch {
+		case m.Content == emptyRetrievalNotice:
+			signalCount++
+		case strings.HasPrefix(m.Content, strings.Repeat("h", 10)):
+			historyCount++
+		}
+		if strings.Contains(m.Content, retrievedSourcesOpenTag) || m.Content == citationSystemRules {
+			t.Fatalf("证据为空却注入了 RAG 相关内容——幽灵预留回来了：%q", m.Content)
+		}
+	}
+	if signalCount != 1 {
+		t.Fatalf("空检索信号出现 %d 次，应当恰好 1 次", signalCount)
+	}
+
+	// ⭐ 精确断言，不是 ">= 2" 一类的范围。
+	//
+	// 改动前这个预算下保留 4 条历史；信号本身要占预算，于是恰好挤掉 1 条 → 3 条。
+	// **这个数必须是精确的**：写成范围的话，"新增字符压根没计进预算"这种缺陷
+	// （历史仍是 4 条）会从范围里溜过去——变异测试实证过它确实溜过去了。
+	//
+	// 这个数变了，意味着预算核算变了。那是行为改动，该当成行为改动看，
+	// 而不是"把期望值改一下就行"。
+	const wantHistory = 3
+	if historyCount != wantHistory {
+		t.Fatalf("历史保留 %d 条，期望 %d 条。少了说明预算被多占，多了说明那句 %d 字的"+
+			"信号根本没计进预算（FR-010）", historyCount, wantHistory, len([]rune(emptyRetrievalNotice)))
 	}
 }
 
@@ -331,4 +369,148 @@ func summarizeContents(messages []provider.Message) []string {
 		}
 	}
 	return out
+}
+
+// --- 009-evidence-boundary-awareness：让模型知道自己证据的边界 ---
+
+// TestAssembleContextEmptyRetrievalTellsTheModel 是 SC-001 的验收用例。
+//
+// ⚠️ 改动前，「检索了但没匹配」「压根没绑知识库」「检索失败降级」三种情况送给模型的
+// 消息序列**逐字节相同**（上下文门禁基线实测过），而且里面连"知识库"三个字都没有。
+// 模型于是按参数知识作答，语气与有依据时毫无区别——用户把合同传进去、问了合同里的
+// 问题、拿到一个听起来很有把握实际上零依据的回答，而他没有任何线索去怀疑。
+func TestAssembleContextEmptyRetrievalTellsTheModel(t *testing.T) {
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
+	svc := newAssembleTestService(db, &fakeKnowledgeSvc{chunks: nil})
+
+	seedConversation(t, repo, "conv-009-empty", "ag-009", "u1")
+	seedHistory(t, repo, "conv-009-empty", 2, "历史", "知识库里没有的问题")
+
+	ag := agent.Agent{ID: "ag-009", ModelID: "m1", KnowledgeBaseIDs: []string{"kb-009"}}
+	assembled, err := svc.assembleContext(context.Background(), "conv-009-empty", ag, smallWindowModel, "知识库里没有的问题", "trace-009")
+	if err != nil {
+		t.Fatalf("assembleContext: %v", err)
+	}
+
+	var joined strings.Builder
+	for _, m := range assembled.Messages {
+		joined.WriteString(m.Content)
+		joined.WriteString("\n")
+	}
+	if !strings.Contains(joined.String(), "未匹配到") {
+		t.Fatalf("检索执行了却没匹配到任何内容，但送给模型的消息序列里没有任何说明——"+
+			"模型无从知道知识库被查过、更不知道查空了。messages:\n%s", joined.String())
+	}
+}
+
+// TestAssembleContextNoKnowledgeBasesStaysSilent 是 FR-002 的反向约束：
+// **没查过就不能说查过**。这条和上面那条必须成对存在——只有上面那条的话，
+// 一个"永远注入"的实现也能让它通过，而那会对着没绑知识库的 Agent 谎称检索过。
+func TestAssembleContextNoKnowledgeBasesStaysSilent(t *testing.T) {
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
+	svc := &service{repo: repo, traceStore: trace.NewStore(db)}
+
+	seedConversation(t, repo, "conv-009-nokb", "ag-009-nokb", "u1")
+	seedHistory(t, repo, "conv-009-nokb", 2, "历史", "随便问点什么")
+
+	ag := agent.Agent{ID: "ag-009-nokb", ModelID: "m1"} // 没有 KnowledgeBaseIDs
+	assembled, err := svc.assembleContext(context.Background(), "conv-009-nokb", ag, smallWindowModel, "随便问点什么", "trace-009")
+	if err != nil {
+		t.Fatalf("assembleContext: %v", err)
+	}
+	for _, m := range assembled.Messages {
+		if strings.Contains(m.Content, "已检索") || strings.Contains(m.Content, "未匹配到") {
+			t.Fatalf("这个 Agent 根本没绑知识库，却对模型声称检索过：%q", m.Content)
+		}
+	}
+}
+
+// TestAssembleContextIncompleteDocumentIsSurfaced 是 SC-002 的验收用例。
+//
+// 007/008 已经能记录一份文档有哪些页没能进入知识库，但那个事实**只到文档列表为止**。
+// 一份 50 页合同后 5 页是扫描签字页，用户问签字页上的条款：检索命中了前 45 页里语义
+// 最接近的几段，模型拿着这些**看起来相关、实际上不含答案**的资料作答，
+// 它不知道自己手里这份文档缺了一块，也就不可能提醒用户。
+func TestAssembleContextIncompleteDocumentIsSurfaced(t *testing.T) {
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
+	fakeKS := &fakeKnowledgeSvc{
+		chunks: []knowledge.RetrievedChunk{{
+			Chunk: knowledge.Chunk{
+				ID: "c1", KnowledgeBaseID: "kb-009", DocumentID: "doc-incomplete",
+				DocumentName: "合同.pdf", Content: "这是命中的资料正文。",
+			},
+			Score: 0.9,
+		}},
+		incompleteDocs: map[string]knowledge.DocumentCoverage{
+			"doc-incomplete": {DocumentID: "doc-incomplete", UnextractedPages: []int{46, 47, 48, 49, 50}},
+		},
+	}
+	svc := newAssembleTestService(db, fakeKS)
+
+	seedConversation(t, repo, "conv-009-inc", "ag-009-inc", "u1")
+	seedHistory(t, repo, "conv-009-inc", 2, "历史", "签字页上的条款是什么")
+
+	ag := agent.Agent{ID: "ag-009-inc", ModelID: "m1", KnowledgeBaseIDs: []string{"kb-009"}}
+	assembled, err := svc.assembleContext(context.Background(), "conv-009-inc", ag, smallWindowModel, "签字页上的条款是什么", "trace-009")
+	if err != nil {
+		t.Fatalf("assembleContext: %v", err)
+	}
+	var joined strings.Builder
+	for _, m := range assembled.Messages {
+		joined.WriteString(m.Content)
+		joined.WriteString("\n")
+	}
+	if !strings.Contains(joined.String(), "合同.pdf") || !strings.Contains(joined.String(), "未提取文本") {
+		t.Fatalf("命中的文档有 5 页没能进入知识库，但模型完全不知道——"+
+			"它拿着看起来相关、实际上不含答案的资料作答。messages:\n%s", joined.String())
+	}
+}
+
+// TestAssembleContextEmptyRetrievalSignalIsChargedToBudget 直接盯 FR-010：
+// 空检索信号的字符**必须**计进上下文预算。
+//
+// ⚠️ 为什么单开一条而不是靠既有那条预算用例：既有用例的历史行是 100 字一条、
+// 预算宽松，20 字的信号加不加根本改变不了保留条数——**变异测试实证过它抓不住**。
+// 一条"抓不住自己要防的缺陷"的断言比没有断言更糟，因为它让人以为验过了。
+//
+// 这里用很多条**短**历史，让淘汰粒度小到能感知那 20 字：不计费时能多留一条，
+// 计费时少一条。差值就是信号的成本。
+func TestAssembleContextEmptyRetrievalSignalIsChargedToBudget(t *testing.T) {
+	db := testutil.MySQL(t, "conversation")
+	repo := NewRepository(db)
+
+	countHistory := func(convID string, ks knowledge.Service, ag agent.Agent) int {
+		t.Helper()
+		seedConversation(t, repo, convID, ag.ID, "u1")
+		seedHistory(t, repo, convID, 200, strings.Repeat("h", 20), "最新问题")
+		svc := newAssembleTestService(db, ks)
+		assembled, err := svc.assembleContext(context.Background(), convID, ag, smallWindowModel, "最新问题", "trace-budget")
+		if err != nil {
+			t.Fatalf("assembleContext: %v", err)
+		}
+		n := 0
+		for _, m := range assembled.Messages {
+			if strings.HasPrefix(m.Content, strings.Repeat("h", 10)) {
+				n++
+			}
+		}
+		return n
+	}
+
+	agWithKB := agent.Agent{ID: "ag-budget-kb", ModelID: "m1", KnowledgeBaseIDs: []string{"kb-b"}}
+	agNoKB := agent.Agent{ID: "ag-budget-nokb", ModelID: "m1"}
+
+	// 会注入信号（检索执行、无匹配）
+	withSignal := countHistory("conv-budget-sig", &fakeKnowledgeSvc{chunks: nil}, agWithKB)
+	// 不会注入信号（没绑知识库），同样的历史、同样的预算
+	withoutSignal := countHistory("conv-budget-nosig", nil, agNoKB)
+
+	if withSignal >= withoutSignal {
+		t.Fatalf("注入信号后保留了 %d 条历史，不注入时 %d 条——信号占了 %d 个字符却没有"+
+			"体现在预算上，说明它没被计进 computeFixedBudget（FR-010）",
+			withSignal, withoutSignal, len([]rune(emptyRetrievalNotice)))
+	}
 }
