@@ -16,6 +16,7 @@ const addJobCallReservation = `-- name: AddJobCallReservation :execrows
 UPDATE relation_extraction_jobs
 SET reserved_calls = reserved_calls + 1, updated_at = CURRENT_TIMESTAMP(3)
 WHERE id = ? AND epoch = ? AND reserved_calls < call_limit
+  AND active_ms_used < active_ms_limit
 `
 
 type AddJobCallReservationParams struct {
@@ -92,6 +93,30 @@ func (q *Queries) ClaimRelationExtractionJob(ctx context.Context, arg ClaimRelat
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const classifyJobBudgetState = `-- name: ClassifyJobBudgetState :one
+SELECT reserved_calls >= call_limit AS calls_exhausted,
+       active_ms_used >= active_ms_limit AS active_time_exhausted
+FROM relation_extraction_jobs WHERE id = ?
+`
+
+type ClassifyJobBudgetStateRow struct {
+	CallsExhausted      bool `json:"calls_exhausted"`
+	ActiveTimeExhausted bool `json:"active_time_exhausted"`
+}
+
+// 预留被拒之后**再问一次**是哪一维用尽了。
+//
+// ⚠️ 两条语句之间理论上还能再变（另一个 worker 又花了一点），但用途只是
+// 给用户一句准确的话（"调用额度用尽"还是"活跃时间用尽"），
+// 而两者的下一步不同：前者追加调用额度，后者说明模型变慢了、追加时间
+// 未必解决问题。把它做成一条语句的代价是每次预留都多算两个布尔值。
+func (q *Queries) ClassifyJobBudgetState(ctx context.Context, id string) (ClassifyJobBudgetStateRow, error) {
+	row := q.db.QueryRowContext(ctx, classifyJobBudgetState, id)
+	var i ClassifyJobBudgetStateRow
+	err := row.Scan(&i.CallsExhausted, &i.ActiveTimeExhausted)
+	return i, err
 }
 
 const completeJobInitialization = `-- name: CompleteJobInitialization :execrows

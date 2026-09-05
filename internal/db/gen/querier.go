@@ -53,6 +53,13 @@ type Querier interface {
 	// 会因为 epoch 对不上被拒。⚠️ 它**只约束数据发布**——旧 worker 那次外部调用
 	// 该花的钱已经花了，账目照记，见 relation_extraction_attempts。
 	ClaimRelationExtractionJob(ctx context.Context, arg ClaimRelationExtractionJobParams) (int64, error)
+	// 预留被拒之后**再问一次**是哪一维用尽了。
+	//
+	// ⚠️ 两条语句之间理论上还能再变（另一个 worker 又花了一点），但用途只是
+	// 给用户一句准确的话（"调用额度用尽"还是"活跃时间用尽"），
+	// 而两者的下一步不同：前者追加调用额度，后者说明模型变慢了、追加时间
+	// 未必解决问题。把它做成一条语句的代价是每次预留都多算两个布尔值。
+	ClassifyJobBudgetState(ctx context.Context, id string) (ClassifyJobBudgetStateRow, error)
 	// ⭐ 初始化完成是一次**带守卫的**状态跃迁，不是无条件 UPDATE。
 	//
 	// 守卫 state='initializing' AND initialization_complete=0：

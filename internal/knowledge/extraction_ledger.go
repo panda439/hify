@@ -92,8 +92,17 @@ func (r *Repository) reserveExtractionAttempt(ctx context.Context, res attemptRe
 			return fmt.Errorf("knowledge: reserve call budget: %w", err)
 		}
 		if n == 0 {
-			// 额度用尽，或者 epoch 已经不是自己的。两者都必须停手，
-			// 且**不留下孤儿 attempt 行**——整个事务回滚。
+			// 额度用尽、活跃时间用尽，或者 epoch 已经不是自己的。
+			// 三者都必须停手，且**不留下孤儿 attempt 行**——整个事务回滚。
+			// ⚠️ 再问一次是哪一维用尽：两者的下一步不同（调用额度可以追加，
+			// 活跃时间用尽说明模型变慢了，追加未必解决问题）。
+			state, qerr := q.ClassifyJobBudgetState(ctx, res.JobID)
+			if qerr != nil {
+				return fmt.Errorf("knowledge: classify budget state: %w", qerr)
+			}
+			if state.ActiveTimeExhausted {
+				return ErrExtractionActiveTimeExhausted
+			}
 			return ErrExtractionCallBudgetExhausted
 		}
 		return q.ReserveExtractionAttempt(ctx, gen.ReserveExtractionAttemptParams{
