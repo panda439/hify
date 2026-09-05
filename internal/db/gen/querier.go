@@ -11,6 +11,10 @@ import (
 )
 
 type Querier interface {
+	// 预留一次调用额度。⚠️ 守卫 reserved_calls < call_limit：预算耗尽时返回 0 行，
+	// 调用方据此停手。把预算检查放在**同一条 UPDATE 的 WHERE 里**而不是先读后写，
+	// 是因为后者在两个 worker 之间必然超发——而超发的表现是账单超了，不报错。
+	AddJobCallReservation(ctx context.Context, arg AddJobCallReservationParams) (int64, error)
 	// 以下都是文档处理状态机的 CAS 转换——见 knowledge/service.go 的
 	// ProcessDocument。每条都带 id+version+旧状态三重限定，0 行受影响是预期
 	// 内的常见结果（并发重复到达、任务已过期、租约续约被抢），不是错误。
@@ -55,6 +59,7 @@ type Querier interface {
 	CountAgents(ctx context.Context) (int64, error)
 	CountConversationsByUser(ctx context.Context, userID string) (int64, error)
 	CountDocumentsByKnowledgeBase(ctx context.Context, knowledgeBaseID string) (int64, error)
+	CountJobAttemptsByState(ctx context.Context, jobID string) ([]CountJobAttemptsByStateRow, error)
 	CountKnowledgeBases(ctx context.Context) (int64, error)
 	CountMCPServers(ctx context.Context) (int64, error)
 	CountProviders(ctx context.Context) (int64, error)
@@ -116,6 +121,9 @@ type Querier interface {
 	GetConversationByID(ctx context.Context, id string) (Conversation, error)
 	GetDocumentByID(ctx context.Context, id string) (Document, error)
 	GetDocumentExtractionState(ctx context.Context, id string) (GetDocumentExtractionStateRow, error)
+	GetExtractionAttempt(ctx context.Context, id string) (GetExtractionAttemptRow, error)
+	// 原始响应单独取：它最大 64 KiB，不该出现在任何列表或统计查询里。
+	GetExtractionAttemptRawResponse(ctx context.Context, id string) (sql.NullString, error)
 	GetKnowledgeBaseByID(ctx context.Context, id string) (KnowledgeBase, error)
 	GetMCPServerByID(ctx context.Context, id string) (McpServer, error)
 	GetMCPToolByID(ctx context.Context, id string) (McpTool, error)
@@ -209,6 +217,9 @@ type Querier interface {
 	// UploadDocument 的注释）导致没有任何任务在处理它。pending 从没有 worker
 	// 持有过租约，"入队丢了"这个问题只能靠 updated_at 阈值判断。
 	ListStalePendingDocuments(ctx context.Context, updatedAt time.Time) ([]Document, error)
+	// 恢复扫描：停留在 reserved 太久的尝试。⚠️ 它们**不是**没发生过——
+	// 进程在收到响应之前崩了，所以要改判 unknown 而不是删掉或标 failed。
+	ListStaleReservedAttempts(ctx context.Context, arg ListStaleReservedAttemptsParams) ([]ListStaleReservedAttemptsRow, error)
 	ListTraceSpansByConversation(ctx context.Context, conversationID string) ([]TraceSpan, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	ListWorkflowRunSteps(ctx context.Context, workflowRunID string) ([]WorkflowRunStep, error)
@@ -218,6 +229,7 @@ type Querier interface {
 	// output, unlike the shared workflow definition itself).
 	ListWorkflowRunsByCreator(ctx context.Context, arg ListWorkflowRunsByCreatorParams) ([]WorkflowRun, error)
 	ListWorkflows(ctx context.Context, arg ListWorkflowsParams) ([]Workflow, error)
+	MarkAttemptUnknown(ctx context.Context, arg MarkAttemptUnknownParams) (int64, error)
 	// processing -> failed。发布阶段（publishing）的失败不走这条路——按设计
 	// 文档留在 publishing，交给 reconciliation 用幂等发布恢复，不转 failed。
 	MarkDocumentFailed(ctx context.Context, arg MarkDocumentFailedParams) (int64, error)
@@ -281,6 +293,13 @@ type Querier interface {
 	// 提交的一个能让 lease_expires_at 实际改变，后一个的 WHERE 条件在它执行
 	// 时已经不成立，天然 0 行受影响，不需要额外的分布式锁。
 	ReclaimStaleProcessingDocument(ctx context.Context, arg ReclaimStaleProcessingDocumentParams) (int64, error)
+	// 结算后把结局计进作业级账目。confirmed_dispatches 与 unknown_attempts
+	// 分开计：前者是"确定发生过"，后者是"可能发生过"，报告里必须分别呈现，
+	// 合并会让一个不确定的数字看起来像确定的。
+	RecordJobDispatchOutcome(ctx context.Context, arg RecordJobDispatchOutcomeParams) (int64, error)
+	// 退还一次**确定没发出去**的调用预留（限流/熔断/拿不到并发槽）。
+	// ⚠️ 只有 not_dispatched 能走这里。unknown 绝不退——那笔钱可能已经花了。
+	RefundJobCallReservation(ctx context.Context, id string) (int64, error)
 	ReleaseRelationExtractionLease(ctx context.Context, arg ReleaseRelationExtractionLeaseParams) (int64, error)
 	// worker 每完成一批 Embedding、每个关键阶段前都调它续租；status 作为参数
 	// 传入，processing/publishing 两个阶段复用同一条 SQL。0 行受影响 = 这个
@@ -290,12 +309,24 @@ type Querier interface {
 	// 心跳续租，必须带 epoch：租约已经被别人抢走时返回 0 行，
 	// 持有者据此知道自己已经出局，必须停止调用模型。
 	RenewRelationExtractionLease(ctx context.Context, arg RenewRelationExtractionLeaseParams) (int64, error)
+	// ---------------------------------------------------------------------
+	// attempt 账目：这张表是"成本数字可信"的全部依据
+	// ---------------------------------------------------------------------
+	// ⭐ **先记 reserved，再发外部调用**。顺序不可颠倒。
+	//
+	// 颠倒的后果：进程在"已发出、未收到"之间崩掉，这次调用不会留下任何痕迹，
+	// 而它的钱已经花了。恢复扫描把停留过久的 reserved 改判 unknown，
+	// 于是"可能花了"这件事被如实记下来——这正是 unknown 这个状态存在的理由。
+	ReserveExtractionAttempt(ctx context.Context, arg ReserveExtractionAttemptParams) error
 	RevokeAllUserRefreshTokens(ctx context.Context, userID string) error
 	RevokeRefreshToken(ctx context.Context, id string) error
 	// 把文档的 active_relation_job_id 指向新 run，并落下所选模型。
 	// ⚠️ 守卫 status='ready' AND version=?：文档在这中间改了版本，
 	// 这次开启就该失败，而不是把作业挂到一批已经不是真相的 chunk 上。
 	SetDocumentRelationJob(ctx context.Context, arg SetDocumentRelationJobParams) (int64, error)
+	// 结算一次尝试。⚠️ 守卫 state='reserved'：一次尝试只能被结算一次，
+	// 重复结算会让 usage 和费用被重复累加进上层聚合。
+	SettleExtractionAttempt(ctx context.Context, arg SettleExtractionAttemptParams) (int64, error)
 	TouchConversation(ctx context.Context, arg TouchConversationParams) error
 	UpdateAgent(ctx context.Context, arg UpdateAgentParams) error
 	// embedding_model_id/chunk_size/chunk_overlap are deliberately not

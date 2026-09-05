@@ -12,6 +12,28 @@ import (
 	"time"
 )
 
+const addJobCallReservation = `-- name: AddJobCallReservation :execrows
+UPDATE relation_extraction_jobs
+SET reserved_calls = reserved_calls + 1, updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ? AND epoch = ? AND reserved_calls < call_limit
+`
+
+type AddJobCallReservationParams struct {
+	ID    string `json:"id"`
+	Epoch int32  `json:"epoch"`
+}
+
+// 预留一次调用额度。⚠️ 守卫 reserved_calls < call_limit：预算耗尽时返回 0 行，
+// 调用方据此停手。把预算检查放在**同一条 UPDATE 的 WHERE 里**而不是先读后写，
+// 是因为后者在两个 worker 之间必然超发——而超发的表现是账单超了，不报错。
+func (q *Queries) AddJobCallReservation(ctx context.Context, arg AddJobCallReservationParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, addJobCallReservation, arg.ID, arg.Epoch)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const claimRelationExtractionJob = `-- name: ClaimRelationExtractionJob :execrows
 UPDATE relation_extraction_jobs
 SET epoch = epoch + 1, lease_until = ?, heartbeat_at = ?,
@@ -78,6 +100,39 @@ func (q *Queries) CompleteJobInitialization(ctx context.Context, arg CompleteJob
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const countJobAttemptsByState = `-- name: CountJobAttemptsByState :many
+SELECT state, COUNT(*) AS n FROM relation_extraction_attempts
+WHERE job_id = ? GROUP BY state ORDER BY state
+`
+
+type CountJobAttemptsByStateRow struct {
+	State string `json:"state"`
+	N     int64  `json:"n"`
+}
+
+func (q *Queries) CountJobAttemptsByState(ctx context.Context, jobID string) ([]CountJobAttemptsByStateRow, error) {
+	rows, err := q.db.QueryContext(ctx, countJobAttemptsByState, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountJobAttemptsByStateRow{}
+	for rows.Next() {
+		var i CountJobAttemptsByStateRow
+		if err := rows.Scan(&i.State, &i.N); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const countRelationExtractionItems = `-- name: CountRelationExtractionItems :one
@@ -217,6 +272,86 @@ func (q *Queries) GetDocumentExtractionState(ctx context.Context, id string) (Ge
 		&i.ActiveRelationJobID,
 	)
 	return i, err
+}
+
+const getExtractionAttempt = `-- name: GetExtractionAttempt :one
+SELECT id, job_id, item_id, epoch, phase, attempt_number, request_hash,
+       max_output_tokens, state, created_at, started_at, finished_at, elapsed_ms,
+       dispatch_confirmed, usage_known, input_tokens, output_tokens,
+       finish_reason, error_code, response_hash,
+       cost_amount, currency, pricing_version, cost_kind
+FROM relation_extraction_attempts WHERE id = ?
+`
+
+type GetExtractionAttemptRow struct {
+	ID                string         `json:"id"`
+	JobID             string         `json:"job_id"`
+	ItemID            string         `json:"item_id"`
+	Epoch             int32          `json:"epoch"`
+	Phase             string         `json:"phase"`
+	AttemptNumber     int32          `json:"attempt_number"`
+	RequestHash       []byte         `json:"request_hash"`
+	MaxOutputTokens   int32          `json:"max_output_tokens"`
+	State             string         `json:"state"`
+	CreatedAt         time.Time      `json:"created_at"`
+	StartedAt         sql.NullTime   `json:"started_at"`
+	FinishedAt        sql.NullTime   `json:"finished_at"`
+	ElapsedMs         sql.NullInt64  `json:"elapsed_ms"`
+	DispatchConfirmed bool           `json:"dispatch_confirmed"`
+	UsageKnown        bool           `json:"usage_known"`
+	InputTokens       sql.NullInt32  `json:"input_tokens"`
+	OutputTokens      sql.NullInt32  `json:"output_tokens"`
+	FinishReason      sql.NullString `json:"finish_reason"`
+	ErrorCode         sql.NullString `json:"error_code"`
+	ResponseHash      sql.NullString `json:"response_hash"`
+	CostAmount        sql.NullString `json:"cost_amount"`
+	Currency          sql.NullString `json:"currency"`
+	PricingVersion    sql.NullString `json:"pricing_version"`
+	CostKind          string         `json:"cost_kind"`
+}
+
+func (q *Queries) GetExtractionAttempt(ctx context.Context, id string) (GetExtractionAttemptRow, error) {
+	row := q.db.QueryRowContext(ctx, getExtractionAttempt, id)
+	var i GetExtractionAttemptRow
+	err := row.Scan(
+		&i.ID,
+		&i.JobID,
+		&i.ItemID,
+		&i.Epoch,
+		&i.Phase,
+		&i.AttemptNumber,
+		&i.RequestHash,
+		&i.MaxOutputTokens,
+		&i.State,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.ElapsedMs,
+		&i.DispatchConfirmed,
+		&i.UsageKnown,
+		&i.InputTokens,
+		&i.OutputTokens,
+		&i.FinishReason,
+		&i.ErrorCode,
+		&i.ResponseHash,
+		&i.CostAmount,
+		&i.Currency,
+		&i.PricingVersion,
+		&i.CostKind,
+	)
+	return i, err
+}
+
+const getExtractionAttemptRawResponse = `-- name: GetExtractionAttemptRawResponse :one
+SELECT raw_response FROM relation_extraction_attempts WHERE id = ?
+`
+
+// 原始响应单独取：它最大 64 KiB，不该出现在任何列表或统计查询里。
+func (q *Queries) GetExtractionAttemptRawResponse(ctx context.Context, id string) (sql.NullString, error) {
+	row := q.db.QueryRowContext(ctx, getExtractionAttemptRawResponse, id)
+	var raw_response sql.NullString
+	err := row.Scan(&raw_response)
+	return raw_response, err
 }
 
 const getRelationExtractionJob = `-- name: GetRelationExtractionJob :one
@@ -377,6 +512,124 @@ func (q *Queries) GetRelationExtractionJobPayload(ctx context.Context, id string
 	return i, err
 }
 
+const listStaleReservedAttempts = `-- name: ListStaleReservedAttempts :many
+SELECT id, job_id, item_id, created_at
+FROM relation_extraction_attempts
+WHERE state = 'reserved' AND created_at < ?
+ORDER BY created_at, id
+LIMIT ?
+`
+
+type ListStaleReservedAttemptsParams struct {
+	CreatedAt time.Time `json:"created_at"`
+	Limit     int32     `json:"limit"`
+}
+
+type ListStaleReservedAttemptsRow struct {
+	ID        string    `json:"id"`
+	JobID     string    `json:"job_id"`
+	ItemID    string    `json:"item_id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// 恢复扫描：停留在 reserved 太久的尝试。⚠️ 它们**不是**没发生过——
+// 进程在收到响应之前崩了，所以要改判 unknown 而不是删掉或标 failed。
+func (q *Queries) ListStaleReservedAttempts(ctx context.Context, arg ListStaleReservedAttemptsParams) ([]ListStaleReservedAttemptsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listStaleReservedAttempts, arg.CreatedAt, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListStaleReservedAttemptsRow{}
+	for rows.Next() {
+		var i ListStaleReservedAttemptsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.JobID,
+			&i.ItemID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markAttemptUnknown = `-- name: MarkAttemptUnknown :execrows
+UPDATE relation_extraction_attempts
+SET state = 'unknown', error_code = ?, finished_at = ?
+WHERE id = ? AND state = 'reserved'
+`
+
+type MarkAttemptUnknownParams struct {
+	ErrorCode  sql.NullString `json:"error_code"`
+	FinishedAt sql.NullTime   `json:"finished_at"`
+	ID         string         `json:"id"`
+}
+
+func (q *Queries) MarkAttemptUnknown(ctx context.Context, arg MarkAttemptUnknownParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markAttemptUnknown, arg.ErrorCode, arg.FinishedAt, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const recordJobDispatchOutcome = `-- name: RecordJobDispatchOutcome :execrows
+UPDATE relation_extraction_jobs
+SET confirmed_dispatches = confirmed_dispatches + ?,
+    unknown_attempts = unknown_attempts + ?,
+    active_ms_used = active_ms_used + ?,
+    updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ?
+`
+
+type RecordJobDispatchOutcomeParams struct {
+	ConfirmedDispatches int32  `json:"confirmed_dispatches"`
+	UnknownAttempts     int32  `json:"unknown_attempts"`
+	ActiveMsUsed        int64  `json:"active_ms_used"`
+	ID                  string `json:"id"`
+}
+
+// 结算后把结局计进作业级账目。confirmed_dispatches 与 unknown_attempts
+// 分开计：前者是"确定发生过"，后者是"可能发生过"，报告里必须分别呈现，
+// 合并会让一个不确定的数字看起来像确定的。
+func (q *Queries) RecordJobDispatchOutcome(ctx context.Context, arg RecordJobDispatchOutcomeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, recordJobDispatchOutcome,
+		arg.ConfirmedDispatches,
+		arg.UnknownAttempts,
+		arg.ActiveMsUsed,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const refundJobCallReservation = `-- name: RefundJobCallReservation :execrows
+UPDATE relation_extraction_jobs
+SET reserved_calls = reserved_calls - 1, updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ? AND reserved_calls > 0
+`
+
+// 退还一次**确定没发出去**的调用预留（限流/熔断/拿不到并发槽）。
+// ⚠️ 只有 not_dispatched 能走这里。unknown 绝不退——那笔钱可能已经花了。
+func (q *Queries) RefundJobCallReservation(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, refundJobCallReservation, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const releaseRelationExtractionLease = `-- name: ReleaseRelationExtractionLease :execrows
 UPDATE relation_extraction_jobs
 SET lease_until = NULL, updated_at = CURRENT_TIMESTAMP(3)
@@ -424,6 +677,47 @@ func (q *Queries) RenewRelationExtractionLease(ctx context.Context, arg RenewRel
 	return result.RowsAffected()
 }
 
+const reserveExtractionAttempt = `-- name: ReserveExtractionAttempt :exec
+
+INSERT INTO relation_extraction_attempts (
+    id, job_id, item_id, epoch, phase, attempt_number,
+    request_hash, max_output_tokens, state
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'reserved')
+`
+
+type ReserveExtractionAttemptParams struct {
+	ID              string `json:"id"`
+	JobID           string `json:"job_id"`
+	ItemID          string `json:"item_id"`
+	Epoch           int32  `json:"epoch"`
+	Phase           string `json:"phase"`
+	AttemptNumber   int32  `json:"attempt_number"`
+	RequestHash     []byte `json:"request_hash"`
+	MaxOutputTokens int32  `json:"max_output_tokens"`
+}
+
+// ---------------------------------------------------------------------
+// attempt 账目：这张表是"成本数字可信"的全部依据
+// ---------------------------------------------------------------------
+// ⭐ **先记 reserved，再发外部调用**。顺序不可颠倒。
+//
+// 颠倒的后果：进程在"已发出、未收到"之间崩掉，这次调用不会留下任何痕迹，
+// 而它的钱已经花了。恢复扫描把停留过久的 reserved 改判 unknown，
+// 于是"可能花了"这件事被如实记下来——这正是 unknown 这个状态存在的理由。
+func (q *Queries) ReserveExtractionAttempt(ctx context.Context, arg ReserveExtractionAttemptParams) error {
+	_, err := q.db.ExecContext(ctx, reserveExtractionAttempt,
+		arg.ID,
+		arg.JobID,
+		arg.ItemID,
+		arg.Epoch,
+		arg.Phase,
+		arg.AttemptNumber,
+		arg.RequestHash,
+		arg.MaxOutputTokens,
+	)
+	return err
+}
+
 const setDocumentRelationJob = `-- name: SetDocumentRelationJob :execrows
 UPDATE documents
 SET active_relation_job_id = ?, relation_model_id = ?, updated_at = CURRENT_TIMESTAMP(3)
@@ -446,6 +740,64 @@ func (q *Queries) SetDocumentRelationJob(ctx context.Context, arg SetDocumentRel
 		arg.RelationModelID,
 		arg.ID,
 		arg.Version,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const settleExtractionAttempt = `-- name: SettleExtractionAttempt :execrows
+UPDATE relation_extraction_attempts
+SET state = ?, started_at = ?, finished_at = ?, elapsed_ms = ?,
+    dispatch_confirmed = ?, usage_known = ?, input_tokens = ?, output_tokens = ?,
+    finish_reason = ?, error_code = ?,
+    raw_response = ?, response_hash = ?,
+    cost_amount = ?, currency = ?, pricing_version = ?, cost_kind = ?
+WHERE id = ? AND state = 'reserved'
+`
+
+type SettleExtractionAttemptParams struct {
+	State             string         `json:"state"`
+	StartedAt         sql.NullTime   `json:"started_at"`
+	FinishedAt        sql.NullTime   `json:"finished_at"`
+	ElapsedMs         sql.NullInt64  `json:"elapsed_ms"`
+	DispatchConfirmed bool           `json:"dispatch_confirmed"`
+	UsageKnown        bool           `json:"usage_known"`
+	InputTokens       sql.NullInt32  `json:"input_tokens"`
+	OutputTokens      sql.NullInt32  `json:"output_tokens"`
+	FinishReason      sql.NullString `json:"finish_reason"`
+	ErrorCode         sql.NullString `json:"error_code"`
+	RawResponse       sql.NullString `json:"raw_response"`
+	ResponseHash      sql.NullString `json:"response_hash"`
+	CostAmount        sql.NullString `json:"cost_amount"`
+	Currency          sql.NullString `json:"currency"`
+	PricingVersion    sql.NullString `json:"pricing_version"`
+	CostKind          string         `json:"cost_kind"`
+	ID                string         `json:"id"`
+}
+
+// 结算一次尝试。⚠️ 守卫 state='reserved'：一次尝试只能被结算一次，
+// 重复结算会让 usage 和费用被重复累加进上层聚合。
+func (q *Queries) SettleExtractionAttempt(ctx context.Context, arg SettleExtractionAttemptParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, settleExtractionAttempt,
+		arg.State,
+		arg.StartedAt,
+		arg.FinishedAt,
+		arg.ElapsedMs,
+		arg.DispatchConfirmed,
+		arg.UsageKnown,
+		arg.InputTokens,
+		arg.OutputTokens,
+		arg.FinishReason,
+		arg.ErrorCode,
+		arg.RawResponse,
+		arg.ResponseHash,
+		arg.CostAmount,
+		arg.Currency,
+		arg.PricingVersion,
+		arg.CostKind,
+		arg.ID,
 	)
 	if err != nil {
 		return 0, err
