@@ -1,0 +1,180 @@
+[
+  {
+    "canonical_name": "阿Q",
+    "aliases": [
+      "阿Q",
+      "阿Quei",
+      "老Q"
+    ],
+    "evidence": [
+      "C01P010",
+      "C07P017",
+      "C07P018"
+    ],
+    "rejected_aliases": [
+      "阿桂",
+      "阿貴",
+      "阿贵"
+    ],
+    "note": "候选汉字姓名原文未证实",
+    "label_source": "AI",
+    "review_status": "pending_human_review"
+  },
+  {
+    "canonical_name": "赵太爷",
+    "aliases": [
+      "趙太爺"
+    ],
+    "evidence": [
+      "C01P003"
+    ],
+    "rejected_aliases": [],
+    "note": "不与其子秀才合并",
+    "label_source": "AI",
+    "review_status": "pending_human_review"
+  },
+  {
+    "canonical_name": "赵秀才",
+    "aliases": [
+      "趙秀才",
+      "茂才先生",
+      "茂才公",
+      "秀才",
+      "秀才大爺"
+    ],
+    "evidence": [
+      "C01P010",
+      "C07P046"
+    ],
+    "rejected_aliases": [],
+    "note": "秀才仅限该书明确指向赵氏子的上下文",
+    "label_source": "AI",
+    "review_status": "pending_human_review"
+  },
+  {
+    "canonical_name": "王胡",
+    "aliases": [
+      "王鬍",
+      "王癩鬍"
+    ],
+    "evidence": [
+      "C03P005"
+    ],
+    "rejected_aliases": [],
+    "note": "原文明示别名",
+    "label_source": "AI",
+    "review_status": "pending_human_review"
+  },
+  {
+    "canonical_name": "钱太爷",
+    "aliases": [
+      "錢太爺"
+    ],
+    "evidence": [
+      "C03P019"
+    ],
+    "rejected_aliases": [],
+    "note": "钱洋鬼子之父",
+    "label_source": "AI",
+    "review_status": "pending_human_review"
+  },
+  {
+    "canonical_name": "钱洋鬼子",
+    "aliases": [
+      "假洋鬼子",
+      "錢洋鬼子",
+      "洋先生"
+    ],
+    "evidence": [
+      "C03P019",
+      "C07P046",
+      "C08P011",
+      "C08P012"
+    ],
+    "rejected_aliases": [],
+    "note": "书内有明确对应；洋先生不可跨书全局映射",
+    "label_source": "AI",
+    "review_status": "pending_human_review"
+  },
+  {
+    "canonical_name": "小D",
+    "aliases": [
+      "小D",
+      "小Don"
+    ],
+    "evidence": [
+      "C05P006"
+    ],
+    "rejected_aliases": [],
+    "note": "原文明示",
+    "label_source": "AI",
+    "review_status": "pending_human_review"
+  },
+  {
+    "canonical_name": "白举人",
+    "aliases": [
+      "舉人老爺"
+    ],
+    "evidence": [
+      "C06P008"
+    ],
+    "rejected_aliases": [],
+    "note": "原文说明姓白",
+    "label_source": "AI",
+    "review_status": "pending_human_review"
+  },
+  {
+    "canonical_name": "吴妈",
+    "aliases": [
+      "吳媽"
+    ],
+    "evidence": [
+      "C04P016"
+    ],
+    "rejected_aliases": [],
+    "note": "小孤孀仅保留上下文提及，不作全局别名",
+    "label_source": "AI",
+    "review_status": "pending_human_review"
+  },
+  {
+    "canonical_name": "赵太太",
+    "aliases": [
+      "趙太太"
+    ],
+    "evidence": [
+      "C06P016"
+    ],
+    "rejected_aliases": [],
+    "note": "太太单独出现需上下文",
+    "label_source": "AI",
+    "review_status": "pending_human_review"
+  },
+  {
+    "canonical_name": "赵秀才娘子",
+    "aliases": [
+      "秀才娘子",
+      "秀才的老婆"
+    ],
+    "evidence": [
+      "C06P028",
+      "C07P032"
+    ],
+    "rejected_aliases": [],
+    "note": "少奶奶待上下文核查",
+    "label_source": "AI",
+    "review_status": "pending_human_review"
+  },
+  {
+    "canonical_name": "邹七嫂",
+    "aliases": [
+      "鄒七嫂"
+    ],
+    "evidence": [
+      "C04P031"
+    ],
+    "rejected_aliases": [],
+    "note": "",
+    "label_source": "AI",
+    "review_status": "pending_human_review"
+  }
+]
