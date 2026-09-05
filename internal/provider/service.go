@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"hify/internal/platform"
@@ -26,6 +27,17 @@ type Service interface {
 	// ResolveClient is what agent/conversation (Phase 2+) call to get a
 	// live, resilience-wrapped Client for a given provider.
 	ResolveClient(ctx context.Context, providerID string) (Client, error)
+
+	// ChatOnce 发出**恰好一次**推理请求并如实报告结果（010 T014）。
+	//
+	// ⭐ 它与 Chat 的唯一区别是不自动重试。关系抽取要给出一个可复核的成本
+	// 数字，而 Chat 背后可能是 1 次也可能是 3 次真实请求；重试改由调用方
+	// 负责，因为只有那一层能把每一次尝试都记进账。限流/并发/熔断照常生效。
+	//
+	// ⚠️ 返回的 error 只表示"根本没能开始一次尝试"（模型不存在、供应商
+	// 解析不出、装饰器接错）。调用失败本身是 ChatAttemptResult 里的一个
+	// 如实结局，不是 error——这样调用方无法忘记记账。
+	ChatOnce(ctx context.Context, modelID string, req ChatRequest, timeout time.Duration) (ChatAttemptResult, error)
 }
 
 // service is constructed via NewService in wire.go.
@@ -220,4 +232,24 @@ func (s *service) UpdateModel(ctx context.Context, id string, input UpdateModelI
 
 func (s *service) ResolveClient(ctx context.Context, providerID string) (Client, error) {
 	return s.reg.resolve(ctx, providerID)
+}
+
+func (s *service) ChatOnce(ctx context.Context, modelID string, req ChatRequest, timeout time.Duration) (ChatAttemptResult, error) {
+	model, err := s.GetModel(ctx, modelID)
+	if err != nil {
+		return ChatAttemptResult{}, err
+	}
+	client, err := s.ResolveClient(ctx, model.ProviderID)
+	if err != nil {
+		return ChatAttemptResult{}, err
+	}
+	sac, ok := client.(SingleAttemptChatter)
+	if !ok {
+		// ⚠️ 绝不退回去调 client.Chat。那会带上自动重试，账目静默失真——
+		// 一次调用记成一次、实际发了三次，而且没有任何症状。
+		// 宁可这条路直接失败，让接线错误立刻暴露。
+		return ChatAttemptResult{}, fmt.Errorf(
+			"provider: client for %s does not support single-attempt chat", model.ProviderID)
+	}
+	return sac.ChatOnce(ctx, req, timeout)
 }

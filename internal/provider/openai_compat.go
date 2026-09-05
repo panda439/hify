@@ -242,6 +242,8 @@ func (c *openAICompatClient) Chat(ctx context.Context, req ChatRequest) (Message
 	}
 	msg := fromOpenAIMessage(resp.Choices[0].Message)
 	msg.Usage = fromOpenAIUsage(resp.Usage)
+	// 供应商不返回时保持空字符串——空 = 未知，不是"正常结束"。
+	msg.FinishReason = string(resp.Choices[0].FinishReason)
 	return msg, nil
 }
 
