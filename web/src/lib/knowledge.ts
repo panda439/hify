@@ -156,8 +156,16 @@ export interface RetrievedChunkResult {
   id: string;
   document_id: string;
   document_name: string;
-  // null 表示这个片段没有页码——txt/md 本来就没有，绝不是 0。界面显示为「—」。
+  // page_number / page_end 是这个片段覆盖的**页码闭区间**（006）：
+  // page_number 是起始页、page_end 是结束页。null 表示这个片段没有页码——
+  // txt/md 本来就没有，绝不是 0。
+  //
+  // ⚠️ 两者**要么同为 null、要么同有值**，后端由数据库约束
+  // chunks_page_range_valid 强制（见 contracts/retrieval-page-range.md 的 R3）。
+  // 因此前端**不得**写 `page_end ?? page_number` 之类的兜底：那只会把一个本该
+  // 被发现的后端 bug 变成一个看起来正常的界面。
   page_number: number | null;
+  page_end: number | null;
   content: string;
   score: number;
   // 邻接块：豁免页码过滤（见后端 002 的 FR-011），所以限定页码范围时

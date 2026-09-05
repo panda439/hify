@@ -19,6 +19,7 @@ import {
   useRetrievalProbe,
   type KnowledgeBase,
   type RetrievalProbeResult,
+  type RetrievedChunkResult,
 } from "@/lib/knowledge";
 
 // 后端错误码 -> 面向用户的中文说明。
@@ -37,6 +38,30 @@ function errorHint(err: unknown): string {
     default:
       return err.message || "检索失败，请稍后重试";
   }
+}
+
+// formatPageRange 把片段的页码区间渲染成三种形态之一，没有第四种——
+// page_number 与 page_end 由后端保证同为 null 或同有值（006 契约 R3，由数据库
+// 约束 chunks_page_range_valid 兜底）。
+//
+// ⚠️ 三件**不能**做的事：
+//   1. 不得写 `page_end ?? page_number` 一类兜底。R3 已经保证两者同步，兜底
+//      只会把一个本该暴露的后端 bug 藏成一个看起来正常的界面。
+//   2. 不得在 page_end 缺失时假装它等于 page_number——那是在前端编造后端没给
+//      的信息。
+//   3. 不得把区间只渲染成起始页。FR-011 禁止"为跨页片段任选一个页码"，这条
+//      禁令在展示层同样成立：存了区间却只显示一端，用户看到的仍是不诚实的引用。
+//
+// 顺带修掉了改动前的一个小瑕疵：原来写的是 `第 {page_number ?? "—"} 页`，
+// 没有页码时会渲染成「第 — 页」，而不是干净的「—」。
+function formatPageRange(c: RetrievedChunkResult): string {
+  if (c.page_number === null || c.page_end === null) {
+    return "—";
+  }
+  if (c.page_number === c.page_end) {
+    return `第 ${c.page_number} 页`;
+  }
+  return `第 ${c.page_number}-${c.page_end} 页`;
 }
 
 function ResultList({ result }: { result: RetrievalProbeResult }) {
@@ -73,9 +98,7 @@ function ResultList({ result }: { result: RetrievalProbeResult }) {
               <Badge variant="secondary">命中</Badge>
             )}
             <span className="font-medium">{c.document_name || c.document_id}</span>
-            <span className="text-muted-foreground">
-              第 {c.page_number ?? "—"} 页
-            </span>
+            <span className="text-muted-foreground">{formatPageRange(c)}</span>
             {!c.is_neighbor && (
               <span className="text-muted-foreground">分数 {c.score.toFixed(3)}</span>
             )}
