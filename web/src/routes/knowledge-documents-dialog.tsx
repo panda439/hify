@@ -56,6 +56,10 @@ function unextractedCount(d: KnowledgeDocument): number {
   return d.unextracted_pages?.length ?? 0;
 }
 
+function unparseableCount(d: KnowledgeDocument): number {
+  return d.unparseable_pages?.length ?? 0;
+}
+
 // formatPageRanges 把连续页码折叠成区间：[46,47,48,49,50] -> "第 46-50 页"。
 // 折叠放在前端而不是后端：后端 DTO 只发事实（原始页码数组），渲染规则改一次
 // 不该动 API 契约。扫描件的典型形态就是"连着一段"，不折叠会得到一长串数字。
@@ -76,17 +80,40 @@ function formatPageRanges(pages: number[]): string {
   return `第 ${ranges.join("、")} 页`;
 }
 
-// unextractedHint 是悬浮上的完整信息。列表那一行只放短版（含**真实总数**），
-// 因为把整句塞进一行要么撑爆布局、要么被 CSS 截断成一句残句，那比不显示更糟。
-// 短版负责让用户注意到，这里负责让他知道下一步做什么。
-function unextractedHint(d: KnowledgeDocument): string {
-  const pages = d.unextracted_pages ?? [];
-  if (pages.length === 0) return "";
-  return (
-    `${formatPageRanges(pages)}未能提取到文本，通常是扫描图或图片型页面，` +
-    `这部分内容没有进入知识库、也检索不到。` +
-    `如需检索其中内容，请用 OCR 工具把这些页转换为可选中文字后重新上传。`
-  );
+// noticeSummary 是列表行里的短版：按需出现的两段，只有一类缺失时就只有一段
+// （读起来和 007 那句话一样），两类都有时多一段。数量必须是**真实总数**。
+function noticeSummary(d: KnowledgeDocument): string {
+  const parts: string[] = [];
+  if (unextractedCount(d) > 0) parts.push(`有 ${unextractedCount(d)} 页未提取文本`);
+  if (unparseableCount(d) > 0) parts.push(`${unparseableCount(d)} 页无法解析`);
+  return parts.join("、");
+}
+
+// noticeHint 是悬浮里的完整信息：两段各自给出**不同的**下一步动作。
+//
+// ⭐ 第二段里的「OCR 对它没有用」是 008 这一整期的落点，**不得删也不得弱化**。
+// 用户刚读完第一段的"请用 OCR"，不明说的话他会顺手对这几页也做 OCR，然后发现
+// 没用——那时这条提示就从「帮助」变成了「误导」，比不提示更糟。
+//
+// 两段合并成一句「有 N 页没进去，请检查文件」同样不行：那等于把两列拆开的全部
+// 意义扔掉，还不如当初直接塞进一列。
+function noticeHint(d: KnowledgeDocument): string {
+  const hints: string[] = [];
+  const unextracted = d.unextracted_pages ?? [];
+  const unparseable = d.unparseable_pages ?? [];
+  if (unextracted.length > 0) {
+    hints.push(
+      `${formatPageRanges(unextracted)}未能提取到文本，通常是扫描图或图片型页面。` +
+        `如需检索其中内容，请用 OCR 工具把这些页转换为可选中文字后重新上传。`,
+    );
+  }
+  if (unparseable.length > 0) {
+    hints.push(
+      `${formatPageRanges(unparseable)}无法解析（页面结构已损坏或不受当前解析器支持），` +
+        `OCR 对它没有用；请用其他 PDF 工具重新导出后上传。`,
+    );
+  }
+  return hints.join("\n\n");
 }
 
 export function KnowledgeDocumentsDialog({
@@ -153,12 +180,12 @@ export function KnowledgeDocumentsDialog({
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {d.status === "ready" ? `${d.chunk_count} 个分片` : d.status === "failed" ? d.error_message : "—"}
-                  {d.status === "ready" && unextractedCount(d) > 0 && (
+                  {d.status === "ready" && noticeSummary(d) !== "" && (
                     <span
                       className="ml-1 text-amber-600 dark:text-amber-500"
-                      title={unextractedHint(d)}
+                      title={noticeHint(d)}
                     >
-                      · 有 {unextractedCount(d)} 页未提取文本
+                      · {noticeSummary(d)}
                     </span>
                   )}
                 </p>

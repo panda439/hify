@@ -96,6 +96,11 @@ export interface KnowledgeDocument {
   // 留下的，而这一次处理失败了——那时显示它就是在描述一个文档已经不在的状态
   // （契约 C5）。
   unextracted_pages: number[] | null;
+  // 根本没能被解析、被整页跳过的页码（008）。与 unextracted_pages **平行但不可
+  // 互换**：两者分成两个字段的全部理由，就是用户的下一步不同——前者是「对这几页
+  // 做 OCR」，后者是「**OCR 没用**，换个工具重新导出」。把两者并成一句
+  // 「有 N 页没进去」，等于把唯一能告诉用户该干什么的那部分扔掉了。
+  unparseable_pages: number[] | null;
   created_at: string;
   updated_at: string;
 }
