@@ -388,7 +388,7 @@ func chunkNarrative(text string, size, overlap int) []chunkPiece {
 			// chapter number, because a flashback chapter's number does not
 			// match its position in the text (FR-008).
 			meta := buildNarrativeMetadata(ri, docHash, piece, sourceOrder,
-				len([]rune(body.Text)), body.PrefixRunes)
+				len([]rune(body.Text)), body.PrefixRunes, body.Units, body.SepRunes)
 			sourceOrder++
 			piece.Narrative = &meta
 			pieces = append(pieces, piece)

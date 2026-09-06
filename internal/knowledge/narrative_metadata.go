@@ -123,16 +123,22 @@ func normalizedDocumentHash(text string) string {
 // contentRunes is the chunk's own rune length; prefixRunes is how many of
 // its leading runes are an overlap copy (see textSpan.PrefixRunes).
 //
-// ⚠️ The mapping is exact AT THE BOUNDARIES only. A chunk's interior may
-// differ from source[start:end] in WHITESPACE, because the chunker rejoins
-// paragraphs with "\n\n" and sentences with " " regardless of what
-// separated them in the source. Consumers must compare quotes
-// whitespace-insensitively; a byte-exact comparison will fail on perfectly
-// correct data. (Verified: 0 mismatches across 阿Q正传 and 西遊記 全 100 回
-// under whitespace-insensitive comparison.)
+// ⭐ 每个 segment 是原文的**精确切片**，逐字节相等，不只是边界对齐。
+//
+// ⚠️ 这条更正了本文件早先的一个错误说法。原先整块一段，而块的区间覆盖了
+// 单元**之间的原文空白**，块文本却是用固定分隔符重新拼接的——两者长度
+// 必然不等（实测 149 rune 的块对应 126 rune 的文档区间），当时只能说
+// "边界精确、内部可能差空白"，并要求下游忽略空白比对。
+//
+// 那个说法掩盖了真正的问题：内部长度不等意味着**区间内的位置换算全部无效**，
+// 而引用定位正是靠位置换算。改成一个源单元一段之后，每段长度精确相等，
+// 换算成立，下游可以逐字节比对。
+// （实测：阿Q正传 319 段、西遊記全 100 回 29511 段，逐字节 0 处不符。）
 func buildNarrativeMetadata(
 	ri *runeIndex, docHash string, piece chunkPiece, sourceOrder, contentRunes, prefixRunes int,
+	units []textSpan, sepRunes int,
 ) narrativeMetadata {
+	_ = contentRunes // 覆盖完整性由 validateNarrativeMetadata 核对
 	meta := narrativeMetadata{
 		SchemaVersion:          narrativeMetadataSchemaVersion,
 		NormalizedDocumentHash: docHash,
@@ -153,12 +159,33 @@ func buildNarrativeMetadata(
 			ChunkStart: 0, ChunkEnd: prefixRunes, IsOverlapCopy: true,
 		})
 	}
-	if piece.SourceStart != nil && piece.SourceEnd != nil && prefixRunes < contentRunes {
-		from, to := ri.at(*piece.SourceStart), ri.at(*piece.SourceEnd)
+
+	// ⭐ 一个源单元一段，而不是整块一段。
+	//
+	// ⚠️ 整块一段是错的，而且错得很隐蔽：块的 [Start,End) 覆盖了单元**之间
+	// 的原文空白**，而块文本是用固定分隔符重新拼接的，两者长度必然不等
+	// （实测 149 rune 的块对应 126 rune 的文档区间）。据此做位置换算，
+	// 每一条引用的位置都会偏，偏移量取决于原文里那些空白有多长——
+	// 没有任何规律可循。按单元切段之后每一段都是原文的精确切片。
+	//
+	// 单元之间的拼接符标成 is_generated_separator：它们不在原文里，
+	// 不可引用，而 segments 又必须完整覆盖块内容。
+	cursor := prefixRunes
+	for i, unit := range units {
+		if i > 0 && sepRunes > 0 {
+			meta.Segments = append(meta.Segments, narrativeSegment{
+				ChunkStart: cursor, ChunkEnd: cursor + sepRunes,
+				IsGeneratedSeparator: true,
+			})
+			cursor += sepRunes
+		}
+		n := len([]rune(unit.Text))
+		from, to := ri.at(unit.Start), ri.at(unit.End)
 		meta.Segments = append(meta.Segments, narrativeSegment{
-			ChunkStart: prefixRunes, ChunkEnd: contentRunes,
+			ChunkStart: cursor, ChunkEnd: cursor + n,
 			DocumentStart: &from, DocumentEnd: &to,
 		})
+		cursor += n
 	}
 	return meta
 }

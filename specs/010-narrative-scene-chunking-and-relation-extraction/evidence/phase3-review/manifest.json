@@ -1,0 +1,16 @@
+{
+  "reviewed_commit": "f046d59",
+  "checkout": "claude/010-phase3-extraction",
+  "model_calls": 0,
+  "test_runs": {
+    "baseline-tests.jsonl": {
+      "pass": 623
+    },
+    "contract-tests.jsonl": {
+      "fail": 8
+    },
+    "additional-contract-tests.jsonl": {
+      "fail": 2
+    }
+  }
+}

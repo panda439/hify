@@ -48,6 +48,17 @@ type textSpan struct {
 	// place) or to leave part of the content unmapped (a coverage check
 	// that silently passes on incomplete data).
 	PrefixRunes int
+
+	// Units 是组成这一块的**源单元**（段落或句子），每个都是原文的精确切片。
+	// SepRunes 是拼接它们时插入的分隔符长度。
+	//
+	// ⚠️ 它们存在的理由是一个真实的错误：块的 [Start,End) 覆盖了单元**之间
+	// 的原文空白**，而块文本用固定分隔符重新拼接，两者长度必然对不上
+	// （实测 149 rune 的块对应 126 rune 的文档区间）。用整块区间做位置换算，
+	// 每一条引用的位置都会偏，且偏移量取决于原文里那些空白有多长——
+	// 没有任何规律可循。按单元切段之后每一段都是精确切片，换算才成立。
+	Units    []textSpan
+	SepRunes int
 }
 
 func spanTexts(spans []textSpan) []string {
@@ -102,7 +113,10 @@ func chunkTextSpans(text string, size, overlap int) []textSpan {
 			end = len(runes)
 		}
 		if chunk, from, to := trimmedSpan(text, off[start], off[end]); chunk != "" {
-			chunks = append(chunks, textSpan{Text: chunk, Start: from, End: to})
+			// 字符级切分产出的块本身就是原文的精确切片，整块即一个单元。
+			sp := textSpan{Text: chunk, Start: from, End: to}
+			sp.Units = []textSpan{sp}
+			chunks = append(chunks, sp)
 		}
 		if end == len(runes) {
 			break
@@ -671,12 +685,32 @@ func trimmedPrefixRunes(body, trimmed string, prefix int) int {
 	return prefix
 }
 
+// joinWithSeed 把 overlap 种子拼在单元序列前面，返回拼好的正文和种子
+// 占用的 rune 数。
+//
+// ⚠️ 种子和单元用**同一个分隔符**连接，这样单元之间的间距在整块里是一致的，
+// 元数据按 SepRunes 逐段推进才对得上。
+func joinWithSeed(seed, sep string, units []string) (string, int) {
+	body := strings.Join(units, sep)
+	if seed == "" {
+		return body, 0
+	}
+	prefixed := seed + sep + body
+	return prefixed, len([]rune(seed)) + len([]rune(sep))
+}
+
 // shiftSpans moves spans from a substring's own frame into the enclosing
 // text's frame.
 func shiftSpans(spans []textSpan, by int) []textSpan {
 	for i := range spans {
 		spans[i].Start += by
 		spans[i].End += by
+		// ⚠️ 单元区间必须一起平移。漏掉它的表现是元数据里每一段都指向
+		// 文档开头附近，而块本身的区间是对的——两套坐标各自看都合理。
+		for j := range spans[i].Units {
+			spans[i].Units[j].Start += by
+			spans[i].Units[j].End += by
+		}
 	}
 	return spans
 }
@@ -703,6 +737,7 @@ func chunkBySentenceSpans(text string, base, size, overlap int) []textSpan {
 	var chunks []textSpan
 	var acc []textSpan
 	var pendingOverlap string
+	var seed string
 
 	accRuneLen := func() int {
 		if len(acc) == 0 {
@@ -711,6 +746,12 @@ func chunkBySentenceSpans(text string, base, size, overlap int) []textSpan {
 		total := len(acc) - 1 // single space between accumulated sentences
 		for _, s := range acc {
 			total += len([]rune(s.Text))
+		}
+		// ⚠️ 种子必须计入。它以前藏在 acc[0].Text 里所以自动被算上；
+		// 把它拆出去之后忘记加回来，长度上限就形同虚设——实测 size=50
+		// 产出 58 字的块，而"每块不超上限"是保护 embedding 质量的硬规则。
+		if seed != "" {
+			total += len([]rune(seed)) + 1
 		}
 		return total
 	}
@@ -721,11 +762,13 @@ func chunkBySentenceSpans(text string, base, size, overlap int) []textSpan {
 			}
 			return
 		}
-		body := strings.Join(spanTexts(acc), " ")
+		body, prefix := joinWithSeed(seed, " ", spanTexts(acc))
 		if t := strings.TrimSpace(body); t != "" {
 			chunks = append(chunks, textSpan{
 				Text: t, Start: acc[0].Start, End: acc[len(acc)-1].End,
-				PrefixRunes: trimmedPrefixRunes(body, t, acc[0].PrefixRunes),
+				PrefixRunes: trimmedPrefixRunes(body, t, prefix),
+				Units:       append([]textSpan(nil), acc...),
+				SepRunes:    1,
 			})
 		}
 		if carryOverlap && overlap > 0 {
@@ -734,6 +777,7 @@ func chunkBySentenceSpans(text string, base, size, overlap int) []textSpan {
 			pendingOverlap = ""
 		}
 		acc = nil
+		seed = ""
 	}
 
 	for _, sentence := range sentences {
@@ -753,14 +797,14 @@ func chunkBySentenceSpans(text string, base, size, overlap int) []textSpan {
 			flush(true)
 		}
 
-		next := sentence
 		if len(acc) == 0 && pendingOverlap != "" {
-			// ⚠️ Text gains the seed; Start/End deliberately do NOT.
-			next.Text = prependOverlap(pendingOverlap, " ", sentence.Text, size)
-			next.PrefixRunes = len([]rune(next.Text)) - len([]rune(sentence.Text))
+			// ⭐ 种子**不进 acc**：acc 里每一项都必须是原文的精确切片，
+			// 否则它的 Text 长度与 Start/End 覆盖的原文长度对不上，
+			// 而元数据正是拿这两者做换算的。种子单独记，flush 时才拼上去。
+			seed = tailRunes(pendingOverlap, size-len([]rune(sentence.Text))-1)
 			pendingOverlap = ""
 		}
-		acc = append(acc, next)
+		acc = append(acc, sentence)
 	}
 	flush(false)
 	return chunks
@@ -791,6 +835,7 @@ func chunkPlainTextSpans(text string, size, overlap int) []textSpan {
 	var chunks []textSpan
 	var acc []textSpan
 	var pendingOverlap string
+	var seed string
 
 	accRuneLen := func() int {
 		if len(acc) == 0 {
@@ -799,6 +844,10 @@ func chunkPlainTextSpans(text string, size, overlap int) []textSpan {
 		total := 2 * (len(acc) - 1) // blank line between accumulated paragraphs
 		for _, s := range acc {
 			total += len([]rune(s.Text))
+		}
+		// ⚠️ 种子必须计入——理由同 chunkBySentenceSpans。
+		if seed != "" {
+			total += len([]rune(seed)) + 2
 		}
 		return total
 	}
@@ -809,11 +858,13 @@ func chunkPlainTextSpans(text string, size, overlap int) []textSpan {
 			}
 			return
 		}
-		body := strings.Join(spanTexts(acc), "\n\n")
+		body, prefix := joinWithSeed(seed, "\n\n", spanTexts(acc))
 		if t := strings.TrimSpace(body); t != "" {
 			chunks = append(chunks, textSpan{
 				Text: t, Start: acc[0].Start, End: acc[len(acc)-1].End,
-				PrefixRunes: trimmedPrefixRunes(body, t, acc[0].PrefixRunes),
+				PrefixRunes: trimmedPrefixRunes(body, t, prefix),
+				Units:       append([]textSpan(nil), acc...),
+				SepRunes:    2,
 			})
 		}
 		if carryOverlap && overlap > 0 {
@@ -822,6 +873,7 @@ func chunkPlainTextSpans(text string, size, overlap int) []textSpan {
 			pendingOverlap = ""
 		}
 		acc = nil
+		seed = ""
 	}
 
 	for _, para := range paragraphs {
@@ -838,14 +890,14 @@ func chunkPlainTextSpans(text string, size, overlap int) []textSpan {
 			flush(true)
 		}
 
-		next := para
 		if len(acc) == 0 && pendingOverlap != "" {
-			// ⚠️ Text gains the seed; Start/End deliberately do NOT.
-			next.Text = prependOverlap(pendingOverlap, "\n", para.Text, size)
-			next.PrefixRunes = len([]rune(next.Text)) - len([]rune(para.Text))
+			// ⭐ 种子不进 acc——理由同 chunkBySentenceSpans。
+			// ⚠️ 预算里要扣掉**段落级分隔符的 2 个 rune**，不是 1 个：
+			// 用 1 会让种子多留一个字，整块就超上限一个字。
+			seed = tailRunes(pendingOverlap, size-len([]rune(para.Text))-2)
 			pendingOverlap = ""
 		}
-		acc = append(acc, next)
+		acc = append(acc, para)
 	}
 	flush(false)
 	return chunks

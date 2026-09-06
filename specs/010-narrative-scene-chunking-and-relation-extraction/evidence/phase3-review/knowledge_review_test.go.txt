@@ -1,0 +1,166 @@
+package knowledge
+
+import (
+	"context"
+	"errors"
+	"hify/internal/provider"
+	"math/big"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestReviewP3PublishGuards(t *testing.T) {
+	for _, tc := range []struct{ name, sql string }{{"inactive_run", "UPDATE documents SET active_relation_job_id='replacement' WHERE id=?"}, {"disabled", "UPDATE documents SET is_relation_extraction_enabled=0 WHERE id=?"}, {"paused", "UPDATE relation_extraction_jobs SET state='paused' WHERE document_id=?"}, {"expired_lease", "UPDATE relation_extraction_jobs SET lease_until=DATE_SUB(NOW(3),INTERVAL 1 SECOND) WHERE document_id=?"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := extractionRepo(t)
+			doc := "review-guard-" + tc.name
+			job, e, item := publishFixture(t, r, doc, doc+"-job")
+			if _, err := r.db.ExecContext(t.Context(), "UPDATE documents SET is_relation_extraction_enabled=1 WHERE id=?", doc); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := r.db.ExecContext(t.Context(), tc.sql, doc); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.publishItemOutcome(t.Context(), publishInput{JobID: job.ID, ItemID: item, Epoch: e, Outcome: sampleOutcome()}); err == nil {
+				t.Fatal("published after guard invalidated")
+			}
+		})
+	}
+}
+func TestReviewP3PausedReservation(t *testing.T) {
+	r := extractionRepo(t)
+	job, e := ledgerJob(t, r, "review-reserve", "review-reserve-job")
+	if _, err := r.db.ExecContext(t.Context(), "UPDATE relation_extraction_jobs SET state='paused' WHERE id=?", job.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err := r.reserveExtractionAttempt(t.Context(), attemptReservation{JobID: job.ID, ItemID: firstItemID(t, r, job.ID), Epoch: e, Phase: phaseExtract, AttemptNumber: 1, RequestHash: make([]byte, 32), MaxOutputTokens: 2048})
+	if err == nil {
+		t.Fatal("paused job still allowed to reserve a model call")
+	}
+}
+func TestReviewP3InitializationRejectsInvalidSource(t *testing.T) {
+	r := extractionRepo(t)
+	seedNarrativeDocument(t, r, "review-meta", 2)
+	if _, err := r.pgdb.ExecContext(t.Context(), `UPDATE chunks SET narrative_metadata='{"schema_version":1}' WHERE document_id='review-meta'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.initializeExtractionJob(t.Context(), newExtractionJobSpec("review-meta-job", "review-meta", 1, "m-1")); err == nil {
+		t.Fatal("initialization accepted metadata without source map/hash/coverage")
+	}
+}
+func TestReviewP3ReservationCrashCanResume(t *testing.T) {
+	r := extractionRepo(t)
+	job, e := ledgerJob(t, r, "review-crash", "review-crash-job")
+	item := firstItemID(t, r, job.ID)
+	att, err := r.reserveExtractionAttempt(t.Context(), attemptReservation{JobID: job.ID, ItemID: item, Epoch: e, Phase: phaseExtract, AttemptNumber: 1, RequestHash: make([]byte, 32), MaxOutputTokens: 2048})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Crash immediately after the reservation commit; recovery classifies it unknown.
+	if err = r.settleExtractionAttempt(t.Context(), att, provider.ChatAttemptResult{Outcome: provider.AttemptUnknown}); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	_, err = retryDeps(r).runPhase(t.Context(), phaseInput{JobID: job.ID, ItemID: item, Epoch: e, Phase: phaseExtract, RequestHash: make([]byte, 32), MaxOutputTokens: 2048}, func(context.Context, int) (provider.ChatAttemptResult, error) {
+		calls++
+		return provider.ChatAttemptResult{Outcome: provider.AttemptCompleted, Dispatched: true}, nil
+	})
+	if err != nil || calls != 1 {
+		t.Fatalf("cannot resume committed reservation: calls=%d err=%v", calls, err)
+	}
+}
+func TestReviewP3OversizedResponseIsNotReplayable(t *testing.T) {
+	r := extractionRepo(t)
+	job, e := ledgerJob(t, r, "review-large", "review-large-job")
+	item := firstItemID(t, r, job.ID)
+	att, err := r.reserveExtractionAttempt(t.Context(), attemptReservation{JobID: job.ID, ItemID: item, Epoch: e, Phase: phaseExtract, AttemptNumber: 1, RequestHash: make([]byte, 32), MaxOutputTokens: 2048})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = r.settleExtractionAttempt(t.Context(), att, provider.ChatAttemptResult{Outcome: provider.AttemptCompleted, Dispatched: true, Message: provider.Message{Content: strings.Repeat("x", maxRawResponseBytes+1)}}); err != nil {
+		t.Fatal(err)
+	}
+	_, found, err := r.findReplayableResponse(t.Context(), item, phaseExtract)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found {
+		t.Fatal("known truncated response returned as replayable completed result")
+	}
+}
+func TestReviewP3CleanupProgressesPastEmptyJob(t *testing.T) {
+	r := extractionRepo(t)
+	for _, suffix := range []string{"a", "b"} {
+		job, e, item := publishFixture(t, r, "review-clean-"+suffix, "000-review-clean-"+suffix)
+		if suffix == "b" {
+			if err := r.publishItemOutcome(t.Context(), publishInput{JobID: job.ID, Epoch: e, ItemID: item, Outcome: sampleOutcome()}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := r.db.ExecContext(t.Context(), "UPDATE relation_extraction_jobs SET state='superseded',finished_at=? WHERE id=?", time.Now().Add(-40*24*time.Hour), job.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := r.cleanupDeadJobDerivedRows(t.Context(), derivedRowRetention, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := countRows(t, r, "SELECT COUNT(*) FROM narrative_characters WHERE job_id='000-review-clean-b'"); n != 0 {
+		t.Fatalf("cleanup permanently stuck on empty first job: %d characters remain", n)
+	}
+}
+func TestReviewP3ReconcileDoesNotPretendToEnqueue(t *testing.T) {
+	r := extractionRepo(t)
+	claimTestJob(t, r, "review-enqueue", "review-enqueue-job")
+	svc := newTestService(r, newFakeProvider(), t.TempDir())
+	res, err := svc.ReconcileRelationExtractions(t.Context())
+	if err == nil && res.JobsRequeued > 0 {
+		t.Fatalf("reports %d queued jobs with nil queue client and no worker", res.JobsRequeued)
+	}
+}
+
+func TestReviewP3ArchivePreservesMoneyAcrossBatches(t *testing.T) {
+	r := extractionRepo(t)
+	job, e := ledgerJob(t, r, "review-money", "review-money-job")
+	item := firstItemID(t, r, job.ID)
+	for i := 1; i <= 2; i++ {
+		settleN2(t, r, job.ID, item, e, i, i)
+		if _, err := r.db.ExecContext(t.Context(), "UPDATE relation_extraction_attempts SET cost_kind='measured',cost_amount=?,currency='USD',pricing_version='test' WHERE job_id=?", "1.250000", job.ID); err != nil {
+			t.Fatal(err)
+		}
+		ageAttempts(t, r, job.ID, 40*24*time.Hour)
+		if _, err := r.archiveOneJob(t.Context(), job.ID, time.Now().Add(-attemptRetention)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	summary, err := r.readArchivedLedger(t.Context(), job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The two archived batches cost 1.25 USD each. A decimal parser also catches
+	// formatting the driver's []byte representation rather than its numeric value.
+	amount, ok := new(big.Rat).SetString(summary.CostAmount)
+	if !ok || amount.Cmp(big.NewRat(5, 2)) != 0 {
+		t.Fatalf("archived cost=%q, expected 2.5 USD", summary.CostAmount)
+	}
+}
+
+type reviewFailingLeaseOwner struct{}
+
+func (reviewFailingLeaseOwner) renewExtractionLease(context.Context, string, int, time.Duration) (bool, error) {
+	return false, errors.New("database unavailable")
+}
+func (reviewFailingLeaseOwner) jobIsStillCurrent(context.Context, string) (bool, error) {
+	return true, nil
+}
+func TestReviewP3HeartbeatFailureEventuallyLosesLease(t *testing.T) {
+	k := startLeaseKeeper(t.Context(), reviewFailingLeaseOwner{}, "review-expired", 1, 20*time.Millisecond, 5*time.Millisecond)
+	defer k.Stop()
+	select {
+	case <-k.Lost():
+	case <-time.After(150 * time.Millisecond):
+		t.Fatalf("keeper remains valid=%v long after TTL while every renewal fails", k.Valid())
+	}
+}

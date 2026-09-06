@@ -581,8 +581,11 @@ func TestSegmentsReproduceTheirOwnText(t *testing.T) {
 					continue
 				}
 				checked++
-				got := stripWS(string(normalized[*seg.DocumentStart:*seg.DocumentEnd]))
-				want := stripWS(string(content[seg.ChunkStart:seg.ChunkEnd]))
+				// ⭐ 逐字节比对，不忽略空白。一个源单元一段之后每段都是
+				// 原文的精确切片；用 stripWS 比会放过"长度对不上"这类错误，
+				// 而长度对不上意味着区间内的位置换算全部无效。
+				got := string(normalized[*seg.DocumentStart:*seg.DocumentEnd])
+				want := string(content[seg.ChunkStart:seg.ChunkEnd])
 				if got != want {
 					t.Errorf("overlap=%d 段 %d 的区间 [%d,%d) 取出来对不上：\n got=%.50q\nwant=%.50q",
 						overlap, i, *seg.DocumentStart, *seg.DocumentEnd, got, want)

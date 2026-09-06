@@ -30,6 +30,9 @@ AI初标交付单独记录，人工冻结仍未完成。共库任务不并行。
 
 ## Phase 3：任务、预算与恢复
 
+**2026-09-06 独立审核：未通过。** 审核对象 phase3-extraction@f046d59；既有868测试通过，新增10个顶层契约反例全部失败。
+T014～T023保持未勾选，具体缺口及复审顺序见 [review-fixes 第六轮](review-fixes.md)。Phase2修复尚未合入此分支。
+
 - [ ] T014 在provider先写单次dispatch契约测试，再实现Service.ChatOnce及ChatAttemptResult，复用限流/breaker但不自动重试；适配器/SDK/transport单次网络请求验证；旧Chat/Embed/Stream回归。
 - [ ] T015 编排初始化：ready当前版本创建job、枚举全体published chunks与item、校验数量及metadata；initialization_complete事务提交，失败不改变事实status。
 - [ ] T016 先写状态转换和并发测试，再实现claim/epoch/180s租约/30s心跳、每次发布版本和active job检查；goroutine等待退出、取消/失效不再调用模型。
