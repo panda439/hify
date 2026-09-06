@@ -7,6 +7,12 @@
       "runtimeArgs": ["run", "dev"],
       "cwd": "web",
       "port": 5173
+    },
+    {
+      "name": "hify-api",
+      "runtimeExecutable": "go",
+      "runtimeArgs": ["run", "./cmd/hify"],
+      "port": 8080
     }
   ]
 }

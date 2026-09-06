@@ -17,6 +17,12 @@ import {
   type Message,
 } from "@/lib/conversations";
 import { useChatStream, type RetrievedChunkInfo, type ToolCallInfo } from "@/lib/sse";
+import {
+  RelationAskPanel,
+  emptyRelationAsk,
+  relationAskReady,
+  type RelationAskState,
+} from "@/routes/relation-ask-panel";
 import { NewConversationDialog } from "@/routes/new-conversation-dialog";
 
 // A message shown in the transcript while it's still in flight — not yet
@@ -76,6 +82,8 @@ export function ChatPage() {
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState<PendingMessage[]>([]);
   const { send, stop, streaming } = useChatStream();
+  // 010 T035：关系提问是显式开关，默认关闭——关闭时这一页与本功能上线前完全一致。
+  const [relationAsk, setRelationAsk] = useState<RelationAskState>(emptyRelationAsk);
   const qc = useQueryClient();
 
   const { data: messagesData } = useMessages(conversationId);
@@ -100,6 +108,15 @@ export function ChatPage() {
       { id: "pending-user", role: "user", content },
       { id: "pending-assistant", role: "assistant", content: "" },
     ]);
+
+    // ⭐ 只有三项都填齐才带上关系选项；否则这一轮就是普通对话。
+    const relation = relationAskReady(relationAsk)
+      ? {
+          document_id: relationAsk.documentId,
+          subject: relationAsk.subject.trim(),
+          object: relationAsk.object.trim(),
+        }
+      : undefined;
 
     await send(conversationId, content, async (event) => {
       if (event.type === "retrieval") {
@@ -149,7 +166,7 @@ export function ChatPage() {
         qc.invalidateQueries({ queryKey: messagesQueryKey(conversationId) });
         qc.invalidateQueries({ queryKey: conversationsQueryKey() });
       }
-    });
+    }, relation);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -214,6 +231,11 @@ export function ChatPage() {
               </div>
             </div>
             <div className="border-t p-4">
+              <RelationAskPanel
+                conversationId={conversationId}
+                state={relationAsk}
+                onChange={setRelationAsk}
+              />
               <div className="mx-auto flex max-w-3xl items-end gap-2">
                 <Textarea
                   value={draft}
