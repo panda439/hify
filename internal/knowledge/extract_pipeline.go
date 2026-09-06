@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -187,6 +188,24 @@ func (p extractionPipeline) resolveIdentities(
 	return decisions, nil
 }
 
+// aliasRulesVersion 是身份判定规则的版本。
+//
+// ⚠️ 它必须**和每条决策一起存下来**：规则改了之后，旧记录是按旧规则判的，
+// 拿新规则去复核它会得出错误结论——而复核正是本期要人做的事。
+const aliasRulesVersion = "alias-rules-v1"
+
+// aliasEvidence 是落库的判定依据（FR-014）。
+//
+// ⭐ 依据是**可读的原文引用**，不是一个分数。
+// ⚠️ 查不出来的话，人工复核只能对着一堆已经合并好的人物干瞪眼：
+// 「阿Q」和「老Q」为什么被判成同一个人？依据是哪句话？没有记录就答不了。
+type aliasEvidence struct {
+	RulesVersion string         `json:"rules_version"`
+	ReasonCode   string         `json:"reason_code"`
+	Action       string         `json:"action"`
+	Supports     []aliasSupport `json:"supports"`
+}
+
 // aliasInstruction 是归一阶段的固定指令头。
 // ⚠️ 它属于 config_snapshot 的一部分（prompt 版本），改动它必须 restart，
 // 否则同一个 run 的前后半段用的是两套规则，而报告里只写一个版本号。
@@ -286,6 +305,27 @@ func buildOutcome(
 			refToLocal[m.Ref] = "link:" + d.CharacterID
 			continue
 		}
+		// ⭐ 每个称呼都留一条判定记录，无论它是新建、链接还是歧义。
+		// ⚠️ 只记"合并成功"的那些，等于把系统判断不了的部分从记录里抹掉——
+		// 而那部分恰恰是人工复核最需要看的。
+		evJSON, jerr := json.Marshal(aliasEvidence{
+			RulesVersion: aliasRulesVersion, ReasonCode: d.ReasonCode,
+			Action: d.Action, Supports: d.Supports,
+		})
+		if jerr != nil {
+			return out, fmt.Errorf("marshal alias evidence: %w", jerr)
+		}
+		mentionFrom, _, located := proj.toDocument(m.Start, m.End)
+		if !located {
+			return out, fmt.Errorf("mention %q cannot be located in the document", m.Ref)
+		}
+		out.Aliases = append(out.Aliases, aliasDraft{
+			Surface: m.Surface, State: aliasStateFor(d.Action),
+			FirstSourceOrder: int64(mentionFrom), Evidence: evJSON,
+			DecisionKey: aliasDecisionKey(in.ChunkID, m.Ref, mentionFrom, d),
+		})
+		aliasIdx := len(out.Aliases) - 1
+
 		local, seen := groupRef[d.NewGroup]
 		if !seen {
 			local = fmt.Sprintf("g%d", d.NewGroup)
@@ -301,6 +341,7 @@ func buildOutcome(
 			_ = to
 		}
 		refToLocal[m.Ref] = local
+		out.Aliases[aliasIdx].CharacterRef = local
 	}
 
 	for _, rel := range parsed.Relations {
@@ -333,6 +374,43 @@ func buildOutcome(
 		})
 	}
 	return out, nil
+}
+
+// aliasStateFor 把归一动作映射成 narrative_aliases.state。
+//
+// ⚠️ ambiguous **不是** rejected：它是一次成功的「分不清」判定，
+// 查询时要据此给用户一句歧义提示。混成 rejected 就把"系统看不出来"
+// 说成了"系统看出来不是"。
+func aliasStateFor(action string) string {
+	switch action {
+	case aliasActionAmbiguous:
+		return "ambiguous"
+	default:
+		return "supported"
+	}
+}
+
+// aliasDecisionKey 算这条判定的去重键。
+//
+// ⭐ 键里含 **mention 的原文位置**、候选实体和规则版本，不只是名字。
+// ⚠️ 只按名字去重会让同一个称呼在书里的每一次出现被折叠成一条——
+// 而「这个称呼在第 3 章和第 57 章各被判过一次」正是复核要看的东西。
+func aliasDecisionKey(chunkID, mentionRef string, sourceOrder int, d aliasDecision) []byte {
+	h := sha256.New()
+	writeHashField(h, aliasRulesVersion)
+	// ⚠️ chunk_id 不可省——它是 data-model 说的「mention 来源」。
+	// 模型在每个块里都从 m1 开始编号，所以**不同块的 ref 会重名**；
+	// 键里只有 ref 的话，第二个块的 m1 会撞上第一个块的 m1 被 INSERT IGNORE
+	// 静默丢掉，那个称呼的判定依据从此查不到，而人物和关系照样在，
+	// 看不出少了什么。第一版漏了它，用例当场抓住。
+	writeHashField(h, chunkID)
+	writeHashField(h, mentionRef)
+	writeHashField(h, d.Action)
+	writeHashField(h, d.CharacterID)
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], uint64(sourceOrder))
+	h.Write(buf[:])
+	return h.Sum(nil)
 }
 
 // isDirected 来自标注指南 §2 的方向列。

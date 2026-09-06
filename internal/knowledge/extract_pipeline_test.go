@@ -226,6 +226,100 @@ func TestPipelineKeepsAmbiguousIdentitiesApart(t *testing.T) {
 		`SELECT COUNT(*) FROM narrative_characters WHERE job_id=? AND has_ambiguity=1`, in.JobID); n != 2 {
 		t.Errorf("歧义标记只打了 %d 个——查询时无法提示用户这里分不清", n)
 	}
+	// ⚠️ 别名记录的状态也必须是 ambiguous，不能是 rejected。
+	// 混成 rejected 就把"系统看不出来"说成了"系统看出来不是"，
+	// 而人工复核看到 rejected 会以为这里已经判定过了。变异测试逼出这条。
+	if n := countRows(t, repo,
+		`SELECT COUNT(*) FROM narrative_aliases WHERE job_id=? AND state='ambiguous'`, in.JobID); n != 2 {
+		t.Errorf("state='ambiguous' 的别名记录 %d 条, want 2", n)
+	}
+}
+
+// TestSameMentionRefInDifferentItemsKeepsBothDecisions——⭐ 变异测试逼出来的缺口。
+//
+// 模型在每个块里都从 m1 开始编号，所以**不同块的 mention ref 会重名**。
+// 判定去重键如果只含 ref，第二个块的 m1 会撞上第一个块的 m1，
+// 被 INSERT IGNORE 静默丢掉——那个称呼的判定依据从此查不到，
+// 而人物和关系照样在，看不出少了什么。
+func TestSameMentionRefInDifferentItemsKeepsBothDecisions(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	job, epoch := ledgerJob(t, repo, "doc-pl10", "job-pl10")
+
+	rows, err := repo.db.QueryContext(ctx,
+		`SELECT id FROM relation_extraction_items WHERE job_id=? ORDER BY chunk_index`, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		items = append(items, id)
+	}
+	rows.Close()
+	if len(items) < 2 {
+		t.Fatalf("夹具只有 %d 个 item", len(items))
+	}
+
+	// 两个块各有一个 ref 为 m1 的称呼，但名字与位置都不同。
+	for i, surface := range []string{"阿Q", "王胡"} {
+		chat := newScriptedChat()
+		chat.script(phaseExtract,
+			`{"mentions":[{"ref":"m1","surface":"`+surface+`","occurrence":0}],
+			  "relations":[],"alias_proposals":[]}`)
+		pieces := chunkNarrative("第一章　甲\n"+surface+"来了。\n", 500, 0)
+		in := itemInput{JobID: job.ID, ItemID: items[i], Epoch: epoch,
+			ChunkID: "c-" + itoa(i), DocumentVersion: 1,
+			Content: pieces[0].Content, Metadata: *pieces[0].Narrative}
+		if err := pipelineDeps(repo, chat).processItem(ctx, in); err != nil {
+			t.Fatalf("第 %d 个 item: %v", i, err)
+		}
+	}
+	if n := countRows(t, repo,
+		`SELECT COUNT(*) FROM narrative_aliases WHERE job_id=?`, job.ID); n != 2 {
+		t.Errorf("别名记录 %d 条, want 2——两个块的 m1 撞成了一条", n)
+	}
+}
+
+// TestGroupDisplayNameComesFromTheFirstOccurrence——同一组里用**原文中最先
+// 出现**的那个称呼作展示名。
+//
+// ⚠️ 用模型输出顺序里的第一个会让展示名取决于模型这次先列了谁，
+// 而那在两次运行之间可以不同——回放稳定性检查抓不到它（两次用的是
+// 同一份响应），只有换一份顺序不同的响应才看得出来。
+func TestGroupDisplayNameComesFromTheFirstOccurrence(t *testing.T) {
+	repo := extractionRepo(t)
+	chunk := "阿Q，人称老Q。"
+	// ⚠️ 模型把「老Q」列在前面，但它在原文里出现得更晚。
+	chat := newScriptedChat()
+	chat.script(phaseExtract, `{"mentions":[{"ref":"m2","surface":"老Q","occurrence":0},
+	     {"ref":"m1","surface":"阿Q","occurrence":0}],
+	     "relations":[],
+	     "alias_proposals":[{"left":"m1","right":"m2","quote":"阿Q，人称老Q","occurrence":0}]}`)
+	chat.script(phaseAlias, `{"decisions":[
+	     {"mention_ref":"m1","action":"new","new_group":1,"reason_code":"explicit_alias",
+	      "supports":[{"source_ref":"m1","quote":"阿Q，人称老Q","occurrence":0}]},
+	     {"mention_ref":"m2","action":"new","new_group":1,"reason_code":"explicit_alias",
+	      "supports":[{"source_ref":"m2","quote":"阿Q，人称老Q","occurrence":0}]}]}`)
+
+	job, epoch, item := publishFixture(t, repo, "doc-pl11", "job-pl11")
+	pieces := chunkNarrative("第一章　甲\n"+chunk+"\n", 500, 0)
+	in := itemInput{JobID: job.ID, ItemID: item, Epoch: epoch, ChunkID: "c-1",
+		DocumentVersion: 1, Content: pieces[0].Content, Metadata: *pieces[0].Narrative}
+	if err := pipelineDeps(repo, chat).processItem(t.Context(), in); err != nil {
+		t.Fatalf("processItem: %v", err)
+	}
+	var name string
+	if err := repo.db.QueryRowContext(t.Context(),
+		`SELECT display_name FROM narrative_characters WHERE job_id=?`, in.JobID).Scan(&name); err != nil {
+		t.Fatal(err)
+	}
+	if name != "阿Q" {
+		t.Errorf("展示名 = %q, want 阿Q——用的是模型输出顺序而不是原文顺序", name)
+	}
 }
 
 // TestPipelineRetriesAliasWithoutRecallingStageOne——⭐ 两个阶段**独立重试**。

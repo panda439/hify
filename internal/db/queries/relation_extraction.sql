@@ -433,3 +433,11 @@ FROM narrative_characters
 WHERE job_id = ? AND display_name = ?
 ORDER BY first_source_order, id
 LIMIT ?;
+
+-- name: CreateNarrativeAlias :exec
+-- ⚠️ INSERT IGNORE：回放（响应已落盘、发布前崩溃）会再写一次同样的决策，
+-- 唯一键 (job_id, decision_key_hash) 让第二次成为无操作。
+INSERT IGNORE INTO narrative_aliases
+    (id, job_id, character_id, surface, surface_hash, state, evidence,
+     first_source_order, decision_key_hash)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);

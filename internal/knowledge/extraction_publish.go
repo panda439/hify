@@ -66,11 +66,22 @@ type relationDraft struct {
 	Evidence         []evidenceDraft
 }
 
+// aliasDraft 是一条待落库的身份判定记录（FR-014）。
+type aliasDraft struct {
+	CharacterRef     string // 指向 characterDraft.LocalRef；空表示未关联
+	Surface          string
+	State            string
+	FirstSourceOrder int64
+	Evidence         []byte
+	DecisionKey      []byte
+}
+
 // extractionOutcome 是一个 item 处理完之后要落库的全部内容。
 // ⚠️ 全空是**合法的成功结果**：一个块里没有关系是正常的。
 type extractionOutcome struct {
 	Characters []characterDraft
 	Relations  []relationDraft
+	Aliases    []aliasDraft
 }
 
 type publishInput struct {
@@ -158,6 +169,30 @@ func (r *Repository) publishItemOutcome(ctx context.Context, in publishInput) er
 				}); err != nil {
 					return fmt.Errorf("knowledge: upsert evidence: %w", err)
 				}
+			}
+		}
+
+		// ⭐ 身份判定记录与人物、关系**同一个事务**（FR-014）。
+		// ⚠️ 分开写的话，崩溃点会落在中间，留下一批"没有依据的人物"——
+		// 而人工复核唯一能做的事就是查依据。
+		for _, a := range in.Outcome.Aliases {
+			var charID sql.NullString
+			if a.CharacterRef != "" {
+				id, ok := ids[a.CharacterRef]
+				if !ok {
+					return fmt.Errorf("knowledge: alias %q references unknown character %q",
+						a.Surface, a.CharacterRef)
+				}
+				charID = sql.NullString{String: id, Valid: true}
+			}
+			sum := sha256.Sum256([]byte(a.Surface))
+			if err := q.CreateNarrativeAlias(ctx, gen.CreateNarrativeAliasParams{
+				ID: platform.NewID(), JobID: in.JobID, CharacterID: charID,
+				Surface: a.Surface, SurfaceHash: sum[:], State: a.State,
+				Evidence: jsonOrNull(a.Evidence), FirstSourceOrder: a.FirstSourceOrder,
+				DecisionKeyHash: a.DecisionKey,
+			}); err != nil {
+				return fmt.Errorf("knowledge: create alias: %w", err)
 			}
 		}
 

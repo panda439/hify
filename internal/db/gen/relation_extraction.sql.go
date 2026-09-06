@@ -224,6 +224,42 @@ func (q *Queries) CountRelationExtractionItems(ctx context.Context, jobID string
 	return count, err
 }
 
+const createNarrativeAlias = `-- name: CreateNarrativeAlias :exec
+INSERT IGNORE INTO narrative_aliases
+    (id, job_id, character_id, surface, surface_hash, state, evidence,
+     first_source_order, decision_key_hash)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type CreateNarrativeAliasParams struct {
+	ID               string          `json:"id"`
+	JobID            string          `json:"job_id"`
+	CharacterID      sql.NullString  `json:"character_id"`
+	Surface          string          `json:"surface"`
+	SurfaceHash      []byte          `json:"surface_hash"`
+	State            string          `json:"state"`
+	Evidence         json.RawMessage `json:"evidence"`
+	FirstSourceOrder int64           `json:"first_source_order"`
+	DecisionKeyHash  []byte          `json:"decision_key_hash"`
+}
+
+// ⚠️ INSERT IGNORE：回放（响应已落盘、发布前崩溃）会再写一次同样的决策，
+// 唯一键 (job_id, decision_key_hash) 让第二次成为无操作。
+func (q *Queries) CreateNarrativeAlias(ctx context.Context, arg CreateNarrativeAliasParams) error {
+	_, err := q.db.ExecContext(ctx, createNarrativeAlias,
+		arg.ID,
+		arg.JobID,
+		arg.CharacterID,
+		arg.Surface,
+		arg.SurfaceHash,
+		arg.State,
+		arg.Evidence,
+		arg.FirstSourceOrder,
+		arg.DecisionKeyHash,
+	)
+	return err
+}
+
 const createNarrativeCharacter = `-- name: CreateNarrativeCharacter :exec
 
 INSERT INTO narrative_characters

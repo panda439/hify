@@ -100,6 +100,9 @@ type Querier interface {
 	// 单条插入，由 repository.go 在写 assistant message 的同一个 MySQL 事务里
 	// 循环调用（一轮 turn 最多 maxTopK=50 条，批量不值得单独写一条多值 INSERT）。
 	CreateMessageCitation(ctx context.Context, arg CreateMessageCitationParams) error
+	// ⚠️ INSERT IGNORE：回放（响应已落盘、发布前崩溃）会再写一次同样的决策，
+	// 唯一键 (job_id, decision_key_hash) 让第二次成为无操作。
+	CreateNarrativeAlias(ctx context.Context, arg CreateNarrativeAliasParams) error
 	// ---------------------------------------------------------------------
 	// 成功结果的发布：人物 / 关系 / 证据 / item 状态 / 计数，同一个事务
 	// ---------------------------------------------------------------------
