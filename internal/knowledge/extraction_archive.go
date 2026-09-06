@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"time"
 
 	"hify/internal/db/gen"
@@ -156,6 +157,10 @@ func (r *Repository) archiveOneJob(ctx context.Context, jobID string, cutoff tim
 		if err != nil {
 			return err
 		}
+		costAmount, err := addDecimalAmounts(prev.CostAmount, asString(sum.CostAmount))
+		if err != nil {
+			return fmt.Errorf("knowledge: merge archived cost: %w", err)
+		}
 		merged := archivedLedger{
 			Attempts:            prev.Attempts + sum.Attempts,
 			ConfirmedDispatches: prev.ConfirmedDispatches + asInt64(sum.ConfirmedDispatches),
@@ -164,7 +169,7 @@ func (r *Repository) archiveOneJob(ctx context.Context, jobID string, cutoff tim
 			InputTokens:         prev.InputTokens + asInt64(sum.InputTokens),
 			OutputTokens:        prev.OutputTokens + asInt64(sum.OutputTokens),
 			ActiveMs:            prev.ActiveMs + asInt64(sum.ActiveMs),
-			CostAmount:          fmt.Sprint(sum.CostAmount),
+			CostAmount:          costAmount,
 			LastArchivedAt:      time.Now().UTC().Format(time.RFC3339),
 		}
 		blob, err := json.Marshal(merged)
@@ -189,6 +194,24 @@ func (r *Repository) archiveOneJob(ctx context.Context, jobID string, cutoff tim
 		return nil
 	})
 	return deleted, err
+}
+
+func addDecimalAmounts(left, right string) (string, error) {
+	if left == "" {
+		left = "0"
+	}
+	if right == "" {
+		right = "0"
+	}
+	a, ok := new(big.Rat).SetString(left)
+	if !ok {
+		return "", fmt.Errorf("invalid decimal %q", left)
+	}
+	b, ok := new(big.Rat).SetString(right)
+	if !ok {
+		return "", fmt.Errorf("invalid decimal %q", right)
+	}
+	return new(big.Rat).Add(a, b).FloatString(10), nil
 }
 
 func (r *Repository) readArchivedLedgerTx(ctx context.Context, q *gen.Queries, jobID string) (archivedLedger, error) {

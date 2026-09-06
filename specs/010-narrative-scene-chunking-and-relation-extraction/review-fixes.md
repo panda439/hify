@@ -237,5 +237,27 @@ CostAmount直接 `fmt.Sprint(sum.CostAmount)`，没有加prev.CostAmount；MySQL
 4. Fake Provider + 真实MySQL/PG/Redis验证丢消息、崩溃窗口、暂停/替换run、空结果、预算耗尽与重启。
 5. 再运行全量race、vet、双门禁；提供生产调用链和真实队列证据，不用测试内手写循环冒充。
 
+## 第七轮：Phase 3 修复复审与 Phase 4/5 新增内容审核（2026-09-06）
+
+本轮基于 `8a9e52f` 及当前未提交修复复审。R6-01、R6-02、R6-03、R6-04、R6-06 已有实现和针对性测试；本轮另直接修复 R6-07、R6-08、R6-09，并修复严格 JSON 尾随对象校验。对应 package 测试和 vet 已通过。
+
+### R7-01 [P1，已修复] Phase 4 的既有人物 link 无法发布
+
+位置：`extract_pipeline.go` 的 `buildOutcome` 与 `extraction_publish.go` 的 `publishItemOutcome`。
+归一结果为 `link` 时，pipeline 生成 `link:<character_id>` 端点，但 publish 只建立本 item 新建人物的 local-ref 映射；关系或别名引用该端点时会报 `not among created characters` 并回滚。因此跨 chunk 归一虽然能判定成功，却不能真正落库，T027/T028 不能验收。
+
+本轮已改为：发布事务内核对被链接人物属于同一 job，关系端点和 alias 可直接引用该已有 character_id，并保留每次 mention 的 FR-014 判定依据。跨 job ID 会被拒绝。
+
+### 本轮直接修复
+
+- R6-07：清理扫描只选择确实仍有派生记录的失败/被取代作业，空首批不再饿死后续作业。
+- R6-08：归档金额按十进制定点精确累加，兼容 MySQL DECIMAL 的 `[]byte` 返回，不再覆盖前一批。
+- R6-09：`ChatOnce` 总 deadline 从入口开始，覆盖并发槽和限流等待，并记录等待耗时。
+- T024：严格 JSON 解码用第二次 Decode 验 EOF，拒绝尾随第二个 JSON 对象。
+
+### 当前结论
+
+Phase 3 的九项问题均已有修复，R6-05 的 metadata 完整性修复也在当前未提交改动中通过全仓测试。Phase 4 新发现的 R7-01 已修复，但还缺真实模型效果验收，不能用工程测试代替。Phase 5 的状态/预算/关系查询/聊天分支后端已新增，但前端 T035、真实 HTTP/UI 冒烟 T036 尚未交付，因此 Phase 5 不能标完成。
+
 本轮在隔离副本进行反例验证，工作目录仅补审核记录/证据和tasks状态说明；未修改Phase3业务实现，
 未替换正在推进的Phase4代码，未commit/push。上述缺口属于待完成的Phase3实施，不是假装已完成后的小修收口。

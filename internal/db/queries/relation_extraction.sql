@@ -70,6 +70,9 @@ WHERE job_id = ? AND state IN ('pending','running') AND chunk_index > ?
 ORDER BY chunk_index, id
 LIMIT ?;
 
+-- name: GetNarrativeCharacterInJob :one
+SELECT id FROM narrative_characters WHERE id = ? AND job_id = ?;
+
 -- name: CompleteJobInitialization :execrows
 -- ⭐ 初始化完成是一次**带守卫的**状态跃迁，不是无条件 UPDATE。
 --
@@ -495,6 +498,10 @@ FROM relation_extraction_attempts WHERE job_id = ?;
 -- 关系数据。paused / budget_exhausted 也不清——它们随时可能被继续。
 SELECT id FROM relation_extraction_jobs
 WHERE state IN ('superseded', 'failed') AND finished_at IS NOT NULL AND finished_at < ?
+  AND (EXISTS (SELECT 1 FROM narrative_relation_evidence e WHERE e.job_id = relation_extraction_jobs.id)
+    OR EXISTS (SELECT 1 FROM narrative_relations r WHERE r.job_id = relation_extraction_jobs.id)
+    OR EXISTS (SELECT 1 FROM narrative_aliases a WHERE a.job_id = relation_extraction_jobs.id)
+    OR EXISTS (SELECT 1 FROM narrative_characters c WHERE c.job_id = relation_extraction_jobs.id))
 ORDER BY id
 LIMIT ?;
 

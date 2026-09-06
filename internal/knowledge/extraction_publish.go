@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"hify/internal/db/gen"
 	"hify/internal/platform"
@@ -117,6 +119,17 @@ func (r *Repository) publishItemOutcome(ctx context.Context, in publishInput) er
 		// 但**生成顺序**决定了 first_source_order 相同时的排序结果，
 		// map 迭代顺序会让同一份响应两次产出不同的记录顺序（宪法第 V 条）。
 		ids := make(map[string]string, len(in.Outcome.Characters))
+		for _, ref := range linkedCharacterRefs(in.Outcome) {
+			id := strings.TrimPrefix(ref, "link:")
+			found, err := q.GetNarrativeCharacterInJob(ctx, gen.GetNarrativeCharacterInJobParams{ID: id, JobID: in.JobID})
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return fmt.Errorf("knowledge: linked character %q is not in job %q", id, in.JobID)
+				}
+				return fmt.Errorf("knowledge: verify linked character: %w", err)
+			}
+			ids[ref] = found
+		}
 		for _, c := range in.Outcome.Characters {
 			id := platform.NewID()
 			ids[c.LocalRef] = id
@@ -219,6 +232,26 @@ func (r *Repository) publishItemOutcome(ctx context.Context, in publishInput) er
 		}
 		return nil
 	})
+}
+
+func linkedCharacterRefs(out extractionOutcome) []string {
+	seen := map[string]bool{}
+	var refs []string
+	add := func(ref string) {
+		if strings.HasPrefix(ref, "link:") && !seen[ref] {
+			seen[ref] = true
+			refs = append(refs, ref)
+		}
+	}
+	for _, rel := range out.Relations {
+		add(rel.SubjectRef)
+		add(rel.ObjectRef)
+	}
+	for _, alias := range out.Aliases {
+		add(alias.CharacterRef)
+	}
+	sort.Strings(refs)
+	return refs
 }
 
 // relationKeyHash 算关系的去重键。

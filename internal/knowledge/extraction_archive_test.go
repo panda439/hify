@@ -185,6 +185,73 @@ func TestArchivingInTwoWavesAccumulates(t *testing.T) {
 	}
 }
 
+func TestArchivingInTwoWavesAccumulatesCost(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	job, epoch := ledgerJob(t, repo, "doc-ar-cost", "job-ar-cost")
+	item := firstItemID(t, repo, job.ID)
+
+	for wave, amount := range []string{"1.2500000000", "2.3750000000"} {
+		att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
+			JobID: job.ID, ItemID: item, Epoch: epoch, Phase: []string{phaseExtract, phaseAlias}[wave],
+			RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := repo.settleExtractionAttempt(ctx, att, provider.ChatAttemptResult{
+			Outcome: provider.AttemptCompleted, Dispatched: true, ElapsedMs: 1,
+			UsageKnown: true, Message: provider.Message{Content: "{}"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := repo.db.ExecContext(ctx,
+			`UPDATE relation_extraction_attempts
+			 SET cost_amount=?, currency='USD', pricing_version='test-v1', cost_kind='estimated'
+			 WHERE id=?`, amount, att.ID); err != nil {
+			t.Fatal(err)
+		}
+		ageAttempts(t, repo, job.ID, 40*24*time.Hour)
+		if _, err := repo.archiveExpiredAttempts(ctx, attemptRetention, reconcileBatchSize); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ledger, err := repo.readArchivedLedger(ctx, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ledger.CostAmount != "3.6250000000" {
+		t.Fatalf("cost_amount = %q, want 3.6250000000", ledger.CostAmount)
+	}
+}
+
+func TestCleanupSkipsAlreadyEmptyJobs(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	for _, id := range []string{"job-clean-0", "job-clean-1"} {
+		job, epoch, item := publishFixture(t, repo, "doc-"+id, id)
+		if id == "job-clean-1" {
+			if err := repo.publishItemOutcome(ctx, publishInput{JobID: job.ID, ItemID: item, Epoch: epoch,
+				Outcome: sampleOutcome(), ExtractResponse: []byte(`{}`)}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := repo.db.ExecContext(ctx,
+			`UPDATE relation_extraction_jobs SET state='failed', finished_at=? WHERE id=?`,
+			time.Now().UTC().Add(-40*24*time.Hour), job.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := repo.cleanupDeadJobDerivedRows(ctx, derivedRowRetention, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := countRows(t, repo, `SELECT COUNT(*) FROM narrative_characters WHERE job_id='job-clean-1'`); n != 0 {
+		t.Fatalf("空的首个作业阻塞了后续清理，仍有 %d 个人物", n)
+	}
+}
+
 // TestSucceededJobDerivedRowsSurviveCleanup——⭐ 变异测试逼出来的第二个缺口。
 //
 // 上面那条清理用例里的"活着的作业"从没结束过（finished_at 为 NULL），

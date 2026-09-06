@@ -214,6 +214,7 @@ type Querier interface {
 	GetKnowledgeBaseByID(ctx context.Context, id string) (KnowledgeBase, error)
 	GetMCPServerByID(ctx context.Context, id string) (McpServer, error)
 	GetMCPToolByID(ctx context.Context, id string) (McpTool, error)
+	GetNarrativeCharacterInJob(ctx context.Context, arg GetNarrativeCharacterInJobParams) (string, error)
 	GetNarrativeRelationByKey(ctx context.Context, arg GetNarrativeRelationByKeyParams) (string, error)
 	GetProviderByID(ctx context.Context, id string) (ModelProvider, error)
 	GetProviderModelByID(ctx context.Context, id string) (ProviderModel, error)
