@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"hify/internal/db/gen"
@@ -115,6 +116,18 @@ type phaseInput struct {
 	Phase           string
 	RequestHash     []byte
 	MaxOutputTokens int
+
+	// Validate 判断一次**成功返回**的响应内容是否可用。
+	//
+	// ⭐ 它存在的理由：模型返回一份格式错误的 JSON 时，调用本身是成功的
+	// （HTTP 200、finish_reason=stop），所以按传输层判据不会重试——而这
+	// 恰恰是重试最可能救回来的一种失败（采样波动）。第一版把校验放在重试
+	// 循环之外，结果是**格式错误一次都不重试**。
+	//
+	// ⚠️ 校验失败**不改变账目**：那次调用确实发生了、钱确实花了、响应确实
+	// 收到了，attempt 照样记成 completed 并保留原始响应。可用与否是另一
+	// 回事，不能拿它去修改已经发生的事实。
+	Validate func(res provider.ChatAttemptResult) error
 }
 
 // attemptCaller 发出第 attemptNumber 次调用。
@@ -199,7 +212,20 @@ func (p *phaseRunner) runPhase(ctx context.Context, in phaseInput, call attemptC
 		}
 		last = res
 
-		switch decideRetry(res, attemptNumber) {
+		decision := decideRetry(res, attemptNumber)
+		if decision == decisionAccept && in.Validate != nil {
+			if verr := in.Validate(res); verr != nil {
+				// 内容不可用：按可重试处理，但账目已经如实记完，不动它。
+				slog.Warn("knowledge: extraction response rejected by validator",
+					"item_id", in.ItemID, "phase", in.Phase,
+					"attempt", attemptNumber, "error", verr)
+				if attemptNumber >= maxAttemptsPerPhase {
+					return res, nil
+				}
+				decision = decisionRetry
+			}
+		}
+		switch decision {
 		case decisionAccept, decisionGiveUp:
 			return res, nil
 		}

@@ -1,0 +1,348 @@
+package knowledge
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"sort"
+
+	"hify/internal/provider"
+)
+
+// extract_pipeline.go 把两个阶段串成一条链（010 T027）。
+//
+// ⭐ 最要紧的一条：**归一阶段不合法时，第一阶段的结果也一条都不发布**。
+//
+// 部分发布听起来更宽容——关系已经抽出来了，人物归一没做成而已。但那样产出
+// 的关系端点是一批**未经归一的临时人物**：同一个人在不同块里各建一个，
+// 而这些碎片再也没有机会被合并（item 已经标成功，不会重跑）。结果是关系
+// 数据看起来完整、人物图却是碎的，且碎得没有规律。
+
+// phaseCaller 发一次某个阶段的调用。
+// ⚠️ 它**不重试**——重试是 phaseRunner 的职责。
+type phaseCaller func(ctx context.Context, phase, input string, attempt int) (provider.ChatAttemptResult, error)
+
+type itemInput struct {
+	JobID           string
+	ItemID          string
+	Epoch           int
+	ChunkID         string
+	DocumentVersion int64
+	Content         string
+	Metadata        narrativeMetadata
+}
+
+type extractionPipeline struct {
+	repo   *Repository
+	runner *phaseRunner
+	call   phaseCaller
+}
+
+// processItem 处理一个 chunk：抽取 → 归一 → 一次性发布。
+func (p extractionPipeline) processItem(ctx context.Context, in itemInput) error {
+	// ⭐ 送给模型的正文里不含不可引用的部分（见 extract_projection.go）。
+	// 模型看不见它，就不会引用它。
+	proj, err := newChunkProjection(in.Content, in.Metadata)
+	if err != nil {
+		return fmt.Errorf("knowledge: item %s: %w", in.ItemID, err)
+	}
+
+	body, err := p.runOrReplay(ctx, in, phaseExtract, proj.Text, func(b string) error {
+		_, err := parseExtractionResponse(b, proj.Text)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	parsed, err := parseExtractionResponse(body, proj.Text)
+	if err != nil {
+		return fmt.Errorf("knowledge: item %s: extract phase: %w", in.ItemID, err)
+	}
+
+	decisions, err := p.resolveIdentities(ctx, in, proj, parsed)
+	if err != nil {
+		return err
+	}
+
+	outcome, err := buildOutcome(in, proj, parsed, decisions)
+	if err != nil {
+		return fmt.Errorf("knowledge: item %s: %w", in.ItemID, err)
+	}
+	// ⚠️ 只有走到这里才发布。上面任何一步失败都不会留下半份结果。
+	return p.repo.publishItemOutcome(ctx, publishInput{
+		JobID: in.JobID, ItemID: in.ItemID, Epoch: in.Epoch,
+		Outcome: outcome, ExtractResponse: []byte(body),
+	})
+}
+
+// runOrReplay 优先复用已经落盘的响应。
+//
+// ⭐ 再打一次的后果是那笔钱白花第二遍，而账目上两次都是真实调用，
+// 看起来完全正常——没有任何异常可查。
+func (p extractionPipeline) runOrReplay(
+	ctx context.Context, in itemInput, phase, input string, validate func(string) error,
+) (string, error) {
+	if replay, ok, err := p.repo.findReplayableResponse(ctx, in.ItemID, phase); err != nil {
+		return "", err
+	} else if ok {
+		// ⚠️ 回放之前先校验。一份**格式坏掉**的响应如果照样回放，恢复之后
+		// 每一轮都会拿它重来一次，item 永远好不了，而且不再花钱也不再产出
+		// ——一个安静的死循环。校验不过就当作没有可回放的，重新调。
+		if validate == nil || validate(replay.Body) == nil {
+			return replay.Body, nil
+		}
+	}
+
+	sum := sha256.Sum256([]byte(phase + "\x00" + input))
+	res, err := p.runner.runPhase(ctx, phaseInput{
+		JobID: in.JobID, ItemID: in.ItemID, Epoch: in.Epoch, Phase: phase,
+		RequestHash: sum[:], MaxOutputTokens: maxOutputTokens,
+		Validate: func(r provider.ChatAttemptResult) error {
+			if validate == nil {
+				return nil
+			}
+			return validate(r.Message.Content)
+		},
+	}, func(c context.Context, attempt int) (provider.ChatAttemptResult, error) {
+		return p.call(c, phase, input, attempt)
+	})
+	if err != nil {
+		return "", err
+	}
+	if res.Outcome != provider.AttemptCompleted {
+		return "", fmt.Errorf("knowledge: item %s: %s phase ended as %s (%s)",
+			in.ItemID, phase, res.Outcome, res.ErrorCode)
+	}
+	if res.FinishReason == finishReasonLength {
+		return "", fmt.Errorf("knowledge: item %s: %s phase output was truncated", in.ItemID, phase)
+	}
+	return res.Message.Content, nil
+}
+
+// resolveIdentities 跑归一阶段，或者在无事可做时本地产出决策。
+func (p extractionPipeline) resolveIdentities(
+	ctx context.Context, in itemInput, proj chunkProjection, parsed extractionResponse,
+) ([]aliasDecision, error) {
+	aliasIn := aliasInput{
+		Mentions:  map[string]string{},
+		ChunkText: proj.Text,
+	}
+	for _, m := range parsed.Mentions {
+		aliasIn.Mentions[m.Ref] = m.Surface
+	}
+	for _, a := range parsed.AliasProposals {
+		aliasIn.Proposals = append(aliasIn.Proposals, aliasProposalPair{Left: a.Left, Right: a.Right})
+	}
+
+	// ⚠️ 候选只从**同一次作业**里取（跨书同名合并的边界见 alias.go）。
+	// 按 surface 排序遍历，让候选集合与决策顺序可复现（宪法第 V 条）。
+	surfaces := make([]string, 0, len(aliasIn.Mentions))
+	for _, s := range aliasIn.Mentions {
+		surfaces = append(surfaces, s)
+	}
+	sort.Strings(surfaces)
+	aliasIn.Candidates = map[string]string{}
+	for _, surface := range surfaces {
+		cands, err := p.repo.listAliasCandidates(ctx, in.JobID, surface, maxAliasCandidates)
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range cands {
+			aliasIn.Candidates[c.ID] = c.DisplayName
+		}
+	}
+
+	local, needCall := planAliasResolution(aliasIn)
+	if !needCall {
+		return local, nil
+	}
+
+	rendered, dropped, err := fitAliasInput(aliasInstruction, proj.Text, renderCandidates(aliasIn))
+	if err != nil {
+		return nil, fmt.Errorf("knowledge: item %s: alias input: %w", in.ItemID, err)
+	}
+	_ = dropped // T029 之后随状态一起呈现为 candidate_truncated
+
+	body, err := p.runOrReplay(ctx, in, phaseAlias, rendered, func(b string) error {
+		decs, perr := parseAliasResponse(b)
+		if perr != nil {
+			return perr
+		}
+		return validateAliasResponse(decs, aliasIn)
+	})
+	if err != nil {
+		return nil, err
+	}
+	decisions, err := parseAliasResponse(body)
+	if err != nil {
+		return nil, fmt.Errorf("knowledge: item %s: alias phase: %w", in.ItemID, err)
+	}
+	if err := validateAliasResponse(decisions, aliasIn); err != nil {
+		// ⚠️ 整份拒绝。挑出合法的那几条决策发布，等于让一部分 mention
+		// 走归一、另一部分不走——而哪些走了取决于模型这次坏在哪儿。
+		return nil, fmt.Errorf("knowledge: item %s: %w", in.ItemID, err)
+	}
+	return decisions, nil
+}
+
+// aliasInstruction 是归一阶段的固定指令头。
+// ⚠️ 它属于 config_snapshot 的一部分（prompt 版本），改动它必须 restart，
+// 否则同一个 run 的前后半段用的是两套规则，而报告里只写一个版本号。
+const aliasInstruction = "根据下面的正文，判断每个称呼指向新人物、已有候选，还是无法确定。"
+
+func renderCandidates(in aliasInput) []string {
+	ids := make([]string, 0, len(in.Candidates))
+	for id := range in.Candidates {
+		ids = append(ids, id)
+	}
+	// ⚠️ 排序后再渲染：候选超限时删的是**尾部**，顺序不定的话每次删掉的
+	// 都不是同一批，同一份输入两次会得到不同的归一结果。
+	sort.Strings(ids)
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, id+"\t"+in.Candidates[id])
+	}
+	return out
+}
+
+// parseAliasResponse 严格解析归一响应。
+func parseAliasResponse(body string) ([]aliasDecision, error) {
+	var raw struct {
+		Decisions []struct {
+			MentionRef  string `json:"mention_ref"`
+			Action      string `json:"action"`
+			CharacterID string `json:"character_id"`
+			NewGroup    int    `json:"new_group"`
+			ReasonCode  string `json:"reason_code"`
+			Supports    []struct {
+				SourceRef  string `json:"source_ref"`
+				Quote      string `json:"quote"`
+				Occurrence int    `json:"occurrence"`
+			} `json:"supports"`
+		} `json:"decisions"`
+	}
+	if err := strictDecode(body, &raw); err != nil {
+		return nil, err
+	}
+	out := make([]aliasDecision, 0, len(raw.Decisions))
+	for _, d := range raw.Decisions {
+		dec := aliasDecision{
+			MentionRef: d.MentionRef, Action: d.Action, CharacterID: d.CharacterID,
+			NewGroup: d.NewGroup, ReasonCode: d.ReasonCode,
+		}
+		for _, s := range d.Supports {
+			dec.Supports = append(dec.Supports, aliasSupport{
+				SourceRef: s.SourceRef, Quote: s.Quote, Occurrence: s.Occurrence,
+			})
+		}
+		out = append(out, dec)
+	}
+	return out, nil
+}
+
+// strictDecode 与抽取阶段同一口径：不接受未知字段、尾随内容。
+func strictDecode(body string, dst any) error {
+	dec := json.NewDecoder(bytes.NewReader([]byte(body)))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		return invalid("decode: %v", err)
+	}
+	if dec.More() {
+		return invalid("unexpected trailing content after the JSON object")
+	}
+	return nil
+}
+
+// buildOutcome 把解析结果与归一决策拼成待发布的内容。
+//
+// ⚠️ 关系端点用**归一之后**的组号，不是 mention ref：同一个人的两个称呼
+// 在同一块里必须落到同一个人物上，否则这一块自己就先碎了。
+func buildOutcome(
+	in itemInput, proj chunkProjection, parsed extractionResponse, decisions []aliasDecision,
+) (extractionOutcome, error) {
+	byRef := make(map[string]aliasDecision, len(decisions))
+	for _, d := range decisions {
+		byRef[d.MentionRef] = d
+	}
+
+	// 组号 -> 本次要新建的人物本地引用。
+	groupRef := map[int]string{}
+	var out extractionOutcome
+	// ⚠️ 按 mention 在原文里的位置排序，让人物创建顺序可复现。
+	mentions := append([]mentionRef(nil), parsed.Mentions...)
+	sort.SliceStable(mentions, func(i, j int) bool { return mentions[i].Start < mentions[j].Start })
+
+	refToLocal := map[string]string{}
+	for _, m := range mentions {
+		d, ok := byRef[m.Ref]
+		if !ok {
+			return out, fmt.Errorf("mention %q has no alias decision", m.Ref)
+		}
+		if d.Action == aliasActionLink {
+			// 已有人物：本期先按新建处理，链接到既有人物由 T028 之后的
+			// 查询层承担；这里只保证不把两个人合成一个。
+			refToLocal[m.Ref] = "link:" + d.CharacterID
+			continue
+		}
+		local, seen := groupRef[d.NewGroup]
+		if !seen {
+			local = fmt.Sprintf("g%d", d.NewGroup)
+			groupRef[d.NewGroup] = local
+			from, to, ok := proj.toDocument(m.Start, m.End)
+			if !ok {
+				return out, fmt.Errorf("mention %q cannot be located in the document", m.Ref)
+			}
+			out.Characters = append(out.Characters, characterDraft{
+				LocalRef: local, DisplayName: m.Surface, FirstSourceOrder: int64(from),
+				HasAmbiguity: d.Action == aliasActionAmbiguous,
+			})
+			_ = to
+		}
+		refToLocal[m.Ref] = local
+	}
+
+	for _, rel := range parsed.Relations {
+		subject, sok := refToLocal[rel.SubjectRef]
+		object, ook := refToLocal[rel.ObjectRef]
+		if !sok || !ook {
+			return out, fmt.Errorf("relation endpoint has no identity decision")
+		}
+		if subject == object {
+			// 归一之后两端落到同一个人物：这条关系没有意义，整体拒绝。
+			// ⚠️ 悄悄丢掉它会让关系总数少一条而没有任何迹象。
+			return out, fmt.Errorf("relation collapses onto a single character after normalization")
+		}
+		var evs []evidenceDraft
+		for _, ev := range rel.Evidence {
+			from, to, ok := proj.toDocument(ev.Start, ev.End)
+			if !ok {
+				return out, fmt.Errorf("evidence quote cannot be located in the document")
+			}
+			evs = append(evs, evidenceDraft{
+				ChunkID: in.ChunkID, DocumentVersion: in.DocumentVersion,
+				SourceOrder: int64(from), SourceStart: from, SourceEnd: to, Quote: ev.Quote,
+			})
+		}
+		out.Relations = append(out.Relations, relationDraft{
+			SubjectRef: subject, ObjectRef: object, Type: rel.Type, IsDirected: isDirected(rel.Type),
+			FirstSourceOrder: int64(evs[0].SourceStart),
+			ChapterNumber:    in.Metadata.ChapterNumber, ChapterTitle: in.Metadata.ChapterTitle,
+			Evidence: dedupeEvidenceByDocumentInterval(evs),
+		})
+	}
+	return out, nil
+}
+
+// isDirected 来自标注指南 §2 的方向列。
+// ⚠️ 无向类型必须标对：标成有向会让 (A,B) 与 (B,A) 成为两条不同的关系，
+// 直接虚增关系总数。
+func isDirected(relType string) bool {
+	switch relType {
+	case "亲属", "同乡邻里", "冲突", "同伙":
+		return false
+	default:
+		return true
+	}
+}
