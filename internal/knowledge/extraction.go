@@ -23,6 +23,11 @@ import (
 // total_items 同时是分母。
 
 const (
+	// jobStatePending 是"登记了意图但还没开始枚举语料"。
+	// ⚠️ 与 initializing 分开：后者的意思是"正在枚举语料"，而 pending 时
+	// 可能连语料都还没有。混用会让恢复扫描把一个什么都没开始的意图
+	// 当成"初始化到一半崩了"去接手。
+	jobStatePending      = "pending"
 	jobStateInitializing = "initializing"
 	jobStateRunning      = "running"
 	jobStatePaused       = "paused"

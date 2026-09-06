@@ -11,6 +11,9 @@ import (
 )
 
 type Querier interface {
+	// resume 时追加额度。⚠️ 只加不减，且 budget_operations 里另有记录：
+	// 追加过多少、由谁追加的，是账目的一部分。
+	AddJobBudget(ctx context.Context, arg AddJobBudgetParams) (int64, error)
 	// 预留一次调用额度。⚠️ 守卫 reserved_calls < call_limit：预算耗尽时返回 0 行，
 	// 调用方据此停手。把预算检查放在**同一条 UPDATE 的 WHERE 里**而不是先读后写，
 	// 是因为后者在两个 worker 之间必然超发——而超发的表现是账单超了，不报错。
@@ -117,6 +120,12 @@ type Querier interface {
 	// 加一列而某条查询没跟上，表现是"某个数字少算了一部分"，不报错。
 	// 建 job。source_hash 为 NULL 表示尚未枚举语料——不是"空文档"。
 	CreateRelationExtractionJob(ctx context.Context, arg CreateRelationExtractionJobParams) error
+	// 首次 enable 时登记的**意图**：文档可能还没 ready，items 由 reconcile 补。
+	//
+	// ⚠️ state='pending' 而不是 'initializing'：后者的意思是"正在枚举语料"，
+	// 而这时可能连语料都还没有。两者混用会让恢复扫描把一个什么都没开始的
+	// 意图当成"初始化到一半崩了"去接手。
+	CreateRelationExtractionJobIntent(ctx context.Context, arg CreateRelationExtractionJobIntentParams) error
 	CreateTraceSpan(ctx context.Context, arg CreateTraceSpanParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) error
 	CreateWorkflow(ctx context.Context, arg CreateWorkflowParams) error
@@ -151,10 +160,16 @@ type Querier interface {
 	// 完全正常——两次都是真实发生的调用。
 	FindReplayableAttempt(ctx context.Context, arg FindReplayableAttemptParams) (FindReplayableAttemptRow, error)
 	FinishWorkflowRun(ctx context.Context, arg FinishWorkflowRunParams) error
+	// 文档当前指向的作业（读状态用）。
+	GetActiveExtractionJobForDocument(ctx context.Context, id string) (GetActiveExtractionJobForDocumentRow, error)
 	GetAgentByID(ctx context.Context, id string) (Agent, error)
 	GetConversationByID(ctx context.Context, id string) (Conversation, error)
 	GetDocumentByID(ctx context.Context, id string) (Document, error)
 	GetDocumentExtractionState(ctx context.Context, id string) (GetDocumentExtractionStateRow, error)
+	// ⭐ handler 用它核对 :docId 真的属于 :id 那个知识库。
+	// ⚠️ 不核对的话，知道文档 ID 的人可以借一个自己有权限的知识库去操作别人的
+	// 文档，而每一步鉴权看起来都做了——权限查的是那个"借来的"知识库。
+	GetDocumentWithKnowledgeBase(ctx context.Context, id string) (GetDocumentWithKnowledgeBaseRow, error)
 	GetExtractionAttempt(ctx context.Context, id string) (GetExtractionAttemptRow, error)
 	// 原始响应单独取：它最大 64 KiB，不该出现在任何列表或统计查询里。
 	GetExtractionAttemptRawResponse(ctx context.Context, id string) (sql.NullString, error)
@@ -405,6 +420,12 @@ type Querier interface {
 	// ⚠️ 守卫 status='ready' AND version=?：文档在这中间改了版本，
 	// 这次开启就该失败，而不是把作业挂到一批已经不是真相的 chunk 上。
 	SetDocumentRelationJob(ctx context.Context, arg SetDocumentRelationJobParams) (int64, error)
+	// ⚠️ 守卫 is_narrative：非叙事文档不得开启（与 000017 的 CHECK 同义，
+	// 在这里先挡一道好给中文提示）。关闭不需要这个守卫。
+	SetExtractionEnabled(ctx context.Context, arg SetExtractionEnabledParams) (int64, error)
+	// 状态跃迁，带 from 白名单。⚠️ 无条件改状态会让一条迟到的 pause 把已经
+	// 结束的作业改回 paused，恢复扫描随后又把它捡起来。
+	SetJobState(ctx context.Context, arg SetJobStateParams) (int64, error)
 	// 结算一次尝试。⚠️ 守卫 state='reserved'：一次尝试只能被结算一次，
 	// 重复结算会让 usage 和费用被重复累加进上层聚合。
 	SettleExtractionAttempt(ctx context.Context, arg SettleExtractionAttemptParams) (int64, error)

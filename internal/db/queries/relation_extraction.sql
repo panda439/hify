@@ -441,3 +441,64 @@ INSERT IGNORE INTO narrative_aliases
     (id, job_id, character_id, surface, surface_hash, state, evidence,
      first_source_order, decision_key_hash)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: GetActiveExtractionJobForDocument :one
+-- 文档当前指向的作业（读状态用）。
+SELECT j.id, j.state, j.stop_reason, j.document_version, j.epoch,
+       j.initialization_complete, j.total_items, j.succeeded_items, j.failed_items,
+       j.approved_item_limit, j.call_limit, j.active_ms_limit,
+       j.reserved_calls, j.confirmed_dispatches, j.unknown_attempts,
+       j.active_ms_used, j.started_at, j.finished_at, j.model_id
+FROM relation_extraction_jobs j
+JOIN documents d ON d.active_relation_job_id = j.id
+WHERE d.id = ?;
+
+-- name: SetExtractionEnabled :execrows
+-- ⚠️ 守卫 is_narrative：非叙事文档不得开启（与 000017 的 CHECK 同义，
+-- 在这里先挡一道好给中文提示）。关闭不需要这个守卫。
+UPDATE documents
+SET is_relation_extraction_enabled = ?, updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ? AND (? = 0 OR is_narrative = 1);
+
+-- name: SetJobState :execrows
+-- 状态跃迁，带 from 白名单。⚠️ 无条件改状态会让一条迟到的 pause 把已经
+-- 结束的作业改回 paused，恢复扫描随后又把它捡起来。
+UPDATE relation_extraction_jobs
+SET state = ?, stop_reason = ?, lease_until = NULL, updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ? AND state = ?;
+
+-- name: AddJobBudget :execrows
+-- resume 时追加额度。⚠️ 只加不减，且 budget_operations 里另有记录：
+-- 追加过多少、由谁追加的，是账目的一部分。
+UPDATE relation_extraction_jobs
+SET approved_item_limit = approved_item_limit + ?,
+    call_limit = call_limit + ?,
+    active_ms_limit = active_ms_limit + ?,
+    retry_rounds = retry_rounds + ?,
+    updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ?;
+
+-- name: GetDocumentWithKnowledgeBase :one
+-- ⭐ handler 用它核对 :docId 真的属于 :id 那个知识库。
+-- ⚠️ 不核对的话，知道文档 ID 的人可以借一个自己有权限的知识库去操作别人的
+-- 文档，而每一步鉴权看起来都做了——权限查的是那个"借来的"知识库。
+SELECT d.id, d.knowledge_base_id, d.status, d.version,
+       d.is_narrative, d.is_relation_extraction_enabled,
+       d.relation_model_id, d.active_relation_job_id,
+       kb.created_by
+FROM documents d
+JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
+WHERE d.id = ?;
+
+-- name: CreateRelationExtractionJobIntent :exec
+-- 首次 enable 时登记的**意图**：文档可能还没 ready，items 由 reconcile 补。
+--
+-- ⚠️ state='pending' 而不是 'initializing'：后者的意思是"正在枚举语料"，
+-- 而这时可能连语料都还没有。两者混用会让恢复扫描把一个什么都没开始的
+-- 意图当成"初始化到一半崩了"去接手。
+INSERT INTO relation_extraction_jobs (
+    id, document_id, knowledge_base_id, document_version, run_number,
+    model_id, config_hash, config_snapshot,
+    approved_item_limit, call_limit, active_ms_limit,
+    operation_key_hash, operation_request_hash, state
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending');

@@ -185,15 +185,15 @@ func TestUploadFormFieldsParseStrictly(t *testing.T) {
 		want   UploadOptions
 	}{
 		"字段缺失（旧客户端）": {nil, UploadOptions{}},
-		"显式 true":    {map[string]string{"is_narrative": "true"}, UploadOptions{Narrative: true}},
-		"显式 false":   {map[string]string{"is_narrative": "false"}, UploadOptions{}},
+		"显式 true":    {map[string]string{"narrative_mode": "true"}, UploadOptions{Narrative: true}},
+		"显式 false":   {map[string]string{"narrative_mode": "false"}, UploadOptions{}},
 		// ⚠️ 这两格是故意的：只有精确的 "true" 算开。
 		// strconv.ParseBool 会把 "1" 当真、把 "ture" 当解析错误返回 400，
 		// 而这里想要的是"看不懂就当没勾"，绝不因为一个打错的开关值让上传失败。
-		"数字 1 不算开":     {map[string]string{"is_narrative": "1"}, UploadOptions{}},
-		"打错的 ture 不算开": {map[string]string{"is_narrative": "ture"}, UploadOptions{}},
+		"数字 1 不算开":     {map[string]string{"narrative_mode": "1"}, UploadOptions{}},
+		"打错的 ture 不算开": {map[string]string{"narrative_mode": "ture"}, UploadOptions{}},
 		"两个开关都显式 true": {
-			map[string]string{"is_narrative": "true", "is_relation_extraction_enabled": "true"},
+			map[string]string{"narrative_mode": "true", "extract_relations": "true"},
 			UploadOptions{Narrative: true, RelationExtraction: true}},
 	}
 	for name, tc := range cases {
@@ -212,7 +212,7 @@ func TestUploadFormFieldsParseStrictly(t *testing.T) {
 func TestUploadResponseEchoesFlags(t *testing.T) {
 	spy := &uploadOptionsSpy{}
 	code, body := doUpload(t, spy, "kb-1", "a.txt", []byte("正文"),
-		map[string]string{"is_narrative": "true"})
+		map[string]string{"narrative_mode": "true"})
 	if code != http.StatusOK {
 		t.Fatalf("上传失败 %d %s", code, body)
 	}

@@ -12,6 +12,40 @@ import (
 	"time"
 )
 
+const addJobBudget = `-- name: AddJobBudget :execrows
+UPDATE relation_extraction_jobs
+SET approved_item_limit = approved_item_limit + ?,
+    call_limit = call_limit + ?,
+    active_ms_limit = active_ms_limit + ?,
+    retry_rounds = retry_rounds + ?,
+    updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ?
+`
+
+type AddJobBudgetParams struct {
+	ApprovedItemLimit int32  `json:"approved_item_limit"`
+	CallLimit         int32  `json:"call_limit"`
+	ActiveMsLimit     int64  `json:"active_ms_limit"`
+	RetryRounds       int32  `json:"retry_rounds"`
+	ID                string `json:"id"`
+}
+
+// resume 时追加额度。⚠️ 只加不减，且 budget_operations 里另有记录：
+// 追加过多少、由谁追加的，是账目的一部分。
+func (q *Queries) AddJobBudget(ctx context.Context, arg AddJobBudgetParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, addJobBudget,
+		arg.ApprovedItemLimit,
+		arg.CallLimit,
+		arg.ActiveMsLimit,
+		arg.RetryRounds,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const addJobCallReservation = `-- name: AddJobCallReservation :execrows
 UPDATE relation_extraction_jobs
 SET reserved_calls = reserved_calls + 1, updated_at = CURRENT_TIMESTAMP(3)
@@ -365,6 +399,55 @@ func (q *Queries) CreateRelationExtractionJob(ctx context.Context, arg CreateRel
 	return err
 }
 
+const createRelationExtractionJobIntent = `-- name: CreateRelationExtractionJobIntent :exec
+INSERT INTO relation_extraction_jobs (
+    id, document_id, knowledge_base_id, document_version, run_number,
+    model_id, config_hash, config_snapshot,
+    approved_item_limit, call_limit, active_ms_limit,
+    operation_key_hash, operation_request_hash, state
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+`
+
+type CreateRelationExtractionJobIntentParams struct {
+	ID                   string          `json:"id"`
+	DocumentID           string          `json:"document_id"`
+	KnowledgeBaseID      string          `json:"knowledge_base_id"`
+	DocumentVersion      int32           `json:"document_version"`
+	RunNumber            int32           `json:"run_number"`
+	ModelID              string          `json:"model_id"`
+	ConfigHash           []byte          `json:"config_hash"`
+	ConfigSnapshot       json.RawMessage `json:"config_snapshot"`
+	ApprovedItemLimit    int32           `json:"approved_item_limit"`
+	CallLimit            int32           `json:"call_limit"`
+	ActiveMsLimit        int64           `json:"active_ms_limit"`
+	OperationKeyHash     sql.NullString  `json:"operation_key_hash"`
+	OperationRequestHash sql.NullString  `json:"operation_request_hash"`
+}
+
+// 首次 enable 时登记的**意图**：文档可能还没 ready，items 由 reconcile 补。
+//
+// ⚠️ state='pending' 而不是 'initializing'：后者的意思是"正在枚举语料"，
+// 而这时可能连语料都还没有。两者混用会让恢复扫描把一个什么都没开始的
+// 意图当成"初始化到一半崩了"去接手。
+func (q *Queries) CreateRelationExtractionJobIntent(ctx context.Context, arg CreateRelationExtractionJobIntentParams) error {
+	_, err := q.db.ExecContext(ctx, createRelationExtractionJobIntent,
+		arg.ID,
+		arg.DocumentID,
+		arg.KnowledgeBaseID,
+		arg.DocumentVersion,
+		arg.RunNumber,
+		arg.ModelID,
+		arg.ConfigHash,
+		arg.ConfigSnapshot,
+		arg.ApprovedItemLimit,
+		arg.CallLimit,
+		arg.ActiveMsLimit,
+		arg.OperationKeyHash,
+		arg.OperationRequestHash,
+	)
+	return err
+}
+
 const deleteArchivableAttempts = `-- name: DeleteArchivableAttempts :execrows
 DELETE FROM relation_extraction_attempts
 WHERE job_id = ? AND finished_at IS NOT NULL AND finished_at < ?
@@ -494,6 +577,67 @@ func (q *Queries) FindReplayableAttempt(ctx context.Context, arg FindReplayableA
 	return i, err
 }
 
+const getActiveExtractionJobForDocument = `-- name: GetActiveExtractionJobForDocument :one
+SELECT j.id, j.state, j.stop_reason, j.document_version, j.epoch,
+       j.initialization_complete, j.total_items, j.succeeded_items, j.failed_items,
+       j.approved_item_limit, j.call_limit, j.active_ms_limit,
+       j.reserved_calls, j.confirmed_dispatches, j.unknown_attempts,
+       j.active_ms_used, j.started_at, j.finished_at, j.model_id
+FROM relation_extraction_jobs j
+JOIN documents d ON d.active_relation_job_id = j.id
+WHERE d.id = ?
+`
+
+type GetActiveExtractionJobForDocumentRow struct {
+	ID                     string         `json:"id"`
+	State                  string         `json:"state"`
+	StopReason             sql.NullString `json:"stop_reason"`
+	DocumentVersion        int32          `json:"document_version"`
+	Epoch                  int32          `json:"epoch"`
+	InitializationComplete bool           `json:"initialization_complete"`
+	TotalItems             int32          `json:"total_items"`
+	SucceededItems         int32          `json:"succeeded_items"`
+	FailedItems            int32          `json:"failed_items"`
+	ApprovedItemLimit      int32          `json:"approved_item_limit"`
+	CallLimit              int32          `json:"call_limit"`
+	ActiveMsLimit          int64          `json:"active_ms_limit"`
+	ReservedCalls          int32          `json:"reserved_calls"`
+	ConfirmedDispatches    int32          `json:"confirmed_dispatches"`
+	UnknownAttempts        int32          `json:"unknown_attempts"`
+	ActiveMsUsed           int64          `json:"active_ms_used"`
+	StartedAt              sql.NullTime   `json:"started_at"`
+	FinishedAt             sql.NullTime   `json:"finished_at"`
+	ModelID                string         `json:"model_id"`
+}
+
+// 文档当前指向的作业（读状态用）。
+func (q *Queries) GetActiveExtractionJobForDocument(ctx context.Context, id string) (GetActiveExtractionJobForDocumentRow, error) {
+	row := q.db.QueryRowContext(ctx, getActiveExtractionJobForDocument, id)
+	var i GetActiveExtractionJobForDocumentRow
+	err := row.Scan(
+		&i.ID,
+		&i.State,
+		&i.StopReason,
+		&i.DocumentVersion,
+		&i.Epoch,
+		&i.InitializationComplete,
+		&i.TotalItems,
+		&i.SucceededItems,
+		&i.FailedItems,
+		&i.ApprovedItemLimit,
+		&i.CallLimit,
+		&i.ActiveMsLimit,
+		&i.ReservedCalls,
+		&i.ConfirmedDispatches,
+		&i.UnknownAttempts,
+		&i.ActiveMsUsed,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.ModelID,
+	)
+	return i, err
+}
+
 const getDocumentExtractionState = `-- name: GetDocumentExtractionState :one
 SELECT id, status, version, is_narrative, is_relation_extraction_enabled,
        relation_model_id, active_relation_job_id
@@ -521,6 +665,48 @@ func (q *Queries) GetDocumentExtractionState(ctx context.Context, id string) (Ge
 		&i.IsRelationExtractionEnabled,
 		&i.RelationModelID,
 		&i.ActiveRelationJobID,
+	)
+	return i, err
+}
+
+const getDocumentWithKnowledgeBase = `-- name: GetDocumentWithKnowledgeBase :one
+SELECT d.id, d.knowledge_base_id, d.status, d.version,
+       d.is_narrative, d.is_relation_extraction_enabled,
+       d.relation_model_id, d.active_relation_job_id,
+       kb.created_by
+FROM documents d
+JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
+WHERE d.id = ?
+`
+
+type GetDocumentWithKnowledgeBaseRow struct {
+	ID                          string         `json:"id"`
+	KnowledgeBaseID             string         `json:"knowledge_base_id"`
+	Status                      string         `json:"status"`
+	Version                     int64          `json:"version"`
+	IsNarrative                 bool           `json:"is_narrative"`
+	IsRelationExtractionEnabled bool           `json:"is_relation_extraction_enabled"`
+	RelationModelID             sql.NullString `json:"relation_model_id"`
+	ActiveRelationJobID         sql.NullString `json:"active_relation_job_id"`
+	CreatedBy                   string         `json:"created_by"`
+}
+
+// ⭐ handler 用它核对 :docId 真的属于 :id 那个知识库。
+// ⚠️ 不核对的话，知道文档 ID 的人可以借一个自己有权限的知识库去操作别人的
+// 文档，而每一步鉴权看起来都做了——权限查的是那个"借来的"知识库。
+func (q *Queries) GetDocumentWithKnowledgeBase(ctx context.Context, id string) (GetDocumentWithKnowledgeBaseRow, error) {
+	row := q.db.QueryRowContext(ctx, getDocumentWithKnowledgeBase, id)
+	var i GetDocumentWithKnowledgeBaseRow
+	err := row.Scan(
+		&i.ID,
+		&i.KnowledgeBaseID,
+		&i.Status,
+		&i.Version,
+		&i.IsNarrative,
+		&i.IsRelationExtractionEnabled,
+		&i.RelationModelID,
+		&i.ActiveRelationJobID,
+		&i.CreatedBy,
 	)
 	return i, err
 }
@@ -1305,6 +1491,56 @@ func (q *Queries) SetDocumentRelationJob(ctx context.Context, arg SetDocumentRel
 		arg.RelationModelID,
 		arg.ID,
 		arg.Version,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setExtractionEnabled = `-- name: SetExtractionEnabled :execrows
+UPDATE documents
+SET is_relation_extraction_enabled = ?, updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ? AND (? = 0 OR is_narrative = 1)
+`
+
+type SetExtractionEnabledParams struct {
+	IsRelationExtractionEnabled bool        `json:"is_relation_extraction_enabled"`
+	ID                          string      `json:"id"`
+	Column3                     interface{} `json:"column_3"`
+}
+
+// ⚠️ 守卫 is_narrative：非叙事文档不得开启（与 000017 的 CHECK 同义，
+// 在这里先挡一道好给中文提示）。关闭不需要这个守卫。
+func (q *Queries) SetExtractionEnabled(ctx context.Context, arg SetExtractionEnabledParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setExtractionEnabled, arg.IsRelationExtractionEnabled, arg.ID, arg.Column3)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setJobState = `-- name: SetJobState :execrows
+UPDATE relation_extraction_jobs
+SET state = ?, stop_reason = ?, lease_until = NULL, updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ? AND state = ?
+`
+
+type SetJobStateParams struct {
+	State      string         `json:"state"`
+	StopReason sql.NullString `json:"stop_reason"`
+	ID         string         `json:"id"`
+	State_2    string         `json:"state_2"`
+}
+
+// 状态跃迁，带 from 白名单。⚠️ 无条件改状态会让一条迟到的 pause 把已经
+// 结束的作业改回 paused，恢复扫描随后又把它捡起来。
+func (q *Queries) SetJobState(ctx context.Context, arg SetJobStateParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setJobState,
+		arg.State,
+		arg.StopReason,
+		arg.ID,
+		arg.State_2,
 	)
 	if err != nil {
 		return 0, err

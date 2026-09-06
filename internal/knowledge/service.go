@@ -33,6 +33,14 @@ type Service interface {
 	UploadDocument(ctx context.Context, kbID, userID, role, fileName, fileType string, content []byte) (Document, error)
 	UploadDocumentWithOptions(ctx context.Context, kbID, userID, role, fileName, fileType string, content []byte, opts UploadOptions) (Document, error)
 
+	// 抽取的操作接口（010 T029）。⚠️ 每一个都带 userID/role：
+	// 后台 worker 不伪造用户身份，它走的是另一条不需要身份的路径。
+	GetExtractionStatus(ctx context.Context, kbID, docID, userID, role string) (ExtractionStatus, error)
+	SetExtractionEnabled(ctx context.Context, kbID, docID, userID, role string, enabled bool, op ExtractionOperation) (ExtractionStatus, error)
+	PauseExtraction(ctx context.Context, kbID, docID, userID, role string, op ExtractionOperation) (ExtractionStatus, error)
+	ResumeExtraction(ctx context.Context, kbID, docID, userID, role string, op ExtractionOperation) (ExtractionStatus, error)
+	RestartExtraction(ctx context.Context, kbID, docID, userID, role string, op ExtractionOperation) (ExtractionStatus, error)
+
 	// ReconcileRelationExtractions 是抽取作业的恢复扫描（010）。
 	// ⚠️ 它**不会**恢复用户暂停或预算耗尽的作业——那两个是显式决定，
 	// 不是故障；自动重启它们等于系统擅自推翻用户的选择，而用户会看到
