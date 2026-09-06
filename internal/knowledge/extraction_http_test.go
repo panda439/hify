@@ -222,6 +222,12 @@ func TestSameKeyDifferentBodyIsConflict(t *testing.T) {
 func TestStatusReportsUnknownAsNull(t *testing.T) {
 	repo := extractionRepo(t)
 	kb, svc := extractionFixture(t, repo, "doc-h6")
+	// ⚠️ 夹具默认把开关打开（一个作业只可能存在于开着开关的文档上），
+	// 而这一条要测的正是"**还没开启**"的状态，所以显式关掉。
+	if _, err := repo.db.ExecContext(t.Context(),
+		`UPDATE documents SET is_relation_extraction_enabled=0 WHERE id='doc-h6'`); err != nil {
+		t.Fatal(err)
+	}
 	// 还没开启：状态里没有 job。
 	code, body := doExtraction(t, svc, http.MethodGet, kb, "doc-h6", "", "", "u1", user.RoleMember)
 	if code != http.StatusOK {

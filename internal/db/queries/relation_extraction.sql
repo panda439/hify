@@ -220,10 +220,20 @@ FROM relation_extraction_jobs WHERE id = ?;
 -- 预留一次调用额度。⚠️ 守卫 reserved_calls < call_limit：预算耗尽时返回 0 行，
 -- 调用方据此停手。把预算检查放在**同一条 UPDATE 的 WHERE 里**而不是先读后写，
 -- 是因为后者在两个 worker 之间必然超发——而超发的表现是账单超了，不报错。
+--
+-- ⚠️ 光守 epoch 不够（010 R6-02）。epoch 只在**别人抢走租约**时才变，
+-- 而下面这两件事都不会动它：
+--   - 用户点了暂停 / 作业已经停成终态 —— worker 手上的 epoch 照样有效，
+--     于是它继续一次次花钱，而界面显示"已暂停"；
+--   - 自己的租约已经过期但还没被别人抢 —— 同样继续花钱，
+--     而下一个 worker 随时可能接手同一批 item，那部分钱花两遍。
+-- 所以必须同时要求：作业处在活着的状态、且**租约仍然在自己手上**。
 UPDATE relation_extraction_jobs
 SET reserved_calls = reserved_calls + 1, updated_at = CURRENT_TIMESTAMP(3)
 WHERE id = ? AND epoch = ? AND reserved_calls < call_limit
-  AND active_ms_used < active_ms_limit;
+  AND active_ms_used < active_ms_limit
+  AND state IN ('initializing', 'running')
+  AND lease_until IS NOT NULL AND lease_until > CURRENT_TIMESTAMP(3);
 
 -- name: RefundJobCallReservation :execrows
 -- 退还一次**确定没发出去**的调用预留（限流/熔断/拿不到并发槽）。
@@ -389,7 +399,14 @@ LIMIT ?;
 -- MySQL 超时后杀掉其中一个。它只在并发操作同一份文档时出现，
 -- 单元测试跑一百次可能一次都不复现，而生产上会周期性地丢掉一个 item
 -- 并留下一条难以归因的错误。所以每个涉及多张表的事务都从这里开始。
-SELECT id, status, version, is_narrative, is_relation_extraction_enabled
+--
+-- ⚠️ active_relation_job_id 必须一起取（010 R6-02）：
+-- verifyJobSourceStillCurrent 声称核对"文档现在指向的还是这个作业吗"，
+-- 而这个列此前根本没被选出来——那句核对是**空话**。restart 换了 run
+-- 之后，旧 worker 的结果照样发布进去，与新 run 的结果混在一起，
+-- 而两边都不会报错。
+SELECT id, status, version, is_narrative, is_relation_extraction_enabled,
+       active_relation_job_id
 FROM documents WHERE id = ? FOR UPDATE;
 
 -- name: SupersedePriorExtractionJobs :execrows
@@ -478,6 +495,10 @@ FROM relation_extraction_attempts WHERE job_id = ?;
 -- 关系数据。paused / budget_exhausted 也不清——它们随时可能被继续。
 SELECT id FROM relation_extraction_jobs
 WHERE state IN ('superseded', 'failed') AND finished_at IS NOT NULL AND finished_at < ?
+  AND (EXISTS (SELECT 1 FROM narrative_relation_evidence e WHERE e.job_id = relation_extraction_jobs.id)
+    OR EXISTS (SELECT 1 FROM narrative_relations r WHERE r.job_id = relation_extraction_jobs.id)
+    OR EXISTS (SELECT 1 FROM narrative_aliases a WHERE a.job_id = relation_extraction_jobs.id)
+    OR EXISTS (SELECT 1 FROM narrative_characters c WHERE c.job_id = relation_extraction_jobs.id))
 ORDER BY id
 LIMIT ?;
 

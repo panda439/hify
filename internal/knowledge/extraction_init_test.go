@@ -33,10 +33,13 @@ func seedNarrativeDocument(t *testing.T, repo *Repository, docID string, chunks 
 	if len(pieces) != chunks {
 		t.Fatalf("夹具想要 %d 块，实际切出 %d 块", chunks, len(pieces))
 	}
+	// ⚠️ is_relation_extraction_enabled 必须是 1：一个抽取作业只可能存在于
+	// 开着这个开关的文档上（010 R6-02 之后发布守卫真的核对它）。
+	// 夹具留 0 等于造了一个生产中不可能出现的状态。
 	if _, err := repo.db.ExecContext(ctx, `INSERT INTO documents
 		(id, knowledge_base_id, file_name, file_type, file_size, storage_path,
-		 status, chunk_count, created_by, is_narrative)
-		VALUES (?, 'kb-x', 'novel.txt', 'txt', 1, '/tmp/n', 'ready', ?, 'u1', 1)`,
+		 status, chunk_count, created_by, is_narrative, is_relation_extraction_enabled)
+		VALUES (?, 'kb-x', 'novel.txt', 'txt', 1, '/tmp/n', 'ready', ?, 'u1', 1, 1)`,
 		docID, chunks); err != nil {
 		t.Fatal(err)
 	}
