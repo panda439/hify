@@ -513,3 +513,43 @@ SELECT CAST(budget_operations AS CHAR) AS budget_operations FROM relation_extrac
 UPDATE relation_extraction_jobs
 SET budget_operations = ?, updated_at = CURRENT_TIMESTAMP(3)
 WHERE id = ?;
+
+-- name: FindCharactersByNameInJob :many
+-- 按名字找人物：display_name 直接匹配，或者通过**已确认的别名**匹配。
+--
+-- ⚠️ 只查 display_name 的话，「老Q」这种只以别名出现过的称呼查不到，
+-- 而系统明明记录过它指向谁。state='supported' 是边界：proposed/ambiguous
+-- 的别名不能用来解析用户的提问——那等于替用户做了一次没有依据的合并。
+SELECT DISTINCT c.id, c.display_name, c.first_source_order, c.has_ambiguity
+FROM narrative_characters c
+LEFT JOIN narrative_aliases a
+  ON a.character_id = c.id AND a.job_id = c.job_id AND a.state = 'supported'
+WHERE c.job_id = ? AND (c.display_name = ? OR a.surface = ?)
+ORDER BY c.first_source_order, c.id
+LIMIT ?;
+
+-- name: FindRelationsBetweenCharacters :many
+-- 两组人物之间的全部关系记录，**两个方向都查**。
+--
+-- ⚠️ 只查一个方向的话，同一个问题换个语序就查不到了。方向信息保留在
+-- is_directed 和 subject/object 上，由上层决定怎么讲。
+--
+-- ⭐ 按 first_source_order 排序而不是章节号：倒叙的书里两者不一致，
+-- 只有原文位置能还原叙述顺序。
+SELECT r.id, r.subject_id, r.object_id, r.relation_type, r.is_directed,
+       r.first_source_order, r.chapter_number, r.chapter_title,
+       s.display_name AS subject_name, o.display_name AS object_name
+FROM narrative_relations r
+JOIN narrative_characters s ON s.id = r.subject_id
+JOIN narrative_characters o ON o.id = r.object_id
+WHERE r.job_id = ?
+  AND ((r.subject_id IN (sqlc.slice('subjects')) AND r.object_id IN (sqlc.slice('objects')))
+    OR (r.subject_id IN (sqlc.slice('objects2')) AND r.object_id IN (sqlc.slice('subjects2'))))
+ORDER BY r.first_source_order, r.id
+LIMIT ?;
+
+-- name: ListEvidenceForRelations :many
+SELECT relation_id, quote, source_start, source_end, source_order, chunk_id
+FROM narrative_relation_evidence
+WHERE relation_id IN (sqlc.slice('relation_ids'))
+ORDER BY relation_id, source_order, id;

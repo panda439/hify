@@ -153,6 +153,20 @@ type Querier interface {
 	// ⚠️ 只在 job 还没结束时生效。已经 succeeded/failed 的 job 不该被一条迟到的
 	// 失败改写——那条失败属于一个早就被取代的 epoch。
 	FailRelationExtractionJob(ctx context.Context, arg FailRelationExtractionJobParams) (int64, error)
+	// 按名字找人物：display_name 直接匹配，或者通过**已确认的别名**匹配。
+	//
+	// ⚠️ 只查 display_name 的话，「老Q」这种只以别名出现过的称呼查不到，
+	// 而系统明明记录过它指向谁。state='supported' 是边界：proposed/ambiguous
+	// 的别名不能用来解析用户的提问——那等于替用户做了一次没有依据的合并。
+	FindCharactersByNameInJob(ctx context.Context, arg FindCharactersByNameInJobParams) ([]FindCharactersByNameInJobRow, error)
+	// 两组人物之间的全部关系记录，**两个方向都查**。
+	//
+	// ⚠️ 只查一个方向的话，同一个问题换个语序就查不到了。方向信息保留在
+	// is_directed 和 subject/object 上，由上层决定怎么讲。
+	//
+	// ⭐ 按 first_source_order 排序而不是章节号：倒叙的书里两者不一致，
+	// 只有原文位置能还原叙述顺序。
+	FindRelationsBetweenCharacters(ctx context.Context, arg FindRelationsBetweenCharactersParams) ([]FindRelationsBetweenCharactersRow, error)
 	// 回放：这个 item 的这个阶段是否已经有一次**成功且原始响应已落盘**的尝试。
 	//
 	// ⭐ 有的话，恢复的 worker 必须拿它接着算，**不能再打一次模型**。
@@ -254,6 +268,7 @@ type Querier interface {
 	// 日志、诊断和测试断言可复现，不依赖 MySQL 的返回顺序（宪法第 V 条）。
 	ListDocumentIDsByAgent(ctx context.Context, agentID string) ([]string, error)
 	ListDocumentsByKnowledgeBase(ctx context.Context, arg ListDocumentsByKnowledgeBaseParams) ([]Document, error)
+	ListEvidenceForRelations(ctx context.Context, relationIds []string) ([]ListEvidenceForRelationsRow, error)
 	// ---------------------------------------------------------------------
 	// 清理与账目归档
 	// ---------------------------------------------------------------------

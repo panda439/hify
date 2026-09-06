@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -538,6 +539,181 @@ func (q *Queries) FailRelationExtractionJob(ctx context.Context, arg FailRelatio
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const findCharactersByNameInJob = `-- name: FindCharactersByNameInJob :many
+SELECT DISTINCT c.id, c.display_name, c.first_source_order, c.has_ambiguity
+FROM narrative_characters c
+LEFT JOIN narrative_aliases a
+  ON a.character_id = c.id AND a.job_id = c.job_id AND a.state = 'supported'
+WHERE c.job_id = ? AND (c.display_name = ? OR a.surface = ?)
+ORDER BY c.first_source_order, c.id
+LIMIT ?
+`
+
+type FindCharactersByNameInJobParams struct {
+	JobID       string `json:"job_id"`
+	DisplayName string `json:"display_name"`
+	Surface     string `json:"surface"`
+	Limit       int32  `json:"limit"`
+}
+
+type FindCharactersByNameInJobRow struct {
+	ID               string `json:"id"`
+	DisplayName      string `json:"display_name"`
+	FirstSourceOrder int64  `json:"first_source_order"`
+	HasAmbiguity     bool   `json:"has_ambiguity"`
+}
+
+// 按名字找人物：display_name 直接匹配，或者通过**已确认的别名**匹配。
+//
+// ⚠️ 只查 display_name 的话，「老Q」这种只以别名出现过的称呼查不到，
+// 而系统明明记录过它指向谁。state='supported' 是边界：proposed/ambiguous
+// 的别名不能用来解析用户的提问——那等于替用户做了一次没有依据的合并。
+func (q *Queries) FindCharactersByNameInJob(ctx context.Context, arg FindCharactersByNameInJobParams) ([]FindCharactersByNameInJobRow, error) {
+	rows, err := q.db.QueryContext(ctx, findCharactersByNameInJob,
+		arg.JobID,
+		arg.DisplayName,
+		arg.Surface,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FindCharactersByNameInJobRow{}
+	for rows.Next() {
+		var i FindCharactersByNameInJobRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DisplayName,
+			&i.FirstSourceOrder,
+			&i.HasAmbiguity,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const findRelationsBetweenCharacters = `-- name: FindRelationsBetweenCharacters :many
+SELECT r.id, r.subject_id, r.object_id, r.relation_type, r.is_directed,
+       r.first_source_order, r.chapter_number, r.chapter_title,
+       s.display_name AS subject_name, o.display_name AS object_name
+FROM narrative_relations r
+JOIN narrative_characters s ON s.id = r.subject_id
+JOIN narrative_characters o ON o.id = r.object_id
+WHERE r.job_id = ?
+  AND ((r.subject_id IN (/*SLICE:subjects*/?) AND r.object_id IN (/*SLICE:objects*/?))
+    OR (r.subject_id IN (/*SLICE:objects2*/?) AND r.object_id IN (/*SLICE:subjects2*/?)))
+ORDER BY r.first_source_order, r.id
+LIMIT ?
+`
+
+type FindRelationsBetweenCharactersParams struct {
+	JobID     string   `json:"job_id"`
+	Subjects  []string `json:"subjects"`
+	Objects   []string `json:"objects"`
+	Objects2  []string `json:"objects2"`
+	Subjects2 []string `json:"subjects2"`
+	Limit     int32    `json:"limit"`
+}
+
+type FindRelationsBetweenCharactersRow struct {
+	ID               string         `json:"id"`
+	SubjectID        string         `json:"subject_id"`
+	ObjectID         string         `json:"object_id"`
+	RelationType     string         `json:"relation_type"`
+	IsDirected       bool           `json:"is_directed"`
+	FirstSourceOrder int64          `json:"first_source_order"`
+	ChapterNumber    sql.NullInt32  `json:"chapter_number"`
+	ChapterTitle     sql.NullString `json:"chapter_title"`
+	SubjectName      string         `json:"subject_name"`
+	ObjectName       string         `json:"object_name"`
+}
+
+// 两组人物之间的全部关系记录，**两个方向都查**。
+//
+// ⚠️ 只查一个方向的话，同一个问题换个语序就查不到了。方向信息保留在
+// is_directed 和 subject/object 上，由上层决定怎么讲。
+//
+// ⭐ 按 first_source_order 排序而不是章节号：倒叙的书里两者不一致，
+// 只有原文位置能还原叙述顺序。
+func (q *Queries) FindRelationsBetweenCharacters(ctx context.Context, arg FindRelationsBetweenCharactersParams) ([]FindRelationsBetweenCharactersRow, error) {
+	query := findRelationsBetweenCharacters
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.JobID)
+	if len(arg.Subjects) > 0 {
+		for _, v := range arg.Subjects {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:subjects*/?", strings.Repeat(",?", len(arg.Subjects))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:subjects*/?", "NULL", 1)
+	}
+	if len(arg.Objects) > 0 {
+		for _, v := range arg.Objects {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:objects*/?", strings.Repeat(",?", len(arg.Objects))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:objects*/?", "NULL", 1)
+	}
+	if len(arg.Objects2) > 0 {
+		for _, v := range arg.Objects2 {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:objects2*/?", strings.Repeat(",?", len(arg.Objects2))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:objects2*/?", "NULL", 1)
+	}
+	if len(arg.Subjects2) > 0 {
+		for _, v := range arg.Subjects2 {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:subjects2*/?", strings.Repeat(",?", len(arg.Subjects2))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:subjects2*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FindRelationsBetweenCharactersRow{}
+	for rows.Next() {
+		var i FindRelationsBetweenCharactersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.SubjectID,
+			&i.ObjectID,
+			&i.RelationType,
+			&i.IsDirected,
+			&i.FirstSourceOrder,
+			&i.ChapterNumber,
+			&i.ChapterTitle,
+			&i.SubjectName,
+			&i.ObjectName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const findReplayableAttempt = `-- name: FindReplayableAttempt :one
@@ -1075,6 +1251,62 @@ func (q *Queries) ListDeadJobsWithDerivedRows(ctx context.Context, arg ListDeadJ
 			return nil, err
 		}
 		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEvidenceForRelations = `-- name: ListEvidenceForRelations :many
+SELECT relation_id, quote, source_start, source_end, source_order, chunk_id
+FROM narrative_relation_evidence
+WHERE relation_id IN (/*SLICE:relation_ids*/?)
+ORDER BY relation_id, source_order, id
+`
+
+type ListEvidenceForRelationsRow struct {
+	RelationID  string `json:"relation_id"`
+	Quote       string `json:"quote"`
+	SourceStart int32  `json:"source_start"`
+	SourceEnd   int32  `json:"source_end"`
+	SourceOrder int64  `json:"source_order"`
+	ChunkID     string `json:"chunk_id"`
+}
+
+func (q *Queries) ListEvidenceForRelations(ctx context.Context, relationIds []string) ([]ListEvidenceForRelationsRow, error) {
+	query := listEvidenceForRelations
+	var queryParams []interface{}
+	if len(relationIds) > 0 {
+		for _, v := range relationIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:relation_ids*/?", strings.Repeat(",?", len(relationIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:relation_ids*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEvidenceForRelationsRow{}
+	for rows.Next() {
+		var i ListEvidenceForRelationsRow
+		if err := rows.Scan(
+			&i.RelationID,
+			&i.Quote,
+			&i.SourceStart,
+			&i.SourceEnd,
+			&i.SourceOrder,
+			&i.ChunkID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
