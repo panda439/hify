@@ -187,6 +187,18 @@ type service struct {
 	// buildApp 从 config.Config.RAGMetadataFilterEnabled 透传进来。
 	// 关闭时为什么是"拒绝"而不是"静默降级"，见那个配置字段的文档注释。
 	metadataFilterEnabled bool
+
+	// beforeRelationRecheck 是 QueryRelations 在「读完记录」与「入模前复检」
+	// 之间的一个测试挂载点（010 T034），生产路径为 nil。
+	//
+	// ⚠️ 复检要守的是**这个窗口里发生的并发变化**：文档被删掉、改版，
+	// 或者用户重新发起了一次抽取。这种变化在测试里没有第二种造法——
+	// 从外部改数据库，两次读到的都是改后的值，窗口根本不存在，
+	// 于是这道守卫看起来永远不会触发，也就永远测不到它是不是真的在守。
+	//
+	// 同 findNeighborBatch/rerankScoreFn 的先例：未导出字段，不扩大
+	// Service 的对外面积，生产代码行为完全不变。
+	beforeRelationRecheck func(ctx context.Context)
 }
 
 func (s *service) CreateKnowledgeBase(ctx context.Context, input CreateKnowledgeBaseInput) (KnowledgeBase, error) {

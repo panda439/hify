@@ -28,7 +28,13 @@ func seedRelationQueryFixture(t *testing.T, repo *Repository, docID, jobID strin
 
 	job, epoch, item := publishFixture(t, repo, docID, jobID)
 	pieces := chunkNarrative("第一章　甲\n"+chunk+"\n", 500, 0)
-	in := itemInput{JobID: job.ID, ItemID: item, Epoch: epoch, ChunkID: "c-1",
+	// ⭐ PG 里那个已发布的块必须**就是**抽取用的这一段正文。
+	// ⚠️ T034 的入模前核验会拿引用的文档区间回到 PG 逐字比对；
+	// 夹具里两边内容不同的话，每一条引用都会被正当地刷掉，
+	// 而现象是"查得到关系但一条证据都没有"，看不出根因在夹具上。
+	chunkID := docID + "-c0"
+	setNarrativeChunkContent(t, repo, chunkID, pieces[0])
+	in := itemInput{JobID: job.ID, ItemID: item, Epoch: epoch, ChunkID: chunkID,
 		DocumentVersion: 1, Content: pieces[0].Content, Metadata: *pieces[0].Narrative}
 	if err := pipelineDeps(repo, chat).processItem(t.Context(), in); err != nil {
 		t.Fatalf("processItem: %v", err)
@@ -355,4 +361,25 @@ func TestQueryOnlyReadsTheCurrentRun(t *testing.T) {
 		t.Error("读到了已经被取代的那个 run 的记录")
 	}
 	_ = in
+}
+
+// setNarrativeChunkContent 把 PG 里某个已发布块的正文与元数据换成 piece。
+//
+// ⚠️ 直接改 PG 而不是重新建块：seedNarrativeDocument 已经建好并发布了
+// 这个块，重复插入会撞主键。
+func setNarrativeChunkContent(t *testing.T, repo *Repository, chunkID string, piece chunkPiece) {
+	t.Helper()
+	meta, err := encodeNarrativeMetadata(piece.Narrative)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := repo.pgdb.ExecContext(t.Context(),
+		`UPDATE chunks SET content=$1, content_length=$2, narrative_metadata=$3 WHERE id=$4`,
+		piece.Content, len([]rune(piece.Content)), meta, chunkID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		t.Fatalf("要改的块 %s 不存在（影响 %d 行）", chunkID, n)
+	}
 }

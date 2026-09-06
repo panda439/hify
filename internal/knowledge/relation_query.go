@@ -35,6 +35,10 @@ const (
 	relationQueryAmbiguous    relationQueryOutcome = "ambiguous"
 	relationQuerySameEntity   relationQueryOutcome = "same_entity"
 	relationQueryOutOfScope   relationQueryOutcome = "out_of_scope"
+	// relationQueryStale：查询期间文档被删除/改版，或者一次新的抽取接管了
+	// 这份文档。⚠️ 它**不是**"查不到"的一种——手上这批记录属于一个已经
+	// 不存在的上下文，答出去就是拿上一轮的结论配这一轮的进度。
+	relationQueryStale relationQueryOutcome = "stale"
 )
 
 const (
@@ -85,8 +89,14 @@ type relationRecord struct {
 type relationQueryResult struct {
 	Outcome    relationQueryOutcome
 	DocumentID string
-	Relations  []relationRecord
-	Candidates []relationCandidate
+	// DocumentVersion / JobID 是**核验的坐标系**（010 T034）：
+	// 一条证据的 source_start/source_end 是文档 rune 坐标，只有配上
+	// "哪个版本"才有意义；JobID 则用来判断这一轮读到的记录是否已经被
+	// 一次新的抽取取代。
+	DocumentVersion int64
+	JobID           string
+	Relations       []relationRecord
+	Candidates      []relationCandidate
 	// UnknownName 是没能在书里找到的那个称呼。
 	// ⚠️ 不指出是哪个名字的话，用户把名字打错了却以为书里真的没写他们的关系。
 	UnknownName string
@@ -142,6 +152,7 @@ func (r *Repository) queryRelationsInDocument(ctx context.Context, docID string,
 		return out, nil
 	}
 	jobID := doc.ActiveRelationJobID.String
+	out.JobID, out.DocumentVersion = jobID, doc.Version
 
 	// ⭐ 只读文档**当前指向**的那个 run。⚠️ 读到旧 run 的记录，用户会看到
 	// 自己已经"重新开始"过的那一次的结果，而界面显示的是新 run 的进度。
@@ -300,10 +311,12 @@ type RelationAnswer struct {
 // RelationCitation 是一条可以送进 prompt 的关系证据。
 // ⚠️ 没有相似度字段，理由见 relation_citation.go。
 type RelationCitation struct {
-	RelationType  string
-	IsDirected    bool
-	SubjectName   string
-	ObjectName    string
+	RelationType string
+	IsDirected   bool
+	SubjectName  string
+	ObjectName   string
+	// DocumentName 由核验阶段从 PG 侧补上（MySQL 侧的关系记录里没有它）。
+	DocumentName  string
 	ChapterNumber *int
 	Quote         string
 	SourceOrder   int64
@@ -328,6 +341,7 @@ const (
 	RelationOutcomeAmbiguous    = string(relationQueryAmbiguous)
 	RelationOutcomeSameEntity   = string(relationQuerySameEntity)
 	RelationOutcomeOutOfScope   = string(relationQueryOutOfScope)
+	RelationOutcomeStale        = string(relationQueryStale)
 )
 
 // QueryRelations 回答「A 和 B 是什么关系」。
@@ -369,6 +383,33 @@ func (s *service) QueryRelations(ctx context.Context, documentIDs []string, subj
 			SourceEnd: c.SourceEnd, ChunkID: c.ChunkID,
 		})
 	}
+	// ⭐ 核验：引用必须**现在**仍然指着当初那段字。见 relation_verify.go。
+	chunks, err := s.repo.loadChunksForVerification(ctx,
+		res.DocumentID, res.DocumentVersion, citationChunkIDs(ans.Citations))
+	if err != nil {
+		return RelationAnswer{}, err
+	}
+	kept, dropped := verifyCitationsAgainstChunks(ans.Citations, chunks)
+	ans.Citations = kept
+	// ⚠️ 核验刷掉了东西**必须**反映成"不完整"。默默少给几条，
+	// 回答会以这几条为全部，说出"他们之间只有这些关系"。
+	if dropped > 0 {
+		ans.Truncated = true
+	}
+
+	if s.beforeRelationRecheck != nil {
+		s.beforeRelationRecheck(ctx)
+	}
+	// ⭐ 复检放在最后：它要回答的是"从开始查到现在有没有变过"。
+	if err := s.repo.recheckRelationScope(ctx, res.DocumentID, res.DocumentVersion, res.JobID); err != nil {
+		if errors.Is(err, errRelationScopeChanged) {
+			// ⚠️ 停止本轮，不降级答一个"没找到"——那会让用户以为
+			// 书里没写，而真实情况是这份资料刚刚变过。
+			return RelationAnswer{Outcome: RelationOutcomeStale, DocumentID: res.DocumentID}, nil
+		}
+		return RelationAnswer{}, err
+	}
+
 	// ⭐ 挑完之后一条都没剩下时，结局改成"截断"而不是留着 found。
 	// ⚠️ 留着 found 而 Citations 为空，对话层会走"有证据"分支去做受限生成，
 	// 而它手上一条证据都没有——模型只能编。

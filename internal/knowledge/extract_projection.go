@@ -139,3 +139,45 @@ func dedupeEvidenceByDocumentInterval(evs []evidenceDraft) []evidenceDraft {
 	}
 	return out
 }
+
+// fromDocument 是 toDocument 的逆映射：文档 rune 区间 → 模型正文里的区间。
+//
+// ⭐ 它存在的唯一理由是**核验**（010 T034）：一条证据记的是文档坐标，
+// 要判断它是否仍然指着当初那段字，就必须把它映射回块里再逐字比对。
+//
+// ⚠️ 与 toDocument 一样，跨越文档上不相邻的两段时返回 false，越界一律拒绝
+// 而不钳边界——核验环节尤其不能"尽力而为"，钳出来的区间会让一条其实
+// 对不上的引用比对成功。
+func (p chunkProjection) fromDocument(docStart, docEnd int) (int, int, bool) {
+	if docEnd <= docStart {
+		return 0, 0, false
+	}
+	textStart, textEnd := 0, 0
+	found := false
+	for _, seg := range p.segs {
+		if docEnd <= seg.docStart || docStart >= seg.docEnd {
+			continue
+		}
+		lo := max(docStart, seg.docStart)
+		hi := min(docEnd, seg.docEnd)
+		ts := seg.textStart + (lo - seg.docStart)
+		te := seg.textStart + (hi - seg.docStart)
+		if !found {
+			textStart, textEnd, found = ts, te, true
+			continue
+		}
+		if ts != textEnd {
+			return 0, 0, false
+		}
+		textEnd = te
+	}
+	if !found {
+		return 0, 0, false
+	}
+	// ⚠️ 只覆盖了区间的一部分也算对不上：块里只有半句话时，
+	// 拿这半句去比对必然失败，但失败原因应当是"覆盖不全"而不是"文字不同"。
+	if textEnd-textStart != docEnd-docStart {
+		return 0, 0, false
+	}
+	return textStart, textEnd, true
+}
