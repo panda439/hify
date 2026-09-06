@@ -344,3 +344,129 @@ func TestKeeperStopWaitsForInFlightRenew(t *testing.T) {
 		t.Fatal("续租返回后 Stop 仍未返回")
 	}
 }
+
+// --- 010 R6-04：续租一直失败超过 TTL 之后必须判失效 ---
+
+// alwaysFailingOwner 的续租永远报错，当前性检查永远说"还是你的"。
+type alwaysFailingOwner struct{ renews atomic.Int32 }
+
+func (o *alwaysFailingOwner) renewExtractionLease(ctx context.Context, jobID string, epoch int, ttl time.Duration) (bool, error) {
+	o.renews.Add(1)
+	return false, errors.New("database is down")
+}
+
+func (o *alwaysFailingOwner) jobIsStillCurrent(ctx context.Context, jobID string) (bool, error) {
+	return true, nil
+}
+
+// TestKeeperGoesInvalidOnceTheLeaseCouldHaveExpired——⭐ 判据是**最后一次
+// 确认成功的到期时间**，不是失败次数。
+//
+// ⚠️ 此前每次续租失败都直接 continue，于是数据库长期故障时 Valid() 可以
+// 一直是 true——而租约早就过期、作业已经被别人接手。旧 worker 仍在调用
+// 模型，每一次都是白花的钱，且账目上完全看不出异常。
+func TestKeeperGoesInvalidOnceTheLeaseCouldHaveExpired(t *testing.T) {
+	owner := &alwaysFailingOwner{}
+	ttl := 60 * time.Millisecond
+	k := startLeaseKeeper(t.Context(), owner, "job-r604", 1, ttl, ttl/6)
+	defer k.Stop()
+
+	// TTL 之内还应当是有效的：一次抖动不该误判出局。
+	time.Sleep(ttl / 3)
+	if !k.Valid() {
+		t.Error("刚失败一两次就判出局了——误判会白白丢掉一个正常工作的 worker")
+	}
+
+	select {
+	case <-k.Lost():
+	case <-time.After(2 * time.Second):
+		t.Fatal("续租一直失败、租约早已过期，keeper 仍然声称自己有效")
+	}
+	if k.Valid() {
+		t.Error("Lost 已关闭，Valid 却仍然是 true")
+	}
+	if owner.renews.Load() == 0 {
+		t.Error("根本没有尝试过续租，用例没测到想测的东西")
+	}
+}
+
+// hangingOwner 的续租一直卡住，直到 ctx 被取消。
+type hangingOwner struct{ maxBlocked atomic.Int64 }
+
+func (o *hangingOwner) renewExtractionLease(ctx context.Context, jobID string, epoch int, ttl time.Duration) (bool, error) {
+	start := time.Now()
+	<-ctx.Done()
+	if d := time.Since(start).Milliseconds(); d > o.maxBlocked.Load() {
+		o.maxBlocked.Store(d)
+	}
+	return false, ctx.Err()
+}
+
+func (o *hangingOwner) jobIsStillCurrent(ctx context.Context, jobID string) (bool, error) {
+	return true, nil
+}
+
+// TestKeeperBoundsEachRenewalByTheRemainingLease——⭐ 单次续租必须限制在
+// **剩余租约期限之内**。
+//
+// ⚠️ 不限的话，一次卡住的续租可以远远超过 TTL 才返回，而这期间 Valid()
+// 一直是 true——租约早被别人抢走了，而这个 worker 还在调模型。
+func TestKeeperBoundsEachRenewalByTheRemainingLease(t *testing.T) {
+	owner := &hangingOwner{}
+	ttl := 60 * time.Millisecond
+	k := startLeaseKeeper(t.Context(), owner, "job-r604b", 1, ttl, ttl/6)
+	// ⚠️ **不能** defer k.Stop()：Stop 会等心跳 goroutine 退出，而缺了
+	// 单次续租的时限时它正卡在 renew 里出不来——测试会挂死而不是失败。
+	// 挂死在变异测试里长得像"逃逸"（没有 FAIL 行），这一条注释是为了
+	// 下一个人不要再把它改回 defer。
+	defer func() {
+		done := make(chan struct{})
+		go func() { k.Stop(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("Stop 没能在 1 秒内返回——心跳 goroutine 卡在续租里")
+		}
+	}()
+
+	select {
+	case <-k.Lost():
+	case <-time.After(2 * time.Second):
+		t.Fatal("续租一直卡住，keeper 仍然声称自己有效")
+	}
+	if blocked := owner.maxBlocked.Load(); blocked > ttl.Milliseconds()*2 {
+		t.Errorf("单次续租被卡了 %dms，超过了租约期限 %dms 的两倍——"+
+			"这段时间里 Valid() 一直是 true", blocked, ttl.Milliseconds())
+	}
+}
+
+// TestKeeperStaysValidWhileRenewalsSucceed——底线用例：续租正常时不能
+// 因为新加的到期判断而误判出局。
+//
+// ⚠️ 少了它，一个"到点就判失效"的实现能让上面两条都通过。
+func TestKeeperStaysValidWhileRenewalsSucceed(t *testing.T) {
+	owner := &okOwner{}
+	ttl := 60 * time.Millisecond
+	k := startLeaseKeeper(t.Context(), owner, "job-r604c", 1, ttl, ttl/6)
+	defer k.Stop()
+
+	time.Sleep(ttl * 3)
+	if !k.Valid() {
+		t.Error("续租一直成功却被判出局了")
+	}
+	select {
+	case <-k.Lost():
+		t.Error("续租一直成功，Lost 却关闭了")
+	default:
+	}
+}
+
+type okOwner struct{}
+
+func (o *okOwner) renewExtractionLease(ctx context.Context, jobID string, epoch int, ttl time.Duration) (bool, error) {
+	return true, nil
+}
+
+func (o *okOwner) jobIsStillCurrent(ctx context.Context, jobID string) (bool, error) {
+	return true, nil
+}

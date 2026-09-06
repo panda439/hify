@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"time"
 
-	"hify/internal/db/gen"
 	"hify/internal/provider"
 )
 
@@ -181,20 +180,23 @@ func (p *phaseRunner) runPhase(ctx context.Context, in phaseInput, call attemptC
 
 	var last provider.ChatAttemptResult
 	for used < maxAttemptsPerPhase {
-		attemptNumber := used + 1
-
+		// ⭐ 编号由预留事务分配（010 R6-03）：它和计数递增、额度占用、
+		// attempt 落行在同一个事务里。⚠️ 在这里按 used+1 算好再传进去，
+		// 就是那个"两次提交之间崩掉便永久撞重复键"的写法。
 		att, err := p.repo.reserveExtractionAttempt(ctx, attemptReservation{
 			JobID: in.JobID, ItemID: in.ItemID, Epoch: in.Epoch, Phase: in.Phase,
-			AttemptNumber: attemptNumber, RequestHash: in.RequestHash,
+			RequestHash:     in.RequestHash,
 			MaxOutputTokens: in.MaxOutputTokens,
 		})
+		if errors.Is(err, errAttemptsExhausted) {
+			// 持久事实说这个阶段的次数已经用完了。
+			return last, nil
+		}
 		if err != nil {
 			// 额度耗尽 / epoch 已失效：立刻停手并原样上抛。
 			return last, err
 		}
-		if err := p.bumpAttemptCount(ctx, in); err != nil {
-			return last, err
-		}
+		attemptNumber := att.AttemptNumber
 		used = attemptNumber
 
 		res, callErr := call(ctx, attemptNumber)
@@ -239,21 +241,6 @@ func (p *phaseRunner) runPhase(ctx context.Context, in phaseInput, call attemptC
 			Outcome: provider.AttemptFailed, ErrorCode: "attempts_exhausted"}
 	}
 	return last, nil
-}
-
-func (p *phaseRunner) bumpAttemptCount(ctx context.Context, in phaseInput) error {
-	var extract, alias int32
-	if in.Phase == phaseAlias {
-		alias = 1
-	} else {
-		extract = 1
-	}
-	if _, err := p.repo.queries.BumpItemAttemptCount(ctx, gen.BumpItemAttemptCountParams{
-		ExtractAttemptCount: extract, AliasAttemptCount: alias, ID: in.ItemID,
-	}); err != nil {
-		return fmt.Errorf("knowledge: bump attempt count: %w", err)
-	}
-	return nil
 }
 
 // 编译期确认哨兵错误没有被改成不可比较的类型。

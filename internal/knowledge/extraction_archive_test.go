@@ -17,14 +17,22 @@ import (
 //   - 归档汇总没加上就删 → 费用凭空变少，系统显得更便宜；
 //   - 重复归档 → 费用凭空变多，而没人能解释多出来的部分从哪来。
 
-// settleN 在一个 item 上做 n 次已完成的调用，每次 elapsed/token 固定。
+// settleN 做 n 次已完成的调用，每次 elapsed/token 固定。
+//
+// ⚠️ 单个 item 的**每个阶段**最多 maxAttemptsPerPhase 次（010 R6-03 之后
+// 这条上限由预留事务自己守着，不再是调用方自觉），所以这里在两个阶段之间
+// 轮流分配。归档测试要的只是"账上有 n 次调用"，用哪个阶段无所谓。
 func settleN(t *testing.T, repo *Repository, jobID, itemID string, epoch, n int) {
 	t.Helper()
 	ctx := t.Context()
 	for i := 1; i <= n; i++ {
+		phase := phaseExtract
+		if i > maxAttemptsPerPhase {
+			phase = phaseAlias
+		}
 		att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
-			JobID: jobID, ItemID: itemID, Epoch: epoch, Phase: phaseExtract,
-			AttemptNumber: i, RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+			JobID: jobID, ItemID: itemID, Epoch: epoch, Phase: phase,
+			RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -44,10 +52,15 @@ func settleN(t *testing.T, repo *Repository, jobID, itemID string, epoch, n int)
 func settleN2(t *testing.T, repo *Repository, jobID, itemID string, epoch, from, to int) {
 	t.Helper()
 	ctx := t.Context()
+	// ⚠️ 同 settleN：每个阶段最多 maxAttemptsPerPhase 次，超过就换阶段。
 	for i := from; i <= to; i++ {
+		phase := phaseExtract
+		if i > maxAttemptsPerPhase {
+			phase = phaseAlias
+		}
 		att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
-			JobID: jobID, ItemID: itemID, Epoch: epoch, Phase: phaseExtract,
-			AttemptNumber: i, RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+			JobID: jobID, ItemID: itemID, Epoch: epoch, Phase: phase,
+			RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -256,10 +269,10 @@ func TestArchivedSummaryKeepsUsageKnownSeparate(t *testing.T) {
 	item := firstItemID(t, repo, job.ID)
 
 	// 一次有用量、一次没有。
-	for i, known := range []bool{true, false} {
+	for _, known := range []bool{true, false} {
 		att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
 			JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
-			AttemptNumber: i + 1, RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+			RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 		})
 		if err != nil {
 			t.Fatal(err)

@@ -181,6 +181,11 @@ type Querier interface {
 	// ⭐ 有的话，恢复的 worker 必须拿它接着算，**不能再打一次模型**。
 	// 再打一次的后果不是"结果不一致"，是那笔钱白花第二遍，而账目上看起来
 	// 完全正常——两次都是真实发生的调用。
+	// ⚠️ 必须排除**被截断**的那些（010 R6-06）：64KiB 上限触发时只写了
+	// error_code='response_truncated'，state 仍然是 completed；finish_reason
+	// 为 length 时同理。不排除的表现是恢复之后把一份被截掉内容的响应当成
+	// 成功结果取回来，而它解析出的是**少了后半段**的结果——一条关系凭空消失，
+	// 而失败率显示为 0。
 	FindReplayableAttempt(ctx context.Context, arg FindReplayableAttemptParams) (FindReplayableAttemptRow, error)
 	FinishWorkflowRun(ctx context.Context, arg FinishWorkflowRunParams) error
 	// 文档当前指向的作业（读状态用）。

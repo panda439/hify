@@ -348,9 +348,16 @@ WHERE id = ? AND epoch = ?;
 -- ⭐ 有的话，恢复的 worker 必须拿它接着算，**不能再打一次模型**。
 -- 再打一次的后果不是"结果不一致"，是那笔钱白花第二遍，而账目上看起来
 -- 完全正常——两次都是真实发生的调用。
+-- ⚠️ 必须排除**被截断**的那些（010 R6-06）：64KiB 上限触发时只写了
+-- error_code='response_truncated'，state 仍然是 completed；finish_reason
+-- 为 length 时同理。不排除的表现是恢复之后把一份被截掉内容的响应当成
+-- 成功结果取回来，而它解析出的是**少了后半段**的结果——一条关系凭空消失，
+-- 而失败率显示为 0。
 SELECT id, raw_response, response_hash, finish_reason
 FROM relation_extraction_attempts
 WHERE item_id = ? AND phase = ? AND state = 'completed' AND raw_response IS NOT NULL
+  AND (error_code IS NULL OR error_code <> 'response_truncated')
+  AND (finish_reason IS NULL OR finish_reason <> 'length')
 ORDER BY attempt_number DESC
 LIMIT 1;
 

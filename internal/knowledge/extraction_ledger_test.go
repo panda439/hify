@@ -65,7 +65,7 @@ func TestAttemptIsReservedBeforeDispatch(t *testing.T) {
 
 	att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
 		JobID: job.ID, ItemID: firstItemID(t, repo, job.ID), Epoch: epoch,
-		Phase: phaseExtract, AttemptNumber: 1,
+		Phase:       phaseExtract,
 		RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 	})
 	if err != nil {
@@ -105,7 +105,7 @@ func TestCallBudgetIsEnforcedAtReservation(t *testing.T) {
 	res := func(n int) error {
 		_, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
 			JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
-			AttemptNumber: n, RequestHash: make([]byte, 32), MaxOutputTokens: 64,
+			RequestHash: make([]byte, 32), MaxOutputTokens: 64,
 		})
 		return err
 	}
@@ -138,7 +138,7 @@ func TestSettleRecordsUsageOnlyWhenKnown(t *testing.T) {
 	job, epoch := ledgerJob(t, repo, "doc-led2", "job-led2")
 	item := firstItemID(t, repo, job.ID)
 
-	for i, tc := range []struct {
+	for _, tc := range []struct {
 		name   string
 		result provider.ChatAttemptResult
 		known  bool
@@ -153,7 +153,7 @@ func TestSettleRecordsUsageOnlyWhenKnown(t *testing.T) {
 	} {
 		att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
 			JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
-			AttemptNumber: i + 1, RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+			RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -189,7 +189,7 @@ func TestNotDispatchedRefundsButKeepsTheRecord(t *testing.T) {
 
 	att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
 		JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
-		AttemptNumber: 1, RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+		RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -228,7 +228,7 @@ func TestUnknownNeverRefunds(t *testing.T) {
 
 	att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
 		JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
-		AttemptNumber: 1, RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+		RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -263,7 +263,7 @@ func TestSettleIsIdempotentlyGuarded(t *testing.T) {
 
 	att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
 		JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
-		AttemptNumber: 1, RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+		RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -294,7 +294,7 @@ func TestRawResponseIsStoredAndCapped(t *testing.T) {
 	huge := strings.Repeat("字", 40000) // 远超 64 KiB（每字 3 字节）
 	att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
 		JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
-		AttemptNumber: 1, RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+		RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -340,7 +340,7 @@ func TestStaleReservedBecomesUnknown(t *testing.T) {
 
 	att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
 		JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
-		AttemptNumber: 1, RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+		RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -383,7 +383,7 @@ func TestAliasPhaseSharesTheSameLedger(t *testing.T) {
 	for _, phase := range []string{phaseExtract, phaseAlias} {
 		att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
 			JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phase,
-			AttemptNumber: 1, RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+			RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 		})
 		if err != nil {
 			t.Fatalf("%s: %v", phase, err)
@@ -400,5 +400,267 @@ func TestAliasPhaseSharesTheSameLedger(t *testing.T) {
 	if reserved != 2 || confirmed != 2 || activeMs != 100 {
 		t.Errorf("归一阶段没有同账：reserved=%d confirmed=%d active_ms=%d",
 			reserved, confirmed, activeMs)
+	}
+}
+
+// --- 010 R6-06：被截断的响应不得当成可用结果 ---
+
+// TestTruncatedResponseIsNotReplayable——⭐ 一份**存不下全文**的响应，
+// 账要照记，但**不能被回放成结果**。
+//
+// ⚠️ 64KiB 上限触发时只写了 error_code='response_truncated'，
+// state 仍然是 completed。回放查询此前完全不看 error_code，
+// 于是恢复之后把这份被截掉内容的响应当成一次成功结果取回来——
+// 它解析出的是**少了后半段**的结果：一条关系凭空消失，
+// 而失败率显示为 0，item 显示为成功。
+func TestTruncatedResponseIsNotReplayable(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	in := pipelineItem(t, repo, "doc-trunc", "job-trunc")
+
+	// 落一份超过 64KiB 的响应：settle 会把它截短并打上标记。
+	oversized := `{"mentions":[],"relations":[],"alias_proposals":[]}` +
+		strings.Repeat("x", maxRawResponseBytes)
+	att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
+		JobID: in.JobID, ItemID: in.ItemID, Epoch: in.Epoch, Phase: phaseExtract,
+		RequestHash: make([]byte, 32), MaxOutputTokens: maxOutputTokens,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.settleExtractionAttempt(ctx, att, provider.ChatAttemptResult{
+		Outcome: provider.AttemptCompleted, FinishReason: "stop", Dispatched: true,
+		Message: provider.Message{Content: oversized},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// ⭐ 账必须记着：这次调用真的发生过，钱真的花了。
+	var errCode string
+	var confirmed int
+	if err := repo.db.QueryRowContext(ctx,
+		`SELECT COALESCE(a.error_code,''), j.confirmed_dispatches
+		 FROM relation_extraction_attempts a
+		 JOIN relation_extraction_jobs j ON j.id = a.job_id
+		 WHERE a.id = ?`, att.ID).Scan(&errCode, &confirmed); err != nil {
+		t.Fatal(err)
+	}
+	if errCode != errorCodeResponseTruncated {
+		t.Errorf("error_code = %q，want response_truncated", errCode)
+	}
+	if confirmed == 0 {
+		t.Error("被截断的调用没有计进账目——这笔钱确实花了")
+	}
+
+	// ⭐ 但它不能被回放。
+	if _, ok, err := repo.findReplayableResponse(ctx, in.ItemID, phaseExtract); err != nil {
+		t.Fatal(err)
+	} else if ok {
+		t.Error("被截断的响应被当成可回放的结果取回来了")
+	}
+}
+
+// TestLengthFinishReasonIsNotReplayable——finish_reason=length 同理：
+// 模型自己说了输出被截断，这份结果一样不可用。
+func TestLengthFinishReasonIsNotReplayable(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	in := pipelineItem(t, repo, "doc-lentrunc", "job-lentrunc")
+
+	att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
+		JobID: in.JobID, ItemID: in.ItemID, Epoch: in.Epoch, Phase: phaseExtract,
+		RequestHash: make([]byte, 32), MaxOutputTokens: maxOutputTokens,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.settleExtractionAttempt(ctx, att, provider.ChatAttemptResult{
+		Outcome: provider.AttemptCompleted, FinishReason: finishReasonLength, Dispatched: true,
+		Message: provider.Message{Content: `{"mentions":[],"relations":[],"alias_proposals":[]}`},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := repo.findReplayableResponse(ctx, in.ItemID, phaseExtract); err != nil {
+		t.Fatal(err)
+	} else if ok {
+		t.Error("finish_reason=length 的响应被当成可回放的结果取回来了")
+	}
+}
+
+// TestFreshAndReplayShareTheSameVerdict——⭐ 首次调用与回放**必须共用
+// 同一个判据**。
+//
+// ⚠️ 分成两套的表现是：同一份响应第一次被拒、重启之后被接受，
+// 或者反过来——而两条路径各自看起来都自洽。此前首次调用只看
+// finish_reason，超过 64KiB 而会被落盘截断的响应会被原样接受，
+// 于是首次用完整正文、恢复后用截短那份，同一个 item 两次跑出不同结果。
+func TestFreshAndReplayShareTheSameVerdict(t *testing.T) {
+	oversized := strings.Repeat("x", maxRawResponseBytes+1)
+	cases := []struct {
+		name         string
+		finishReason string
+		body         string
+		wantUnusable bool
+	}{
+		{"正常结果", "stop", `{"mentions":[]}`, false},
+		{"模型说输出被截断", finishReasonLength, `{"mentions":[]}`, true},
+		{"正文存不下", "stop", oversized, true},
+		{"恰好等于上限", "stop", strings.Repeat("x", maxRawResponseBytes), false},
+	}
+	for _, tc := range cases {
+		got := extractionResultUnusable(tc.finishReason, tc.body)
+		if (got != "") != tc.wantUnusable {
+			t.Errorf("%s：unusable=%q，want %v", tc.name, got, tc.wantUnusable)
+		}
+	}
+}
+
+// TestOversizedResponseIsRejectedOnTheFirstCall——首次调用拿到一份存不下的
+// 响应时必须**当场拒绝**，不能拿完整正文接着算。
+//
+// ⚠️ 接受的话，这个 item 这一次是成功的，而重启之后回放拿到的是截短的
+// 那份、解析出不同的结果——同一个 item 的产出取决于它有没有崩过。
+func TestOversizedResponseIsRejectedOnTheFirstCall(t *testing.T) {
+	repo := extractionRepo(t)
+	chat := newScriptedChat()
+	// 一份**语法完全合法**、只是太长的响应：拒绝的理由只能是长度。
+	padding := strings.Repeat("正", maxRawResponseBytes)
+	chat.script(phaseExtract, `{"mentions":[{"ref":"m1","surface":"`+padding+`","occurrence":0}],
+	     "relations":[],"alias_proposals":[]}`)
+	in := pipelineItem(t, repo, "doc-bigresp", "job-bigresp")
+
+	err := pipelineDeps(repo, chat).processItem(t.Context(), in)
+	if err == nil {
+		t.Fatal("一份存不下的响应被当成成功结果接受了")
+	}
+	if !strings.Contains(err.Error(), "unusable") {
+		t.Errorf("拒绝理由不是「结果不可用」：%v", err)
+	}
+}
+
+// --- 010 R6-03：编号分配与计数递增必须同一个事务 ---
+
+// TestReservationAssignsAndCountsInOneTransaction——⭐ 预留一次尝试之后，
+// **attempt 行和 item 上的计数必须同时存在**。
+//
+// ⚠️ 此前编号由调用方按"已用次数 + 1"算好传进来，而递增计数是预留提交
+// **之后**的另一次提交。两次提交之间崩掉的话，attempt 行已经存在、
+// item.extract_attempt_count 仍是 0——恢复之后仍然从 1 开始预留，
+// 撞上 uk_rea_item_phase_attempt 重复键；而恢复扫描把旧 attempt 改判
+// unknown 并不会修复计数，于是这个 item 每一轮都撞同一个错，
+// 永远好不了，且不再花钱也不再产出。
+func TestReservationAssignsAndCountsInOneTransaction(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	job, epoch := ledgerJob(t, repo, "doc-r603a", "job-r603a")
+	item := firstItemID(t, repo, job.ID)
+
+	att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
+		JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
+		RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if att.AttemptNumber != 1 {
+		t.Errorf("第一次的编号 = %d，want 1", att.AttemptNumber)
+	}
+	counts, err := repo.queries.GetItemAttemptCounts(ctx, item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int(counts.ExtractAttemptCount) != att.AttemptNumber {
+		t.Fatalf("attempt 行的编号 %d 与 item 上的计数 %d 对不上——"+
+			"两者不在同一个事务里，中间崩掉就会永久撞重复键",
+			att.AttemptNumber, counts.ExtractAttemptCount)
+	}
+
+	// 第二次必须拿到 2，且不撞唯一键。
+	att2, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
+		JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
+		RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+	})
+	if err != nil {
+		t.Fatalf("第二次预留失败（编号没有从持久事实接着算）：%v", err)
+	}
+	if att2.AttemptNumber != 2 {
+		t.Errorf("第二次的编号 = %d，want 2", att2.AttemptNumber)
+	}
+}
+
+// TestReservationStopsAtTheAttemptCapAndRollsBack——⭐ 编号超过上限时
+// **整个事务回滚**：额度没占、行没建、计数也没加。
+//
+// ⚠️ 只在循环外面判上限的话，第 4 次仍然会占掉一次调用额度、建一行 attempt，
+// 然后才被发现超限——那次额度再也拿不回来，而账上多了一次从未发生的调用。
+func TestReservationStopsAtTheAttemptCapAndRollsBack(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	job, epoch := ledgerJob(t, repo, "doc-r603b", "job-r603b")
+	item := firstItemID(t, repo, job.ID)
+
+	for i := 1; i <= maxAttemptsPerPhase; i++ {
+		if _, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
+			JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
+			RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+		}); err != nil {
+			t.Fatalf("第 %d 次预留失败：%v", i, err)
+		}
+	}
+	reservedBefore, _, _, _ := jobLedger(t, repo, job.ID)
+
+	_, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
+		JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
+		RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+	})
+	if !errors.Is(err, errAttemptsExhausted) {
+		t.Fatalf("超过上限却没有停手：%v", err)
+	}
+	reservedAfter, _, _, _ := jobLedger(t, repo, job.ID)
+	if reservedAfter != reservedBefore {
+		t.Errorf("被拒的那次仍然占掉了额度：%d → %d——那次调用从未发生",
+			reservedBefore, reservedAfter)
+	}
+	if n := countRows(t, repo,
+		`SELECT COUNT(*) FROM relation_extraction_attempts WHERE item_id=? AND phase=?`,
+		item, phaseExtract); n != maxAttemptsPerPhase {
+		t.Errorf("attempt 行有 %d 条，want %d——被拒的那次留下了行",
+			n, maxAttemptsPerPhase)
+	}
+	counts, err := repo.queries.GetItemAttemptCounts(ctx, item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int(counts.ExtractAttemptCount) != maxAttemptsPerPhase {
+		t.Errorf("计数 = %d，want %d——被拒的那次把计数加上去了",
+			counts.ExtractAttemptCount, maxAttemptsPerPhase)
+	}
+}
+
+// TestTwoPhasesCountSeparately——两个阶段各自计数，互不占用对方的次数。
+func TestTwoPhasesCountSeparately(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	job, epoch := ledgerJob(t, repo, "doc-r603c", "job-r603c")
+	item := firstItemID(t, repo, job.ID)
+
+	for i := 0; i < maxAttemptsPerPhase; i++ {
+		if _, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
+			JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
+			RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 抽取用完了，归一必须还能跑。
+	att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
+		JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseAlias,
+		RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+	})
+	if err != nil {
+		t.Fatalf("抽取阶段用完却把归一阶段也堵死了：%v", err)
+	}
+	if att.AttemptNumber != 1 {
+		t.Errorf("归一阶段的第一次编号 = %d，want 1", att.AttemptNumber)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
 
 	"hify/internal/provider"
@@ -93,13 +94,27 @@ func (p extractionPipeline) processItem(ctx context.Context, in itemInput) error
 func (p extractionPipeline) runOrReplay(
 	ctx context.Context, in itemInput, phase, input string, validate func(string) error,
 ) (string, error) {
-	if replay, ok, err := p.repo.findReplayableResponse(ctx, in.ItemID, phase); err != nil {
+	replay, ok, err := p.repo.findReplayableResponse(ctx, in.ItemID, phase)
+	if err != nil {
 		return "", err
-	} else if ok {
-		// ⚠️ 回放之前先校验。一份**格式坏掉**的响应如果照样回放，恢复之后
-		// 每一轮都会拿它重来一次，item 永远好不了，而且不再花钱也不再产出
-		// ——一个安静的死循环。校验不过就当作没有可回放的，重新调。
-		if validate == nil || validate(replay.Body) == nil {
+	}
+	if ok {
+		// ⭐ 与首次调用**同一个判据**（010 R6-06）：截断的响应不可用作结果。
+		//
+		// ⚠️ 如实说明：这一道**当前不可达**。FindReplayableAttempt 已经在
+		// SQL 里排除了 error_code='response_truncated' 与
+		// finish_reason='length' 的记录，包括修复之前落盘的旧行——变异测试
+		// 证实了这一点（把这个判断改成恒假，没有任何用例失败）。
+		// 留着它的理由只有一条：判据集中在 extractionResultUnusable 一处，
+		// 将来 SQL 那边放宽或改写时，行为不会静默改变。
+		// 它不是一道正在生效的守卫，不要把它当成那样的东西读。
+		if reason := extractionResultUnusable(replay.FinishReason, replay.Body); reason != "" {
+			slog.Warn("knowledge: skipping unusable replayable response",
+				"item_id", in.ItemID, "phase", phase, "reason", reason)
+		} else if validate == nil || validate(replay.Body) == nil {
+			// ⚠️ 回放之前先校验。一份**格式坏掉**的响应如果照样回放，恢复之后
+			// 每一轮都会拿它重来一次，item 永远好不了，而且不再花钱也不再产出
+			// ——一个安静的死循环。校验不过就当作没有可回放的，重新调。
 			return replay.Body, nil
 		}
 	}
@@ -124,8 +139,13 @@ func (p extractionPipeline) runOrReplay(
 		return "", fmt.Errorf("knowledge: item %s: %s phase ended as %s (%s)",
 			in.ItemID, phase, res.Outcome, res.ErrorCode)
 	}
-	if res.FinishReason == finishReasonLength {
-		return "", fmt.Errorf("knowledge: item %s: %s phase output was truncated", in.ItemID, phase)
+	// ⭐ 与回放共用同一个判据。⚠️ 此前这里只看 finish_reason，
+	// 超过 64KiB 而被落盘截断的响应会被**原样接受**——首次调用用的是完整
+	// 正文、恢复之后回放到的却是截短的那份，同一个 item 两次跑出不同结果，
+	// 而两条路径各自看起来都正常（010 R6-06）。
+	if reason := extractionResultUnusable(res.FinishReason, res.Message.Content); reason != "" {
+		return "", fmt.Errorf("knowledge: item %s: %s phase result unusable (%s)",
+			in.ItemID, phase, reason)
 	}
 	return res.Message.Content, nil
 }

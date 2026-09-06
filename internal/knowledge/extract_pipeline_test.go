@@ -169,7 +169,7 @@ func TestPipelineReplaysStageOneInsteadOfCallingAgain(t *testing.T) {
 	// 第一次跑：落盘响应，但让归一阶段失败，于是 item 没成功。
 	att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
 		JobID: in.JobID, ItemID: in.ItemID, Epoch: in.Epoch, Phase: phaseExtract,
-		AttemptNumber: 1, RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+		RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -369,7 +369,7 @@ func TestPipelineDoesNotReplayAMalformedResponse(t *testing.T) {
 	// 落一份坏响应：状态 completed、内容不是合法 JSON。
 	att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
 		JobID: in.JobID, ItemID: in.ItemID, Epoch: in.Epoch, Phase: phaseExtract,
-		AttemptNumber: 1, RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+		RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -124,7 +124,7 @@ func TestReconcileAlsoFixesStaleReservations(t *testing.T) {
 	job, epoch := ledgerJob(t, repo, "doc-rcs", "job-rcs")
 	att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
 		JobID: job.ID, ItemID: firstItemID(t, repo, job.ID), Epoch: epoch,
-		Phase: phaseExtract, AttemptNumber: 1,
+		Phase:       phaseExtract,
 		RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 	})
 	if err != nil {
@@ -196,7 +196,7 @@ func TestFreshReservationIsNotReclassified(t *testing.T) {
 	job, epoch := ledgerJob(t, repo, "doc-fresh", "job-fresh")
 	att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
 		JobID: job.ID, ItemID: firstItemID(t, repo, job.ID), Epoch: epoch,
-		Phase: phaseExtract, AttemptNumber: 1,
+		Phase:       phaseExtract,
 		RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 	})
 	if err != nil {

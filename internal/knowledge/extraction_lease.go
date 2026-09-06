@@ -143,6 +143,11 @@ type leaseKeeper struct {
 func startLeaseKeeper(ctx context.Context, owner leaseOwner, jobID string, epoch int, ttl, interval time.Duration) *leaseKeeper {
 	k := &leaseKeeper{lost: make(chan struct{}), stop: make(chan struct{})}
 	k.valid.Store(true)
+	// ⭐ deadline 是**最后一次确认成功的续租**所保证的到期时间
+	// （010 R6-04）。抢占刚刚写下 lease_until = now + ttl，所以起点是它。
+	// ⚠️ 判据必须是这个时间点，不是"连续失败了几次"——失败次数与租约
+	// 是否还在自己手上没有任何固定关系。
+	deadline := time.Now().Add(ttl)
 
 	k.wg.Add(1)
 	go func() {
@@ -168,14 +173,40 @@ func startLeaseKeeper(ctx context.Context, owner leaseOwner, jobID string, epoch
 			case <-k.stop:
 				return
 			case <-ticker.C:
-				held, err := owner.renewExtractionLease(ctx, jobID, epoch, ttl)
+				// ⭐ 每次续租都限制在**剩余租约期限之内**（010 R6-04）。
+				// ⚠️ 不限的话，一次卡住的续租可以远远超过 TTL 才返回，
+				// 而这期间 Valid() 一直是 true——租约早被别人抢走了。
+				remaining := time.Until(deadline)
+				if remaining <= 0 {
+					// 上一次确认的到期时间已经过了。⭐ 无论续租是成功、
+					// 失败还是卡住，都必须立刻判失效。
+					slog.Warn("knowledge: extraction lease expired without a confirmed renewal",
+						"job_id", jobID, "epoch", epoch)
+					k.markLost()
+					return
+				}
+				renewCtx, cancelRenew := context.WithTimeout(ctx, remaining)
+				held, err := owner.renewExtractionLease(renewCtx, jobID, epoch, ttl)
+				cancelRenew()
 				if err != nil {
 					// ⚠️ 一次续租失败**不**判定出局：数据库瞬时抖动很常见，
 					// 而误判出局会白白丢掉一个正在正常工作的 worker。
-					// 心跳频率是 TTL 的 1/6，允许连丢 5 次仍不丢租约；
-					// 真的一直失败，租约会自然过期，由别人接手。
+					// 心跳频率是 TTL 的 1/6，允许连丢 5 次仍不丢租约。
+					//
+					// ⭐ 但"允许连丢几次"不等于"永远不判"：判据是
+					// **最后一次确认成功的到期时间**，不是失败次数
+					// （010 R6-04）。此前每次失败都直接 continue，
+					// 数据库长期故障时 Valid() 可以一直是 true，
+					// 而租约早就过期、作业已经被别人接手——旧 worker
+					// 仍在调用模型，每一次都是白花的钱。
 					slog.Warn("knowledge: extraction heartbeat failed",
 						"job_id", jobID, "epoch", epoch, "error", err)
+					if !time.Now().Before(deadline) {
+						slog.Warn("knowledge: extraction lease expired after repeated heartbeat failures",
+							"job_id", jobID, "epoch", epoch)
+						k.markLost()
+						return
+					}
 					continue
 				}
 				if !held {
@@ -183,6 +214,8 @@ func startLeaseKeeper(ctx context.Context, owner leaseOwner, jobID string, epoch
 					k.markLost()
 					return
 				}
+				// ⭐ 续租确认成功，把到期时间往后推。这是唯一能推它的地方。
+				deadline = time.Now().Add(ttl)
 				current, err := owner.jobIsStillCurrent(ctx, jobID)
 				if err != nil {
 					slog.Warn("knowledge: extraction currency check failed",

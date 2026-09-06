@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 	"unicode/utf8"
@@ -57,18 +58,26 @@ type attemptReservation struct {
 	ItemID          string
 	Epoch           int
 	Phase           string
-	AttemptNumber   int
 	RequestHash     []byte
 	MaxOutputTokens int
 }
 
 // reservedAttempt 是已经预留、尚未结算的一次尝试。
 type reservedAttempt struct {
-	ID        string
-	JobID     string
-	Phase     string
-	StartedAt time.Time
+	ID    string
+	JobID string
+	Phase string
+	// AttemptNumber 由**预留事务自己分配**（010 R6-03），不是调用方传进来的。
+	// 理由见 reserveExtractionAttempt 的注释。
+	AttemptNumber int
+	StartedAt     time.Time
 }
+
+// errAttemptsExhausted：这个阶段的重试次数已经用完。
+//
+// ⚠️ 它在预留事务**内部**被发现（分配到的编号超了上限），整个事务回滚——
+// 额度没占、attempt 行没建、计数也没加。调用方据此放弃这个阶段。
+var errAttemptsExhausted = errors.New("knowledge: attempts exhausted for phase")
 
 // reserveExtractionAttempt 在**发出外部调用之前**占住额度并落下记录。
 //
@@ -78,6 +87,16 @@ type reservedAttempt struct {
 //
 // ⚠️ 额度检查和额度占用是**同一条 UPDATE**。先读后写在两个 worker 之间
 // 必然超发，而超发的表现是账单超了，不报错。
+//
+// ⭐ 编号分配、计数递增、额度占用、attempt 落行是**同一个事务**（010 R6-03）。
+// ⚠️ 此前编号由调用方按"已用次数 + 1"算好传进来，而递增计数是预留提交
+// **之后**的另一次提交。两次提交之间崩掉的话，attempt 行已经存在、
+// item.extract_attempt_count 仍是 0——恢复之后仍然从 1 开始预留，
+// 撞上 uk_rea_item_phase_attempt 重复键。而恢复扫描把旧 attempt 改判
+// unknown **并不会修复计数**，于是这个 item 每一轮都撞同一个错，
+// 永远好不了，且不再花钱也不再产出。
+//
+// 锁顺序 job → item，与其余事务一致（见 LockDocumentForExtraction）。
 func (r *Repository) reserveExtractionAttempt(ctx context.Context, res attemptReservation) (reservedAttempt, error) {
 	attempt := reservedAttempt{
 		ID: platform.NewID(), JobID: res.JobID, Phase: res.Phase,
@@ -105,10 +124,36 @@ func (r *Repository) reserveExtractionAttempt(ctx context.Context, res attemptRe
 			}
 			return ErrExtractionCallBudgetExhausted
 		}
+		// 递增本阶段计数（UPDATE 顺带锁住 item 行），再把新值读回来
+		// 当作这次的编号——⚠️ 编号必须来自**持久事实**，不是调用方的记忆。
+		var extract, alias int32
+		if res.Phase == phaseAlias {
+			alias = 1
+		} else {
+			extract = 1
+		}
+		if _, err := q.BumpItemAttemptCount(ctx, gen.BumpItemAttemptCountParams{
+			ExtractAttemptCount: extract, AliasAttemptCount: alias, ID: res.ItemID,
+		}); err != nil {
+			return fmt.Errorf("knowledge: bump attempt count: %w", err)
+		}
+		counts, err := q.GetItemAttemptCounts(ctx, res.ItemID)
+		if err != nil {
+			return fmt.Errorf("knowledge: read attempt counts: %w", err)
+		}
+		number := int(counts.ExtractAttemptCount)
+		if res.Phase == phaseAlias {
+			number = int(counts.AliasAttemptCount)
+		}
+		if number > maxAttemptsPerPhase {
+			// ⚠️ 整个事务回滚：额度没占、行没建、计数也没加。
+			return errAttemptsExhausted
+		}
+		attempt.AttemptNumber = number
 		return q.ReserveExtractionAttempt(ctx, gen.ReserveExtractionAttemptParams{
 			ID: attempt.ID, JobID: res.JobID, ItemID: res.ItemID,
 			Epoch: int32(res.Epoch), Phase: res.Phase,
-			AttemptNumber: int32(res.AttemptNumber),
+			AttemptNumber: int32(number),
 			RequestHash:   res.RequestHash, MaxOutputTokens: int32(res.MaxOutputTokens),
 		})
 	})
@@ -131,7 +176,7 @@ func (r *Repository) settleExtractionAttempt(ctx context.Context, att reservedAt
 	if truncated {
 		// ⚠️ 截断压过原有的错误码：一份被截短的响应是所有后续结论的
 		// 前提条件，比"为什么失败"更需要被看见。
-		errorCode = "response_truncated"
+		errorCode = errorCodeResponseTruncated
 	}
 
 	var responseHash []byte
@@ -246,6 +291,29 @@ func (r *Repository) reconcileStaleReservedAttempts(ctx context.Context, olderTh
 // ⚠️ 按字节硬切会把一个多字节汉字劈成两半，落库得到一段无效 UTF-8——
 // 而这份原始响应是回放和人工复核的唯一依据，坏掉一个字节就可能让整段
 // 无法解析，且报错发生在几天后的复核阶段。
+// errorCodeResponseTruncated 标记一份**存不下全文**的响应。
+//
+// ⭐ 它同时是"这次调用的账要照记"和"这个结果不可用"两件事的标记
+// （010 R6-06）。⚠️ 只写错误码而 state 仍是 completed，回放会把被截掉
+// 内容的响应当成一次成功结果取回来——而它一定解析不出、或者解析出**少了
+// 后半段**的结果，看起来完全正常。
+const errorCodeResponseTruncated = "response_truncated"
+
+// extractionResultUnusable 判断一次**成功返回**的响应是否不可用作结果。
+//
+// ⭐ 首次调用与恢复回放**必须共用这一个判据**（010 R6-06）。
+// ⚠️ 分成两套的表现是：同一份响应第一次被拒、重启之后被接受，
+// 或者反过来——而两条路径各自看起来都自洽。
+func extractionResultUnusable(finishReason, body string) string {
+	if finishReason == finishReasonLength {
+		return "output_truncated"
+	}
+	if _, truncated := capRawResponse(body); truncated {
+		return errorCodeResponseTruncated
+	}
+	return ""
+}
+
 func capRawResponse(s string) (string, bool) {
 	if len(s) <= maxRawResponseBytes {
 		return s, false

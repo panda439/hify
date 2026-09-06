@@ -73,7 +73,7 @@ func TestActiveTimeBudgetStopsNewCalls(t *testing.T) {
 	// 第一次调用就把活跃时间用超。
 	att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
 		JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
-		AttemptNumber: 1, RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+		RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +87,7 @@ func TestActiveTimeBudgetStopsNewCalls(t *testing.T) {
 	// 下一次预留必须被拦下。
 	_, err = repo.reserveExtractionAttempt(ctx, attemptReservation{
 		JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
-		AttemptNumber: 2, RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+		RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 	})
 	if !errors.Is(err, ErrExtractionActiveTimeExhausted) {
 		t.Fatalf("err = %v, want ErrExtractionActiveTimeExhausted", err)

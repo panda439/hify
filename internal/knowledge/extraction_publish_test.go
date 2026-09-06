@@ -215,7 +215,7 @@ func TestReplayUsesStoredResponseInsteadOfCallingAgain(t *testing.T) {
 
 	att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
 		JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
-		AttemptNumber: 1, RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+		RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -247,7 +247,7 @@ func TestReplayUsesStoredResponseInsteadOfCallingAgain(t *testing.T) {
 	job2, epoch2, item2 := publishFixture(t, repo, "doc-pub6", "job-pub6")
 	att2, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
 		JobID: job2.ID, ItemID: item2, Epoch: epoch2, Phase: phaseExtract,
-		AttemptNumber: 1, RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+		RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -274,7 +274,7 @@ func TestLedgerSurvivesPublishRollback(t *testing.T) {
 
 	att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
 		JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
-		AttemptNumber: 1, RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+		RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -372,7 +372,7 @@ func TestReplayRejectsNonCompletedAttempt(t *testing.T) {
 
 	att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
 		JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
-		AttemptNumber: 1, RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+		RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
 	})
 	if err != nil {
 		t.Fatal(err)
