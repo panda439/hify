@@ -1,11 +1,17 @@
 package conversation
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
+	"hify/internal/agent"
 	"hify/internal/knowledge"
+	"hify/internal/platform"
+	"hify/internal/provider"
 )
 
 // relation_branch.go 是关系查询在对话里的分支（010 T033）。
@@ -215,4 +221,142 @@ func renderRelationContext(ans knowledge.RelationAnswer) string {
 	}
 	sb.WriteString("</relation_records>")
 	return sb.String()
+}
+
+// --- 010 T035：关系提问这一轮 ---
+
+// runRelationTurn 处理一次显式的关系提问。
+//
+// ⭐ 它是 StreamMessage 的一条**并列分支**，不是插在普通路径中间的一段。
+// 零选项时这个函数根本不会被调到，普通对话逐字节不变——两条确定性门禁
+// 盯着这件事。
+//
+// ⚠️ 非 found 的结局**不调用模型**：那几种结局是系统已经确定的事实
+// （没开启抽取、名字不认识、同名多人），交给模型复述一遍只会引入它自己的
+// 措辞和不确定性——它完全可能把"还没跑完"说成"书里没有"。
+// 见 relation_branch.go 的立论。
+func (s *service) runRelationTurn(
+	ctx context.Context, conv Conversation, ag agent.Agent, q RelationQuery,
+) (knowledge.RelationAnswer, <-chan StreamEvent, error) {
+	// ⭐ 先把文档下推到 **Agent 自己的知识库范围**里。
+	// ⚠️ 直接把请求里的 document_id 交给 knowledge 层等于让任何知道 ID 的人
+	// 读到别的 Agent 的书——而回答看起来完全正常。
+	docs, err := s.knowledgeSvc.ListRelationDocuments(ctx, ag.KnowledgeBaseIDs)
+	if err != nil {
+		return knowledge.RelationAnswer{}, nil, err
+	}
+	inScope := false
+	for _, d := range docs {
+		if d.DocumentID == q.DocumentID {
+			inScope = true
+			break
+		}
+	}
+	scope := []string{q.DocumentID}
+	if !inScope {
+		// ⭐ 空范围**不是**"不限定"：交给 knowledge 层的空列表会得到
+		// out_of_scope，而不是全库查询。这是 002/004 已经确立的口径。
+		scope = nil
+	}
+
+	ans, err := s.knowledgeSvc.QueryRelations(ctx, scope, q.Subject, q.Object, relationEvidenceBudgetRunes)
+	if err != nil {
+		return knowledge.RelationAnswer{}, nil, err
+	}
+
+	// 非 found：固定文案，不经过模型。
+	if ans.Outcome != knowledge.RelationOutcomeFound {
+		text := relationTurnContent(ans, q.Subject, q.Object, "")
+		return ans, s.emitFixedRelationReply(conv.ID, text), nil
+	}
+
+	// found：把证据交给模型走受限生成。events 为 nil 表示"接着走普通生成
+	// 路径"，由调用方用 relationEvidenceFor(ans) 组装上下文。
+	return ans, nil, nil
+}
+
+// relationEvidenceFor 把一次 found 的结果转成 assembleContext 要的形态。
+func relationEvidenceFor(ans knowledge.RelationAnswer) relationTurn {
+	return relationTurn{Evidence: relationEvidence(ans), Notice: relationCoverageNotice(ans)}
+}
+
+// relationEvidenceBudgetRunes 是分给关系证据的预算。
+//
+// ⚠️ 它是**既有 RAG 预算里的一份**，不是另开的一份——关系提问这一轮不带
+// 普通检索证据，所以整份预算都归它。
+const relationEvidenceBudgetRunes = 6000
+
+// emitFixedRelationReply 把一句固定文案作为一整轮回答发出去并落库。
+//
+// ⭐ 落库的正文与流里发出去的**是同一个字符串**。⚠️ 只在流里发一次的话，
+// 用户刷新页面后这条消息就没了，而他刚刚问过的问题还在。
+func (s *service) emitFixedRelationReply(conversationID, text string) <-chan StreamEvent {
+	events := make(chan StreamEvent, 3)
+	go func() {
+		defer close(events)
+		msg := Message{
+			ID: platform.NewID(), ConversationID: conversationID,
+			Role: string(provider.RoleAssistant), Content: text,
+		}
+		// ⚠️ 用独立 context 落库：请求可能已经断开，而这条回答必须留下。
+		persistCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := s.repo.createMessage(persistCtx, msg); err != nil {
+			slog.Error("conversation: persist relation branch reply failed",
+				"err", err, "conversation_id", conversationID)
+			events <- StreamEvent{Type: EventError, Error: "回答保存失败，请重试"}
+			return
+		}
+		events <- StreamEvent{Type: EventDelta, Content: text}
+		// ⛔ 不挂任何 Citation：这是一条程序文案，不是基于检索证据生成的回答。
+		events <- StreamEvent{Type: EventFinal, Content: text}
+		events <- StreamEvent{Type: EventDone}
+	}()
+	return events
+}
+
+// --- 010 T035：可以问关系的书目 ---
+
+// RelationDocument 是一本"可以问人物关系的书"。
+//
+// ⛔ 字段全是**用户能看懂的话**：没有 epoch、没有 hash、没有 job_id。
+// 那些是系统内部用来保证正确性的东西，对用户没有任何意义，
+// 出现在界面上只会让人以为自己需要理解它们。
+type RelationDocument struct {
+	DocumentID string
+	FileName   string
+	// Ready 表示"现在问就能得到基于全书的答案"。
+	// ⚠️ 它**不是** document.status == ready：抽取跑完才算，而抽取比解析
+	// 晚得多。混同的表现是用户看到"已就绪"、问出来却是"还没跑完"。
+	Ready bool
+	// RemainingItems 是还没处理的片段数，Ready 时为 0。
+	RemainingItems int
+	// Stopped 表示这一轮已经停下来了（暂停、额度用尽、失败）。
+	// ⚠️ 与"还没跑完"分开：前者要用户去点续跑，后者只要等。
+	Stopped bool
+}
+
+// ListRelationDocuments 列出这个会话的 Agent 能问关系的书目。
+func (s *service) ListRelationDocuments(ctx context.Context, userID, conversationID string) ([]RelationDocument, error) {
+	// ⭐ 先核对会话归属：这一步也是权限检查，不只是取 agent_id。
+	conv, err := s.repo.getConversationForUser(ctx, conversationID, userID)
+	if err != nil {
+		return nil, err
+	}
+	ag, err := s.agentSvc.GetAgent(ctx, conv.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	docs, err := s.knowledgeSvc.ListRelationDocuments(ctx, ag.KnowledgeBaseIDs)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RelationDocument, 0, len(docs))
+	for _, d := range docs {
+		out = append(out, RelationDocument{
+			DocumentID: d.DocumentID, FileName: d.FileName,
+			Ready: d.Ready, RemainingItems: d.RemainingItems, Stopped: d.Stopped,
+		})
+	}
+	return out, nil
 }

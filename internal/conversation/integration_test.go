@@ -232,7 +232,7 @@ func TestIntegrationStreamMessageToolCallLoop(t *testing.T) {
 	)
 
 	seedConversation(t, repo, "conv-1", "ag-1", "u1")
-	events, err := svc.StreamMessage(ctx, "u1", "conv-1", "问题是什么")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-1", "问题是什么", StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestIntegrationStreamMessageOwnership(t *testing.T) {
 
 	seedConversation(t, repo, "conv-own", "ag-own", "owner-user")
 	// 别人的会话：必须拒绝（防越权是链路 8 在 service 层的延伸）。
-	if _, err := svc.StreamMessage(context.Background(), "other-user", "conv-own", "hi"); err == nil {
+	if _, err := svc.StreamMessage(context.Background(), "other-user", "conv-own", "hi", StreamOptions{}); err == nil {
 		t.Fatal("StreamMessage on another user's conversation must fail")
 	}
 }
@@ -350,7 +350,7 @@ func TestIntegrationStreamMessageMidStreamErrorPersistsPartial(t *testing.T) {
 		&fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-err", "ag-err", "u1")
-	events, err := svc.StreamMessage(ctx, "u1", "conv-err", "hi")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-err", "hi", StreamOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +395,7 @@ func TestIntegrationStreamMessageUnknownToolFedBackAsError(t *testing.T) {
 		&fakeKnowledgeSvc{}, mcpSvc, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-hal", "ag-hal", "u1")
-	events, err := svc.StreamMessage(ctx, "u1", "conv-hal", "hi")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-hal", "hi", StreamOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,7 +446,7 @@ func TestIntegrationStreamMessageCitationFullPipeline(t *testing.T) {
 		&fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-cite", "ag-cite", "u1")
-	events, err := svc.StreamMessage(ctx, "u1", "conv-cite", "问题")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-cite", "问题", StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage: %v", err)
 	}
@@ -529,7 +529,7 @@ func TestIntegrationStreamMessageMaliciousChunkNeverBecomesInstruction(t *testin
 		mcpSvc, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-inj", "ag-inj", "u1")
-	events, err := svc.StreamMessage(ctx, "u1", "conv-inj", "你好")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-inj", "你好", StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage: %v", err)
 	}
@@ -595,7 +595,7 @@ func TestIntegrationStreamMessageNoRAGNoCitationsRegression(t *testing.T) {
 		&fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-plain", "ag-plain", "u1")
-	events, err := svc.StreamMessage(ctx, "u1", "conv-plain", "你好")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-plain", "你好", StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage: %v", err)
 	}
@@ -627,7 +627,7 @@ func TestIntegrationStreamMessageRAGRetrievalFailureFailsOpen(t *testing.T) {
 		&fakeKnowledgeSvc{err: errors.New("向量库暂时不可用")}, &fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-ragfail", "ag-ragfail", "u1")
-	events, err := svc.StreamMessage(ctx, "u1", "conv-ragfail", "问题")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-ragfail", "问题", StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage must fail-open on retrieval error, got err: %v", err)
 	}
@@ -780,7 +780,7 @@ func TestIntegrationStreamMessagePersistFailureSendsOnlyErrorNoFinalNoDone(t *te
 
 	seedConversation(t, repo, "conv-persistfail", "ag-persistfail", "u1")
 
-	events, err := svc.StreamMessage(ctx, "u1", "conv-persistfail", "问题")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-persistfail", "问题", StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage: %v", err)
 	}
@@ -864,7 +864,7 @@ func TestIntegrationStreamMessageSuccessfulPersistStillSatisfiesBothConsistencyE
 		t.Fatal(err)
 	}
 
-	events, err := svc.StreamMessage(ctx, "u1", "conv-okpath", "问题")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-okpath", "问题", StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage: %v", err)
 	}
@@ -929,7 +929,7 @@ func TestIntegrationTraceSpansNeverStoreFullPrivateContent(t *testing.T) {
 		&fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-secret", "ag-secret", "u1")
-	events, err := svc.StreamMessage(ctx, "u1", "conv-secret", "问题里也有 "+secret)
+	events, err := svc.StreamMessage(ctx, "u1", "conv-secret", "问题里也有 "+secret, StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage: %v", err)
 	}
@@ -1015,7 +1015,7 @@ func TestIntegrationStreamMessageContextTooLargeWhenLatestMessageAlone(t *testin
 
 	seedConversation(t, repo, "conv-toolarge", "ag-toolarge", "u1")
 	tooLong := strings.Repeat("测", 500)
-	events, err := svc.StreamMessage(ctx, "u1", "conv-toolarge", tooLong)
+	events, err := svc.StreamMessage(ctx, "u1", "conv-toolarge", tooLong, StreamOptions{})
 
 	if events != nil {
 		t.Fatalf("expected no event channel on a pre-flight context_too_large failure, got %v", events)
@@ -1056,7 +1056,7 @@ func TestIntegrationStreamMessageContextTooLargeWhenSystemPromptPlusLatestExceed
 	seedConversation(t, repo, "conv-combo", "ag-combo", "u1")
 	// system prompt(300) + latest(200) = 500 > 400，但 latest 单独(200)
 	// 和 system prompt 单独(300) 都小于 400——必须把两者加起来判断。
-	events, err := svc.StreamMessage(ctx, "u1", "conv-combo", strings.Repeat("l", 200))
+	events, err := svc.StreamMessage(ctx, "u1", "conv-combo", strings.Repeat("l", 200), StreamOptions{})
 	if events != nil {
 		t.Fatalf("expected no event channel, got %v", events)
 	}
@@ -1082,7 +1082,7 @@ func TestIntegrationStreamMessageContextTooLargeWhenContextWindowBelowOutputRese
 		&fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-belowreserve", "ag-belowreserve", "u1")
-	events, err := svc.StreamMessage(ctx, "u1", "conv-belowreserve", "随便一句话")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-belowreserve", "随便一句话", StreamOptions{})
 	if events != nil {
 		t.Fatalf("expected no event channel, got %v", events)
 	}
@@ -1108,7 +1108,7 @@ func TestIntegrationStreamMessageContextExactBoundaryStillSucceeds(t *testing.T)
 		&fakeKnowledgeSvc{}, &fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-boundary", "ag-boundary", "u1")
-	events, err := svc.StreamMessage(ctx, "u1", "conv-boundary", latest)
+	events, err := svc.StreamMessage(ctx, "u1", "conv-boundary", latest, StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage at the exact budget boundary must succeed, got err: %v", err)
 	}
@@ -1166,7 +1166,7 @@ func TestIntegrationQueryRewriteSuccessUsesRewrittenQuestionForRetrieve(t *testi
 		knowledgeSvc, &fakeMCPSvc{}, trace.NewStore(db),
 		true, "", 1500*time.Millisecond)
 
-	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-ok", "那它的上限呢")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-ok", "那它的上限呢", StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage: %v", err)
 	}
@@ -1204,7 +1204,7 @@ func TestIntegrationQueryRewriteAmbiguousFallsBackToOriginalQuestion(t *testing.
 		knowledgeSvc, &fakeMCPSvc{}, trace.NewStore(db),
 		true, "", 1500*time.Millisecond)
 
-	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-amb", "它怎么配置")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-amb", "它怎么配置", StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage: %v", err)
 	}
@@ -1245,7 +1245,7 @@ func TestIntegrationQueryRewriteDisabledSkipsLLMCall(t *testing.T) {
 		knowledgeSvc, &fakeMCPSvc{}, trace.NewStore(db),
 		false, "", 1500*time.Millisecond)
 
-	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-off", "它怎么配置")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-off", "它怎么配置", StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage: %v", err)
 	}
@@ -1325,7 +1325,7 @@ func TestIntegrationQueryRewriteLLMErrorDegradesToOriginalQuestion(t *testing.T)
 		knowledgeSvc, &fakeMCPSvc{}, trace.NewStore(db),
 		true, "", 1500*time.Millisecond)
 
-	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-err", "那它呢")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-err", "那它呢", StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage: %v", err)
 	}
@@ -1368,7 +1368,7 @@ func TestIntegrationQueryRewriteLLMTimeoutDegradesToOriginalQuestion(t *testing.
 		knowledgeSvc, &fakeMCPSvc{}, trace.NewStore(db),
 		true, "", time.Millisecond)
 
-	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-timeout", "那它呢")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-timeout", "那它呢", StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage: %v", err)
 	}
@@ -1410,7 +1410,7 @@ func TestIntegrationQueryRewriteUnparsableOutputDegradesToOriginalQuestion(t *te
 		knowledgeSvc, &fakeMCPSvc{}, trace.NewStore(db),
 		true, "", 1500*time.Millisecond)
 
-	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-unparsable", "那它呢")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-unparsable", "那它呢", StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage: %v", err)
 	}
@@ -1455,7 +1455,7 @@ func TestIntegrationAgentDocumentScopeIsPushedToRetrieve(t *testing.T) {
 		&fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-scope", "ag-scope", "u1")
-	events, err := svc.StreamMessage(ctx, "u1", "conv-scope", "问题")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-scope", "问题", StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage: %v", err)
 	}
@@ -1506,7 +1506,7 @@ func TestIntegrationAgentWithoutDocumentScopeSendsEmptyFilter(t *testing.T) {
 		&fakeMCPSvc{}, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-noscope", "ag-noscope", "u1")
-	events, err := svc.StreamMessage(ctx, "u1", "conv-noscope", "问题")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-noscope", "问题", StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage: %v", err)
 	}
@@ -1561,7 +1561,7 @@ func TestIntegrationToolLoopBlocksThirdIdenticalCall(t *testing.T) {
 		mcpSvc, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-loop", "ag-loop", "u1")
-	events, err := svc.StreamMessage(ctx, "u1", "conv-loop", "查一下")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-loop", "查一下", StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage: %v", err)
 	}
@@ -1595,7 +1595,7 @@ func TestIntegrationToolLoopRemovesBlockedToolFromRequest(t *testing.T) {
 		mcpSvc, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-loop2", "ag-loop2", "u1")
-	events, err := svc.StreamMessage(ctx, "u1", "conv-loop2", "查一下")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-loop2", "查一下", StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage: %v", err)
 	}
@@ -1655,7 +1655,7 @@ func TestIntegrationToolLoopExhaustionEndsWithFinalNotError(t *testing.T) {
 		mcpSvc, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-exh", "ag-exh", "u1")
-	events, err := svc.StreamMessage(ctx, "u1", "conv-exh", "查一下")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-exh", "查一下", StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage: %v", err)
 	}
@@ -1731,7 +1731,7 @@ func TestIntegrationTurnStopsOnTokenBudget(t *testing.T) {
 		mcpSvc, trace.NewStore(db), false, "", 1500*time.Millisecond)
 
 	seedConversation(t, repo, "conv-budget", "ag-budget", "u1")
-	events, err := svc.StreamMessage(ctx, "u1", "conv-budget", "查一下")
+	events, err := svc.StreamMessage(ctx, "u1", "conv-budget", "查一下", StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage: %v", err)
 	}

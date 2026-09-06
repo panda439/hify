@@ -139,6 +139,11 @@ export function useDocuments(kbId: string | null) {
 // 后端也是按「字段缺失 = 关闭」解析的，两边同一口径。
 export interface UploadOptions {
   narrative?: boolean;
+  // ⭐ 关系抽取是独立于 narrative 的第二个开关，且**必须同时给模型**
+  // （010 T035）。留到"以后再配"等于让文档带着一个开着的开关停在那里
+  // 什么都不做，而界面显示"已开启"——抽取必须调模型，没有模型就没有作业。
+  extractRelations?: boolean;
+  relationModelId?: string;
 }
 
 export function useUploadDocument(kbId: string) {
@@ -151,6 +156,13 @@ export function useUploadDocument(kbId: string) {
       // 无脑 append String(false) 也能工作，但会让"没传"和"传了 false"
       // 在抓包和日志里长得不一样，排查时多一层噪音。
       if (options?.narrative) form.append("narrative_mode", "true");
+      if (options?.extractRelations) {
+        form.append("extract_relations", "true");
+        // ⚠️ 模型 id 只在开关打开时才发。后端会在没有它时明确报错，
+        // 前端也在表单上挡一道——两处都挡，是因为这里挡住的是
+        // "用户看到一句中文提示"，后端挡住的是"数据进了库"。
+        form.append("relation_model_id", options.relationModelId ?? "");
+      }
       return api.postForm<KnowledgeDocument>(`/knowledge-bases/${kbId}/documents`, form);
     },
     onSuccess: () => {
@@ -259,4 +271,180 @@ export function useDocumentsByKnowledgeBase(kbIds: string[]) {
     // 单独暴露这个标志，避免调用方在加载过程中闪一下错误的"已删除"提示。
     canDetectMissing: !isLoading && kbIds.length > 0,
   };
+}
+
+// --- 010 T035：关系抽取的状态与操作 ---
+
+// ExtractionStatus 是抽取作业的对外状态。
+//
+// ⚠️ 未知的数值一律是 null，**不是 0**。后端刻意这么发（见
+// extraction_handler.go 的注释）：初始化还没完成时 total_items 填 0，
+// 界面会显示"0/0 已完成"——一个看起来已经跑完的进度条，
+// 而实际上一条都还没开始。前端必须跟着这个口径，不要 `?? 0`。
+export interface ExtractionStatus {
+  enabled: boolean;
+  job_id: string | null;
+  // state 是后端的作业状态原样。⚠️ **不要直接显示给用户**：
+  // 它是 pending/initializing/running/... 这类内部词，
+  // 展示文案走 extractionStateLabel。
+  state: string | null;
+  stop_reason: string | null;
+  document_version: number | null;
+  model_id: string | null;
+
+  total_items: number | null;
+  succeeded_items: number | null;
+  failed_items: number | null;
+
+  // ⭐ confirmed_calls 与 possible_calls 分开：前者"确定发生过"，
+  // 后者含那些不知道有没有发出去的。合并会让一个不确定的数字
+  // 看起来像确定的。
+  confirmed_calls: number | null;
+  possible_calls: number | null;
+  unknown_usage_attempts: number | null;
+  active_ms: number | null;
+
+  remaining_calls: number | null;
+  remaining_chunks: number | null;
+  remaining_active_ms: number | null;
+
+  // ⚠️ 本地模型没有金钱计费：cost_kind 恒为 not_applicable、
+  // cost_amount 恒为 null。写 0 等于说"花了零元"，而真实情况是
+  // 这个口径不适用。
+  cost_kind: string;
+  cost_amount: string | null;
+}
+
+// extractionStateLabel 把内部状态翻成用户看得懂的话。
+//
+// ⛔ 契约要求提示里**不出现 epoch / hash / lease / superseded** 这类内部
+// 术语。用户不需要理解它们，出现在界面上只会让人以为自己需要理解。
+// ⚠️ 每个状态给的下一步都不同，所以不能合并成"处理中"一个词：
+// 「等待中」要等、「已暂停」要点续跑、「额度用尽」要加额度、「失败」要看原因。
+export function extractionStateLabel(state: string | null): string {
+  switch (state) {
+    case "pending":
+      return "等待文档处理完成";
+    case "initializing":
+      return "正在准备";
+    case "running":
+      return "正在抽取";
+    case "paused":
+      return "已暂停";
+    case "succeeded":
+      return "已完成";
+    case "failed":
+      return "已失败";
+    case "budget_exhausted":
+      return "额度已用尽";
+    case "superseded":
+      // 用户视角只有"这一轮不作数了"，不需要知道 superseded 这个词。
+      return "已被新一轮取代";
+    default:
+      return "未开始";
+  }
+}
+
+// extractionStopReasonLabel 把停止原因翻成一句人话。
+// ⚠️ 认不出来的原因**原样不显示**，而不是显示英文码：一个用户看不懂的
+// 标识符只会让他截图来问，而那句话本来就该由我们写。
+export function extractionStopReasonLabel(reason: string | null): string {
+  switch (reason) {
+    case "budget_exhausted":
+      return "已达到本次抽取的额度上限";
+    case "paused_by_user":
+      return "由你手动暂停";
+    case "too_many_consecutive_failures":
+      return "连续多个片段抽取失败，已停止";
+    case "response_invalid":
+      return "模型返回的结果不符合格式要求";
+    case "input_too_large":
+      return "有片段超出单次输入上限";
+    case "source_changed":
+      return "文档在抽取过程中被重新处理";
+    case "chunk_metadata_missing":
+      return "文档缺少场景坐标，请重新处理后再试";
+    case "too_many_chunks":
+      return "文档片段数超出单次抽取上限";
+    case "empty_content":
+      return "文档没有可抽取的正文";
+    default:
+      return "";
+  }
+}
+
+// extractionProgress 返回 [已完成, 总数]，任一未知时返回 null。
+//
+// ⭐ 只要有一个是 null 就整体返回 null。⚠️ 把未知当 0 去算百分比，
+// 会得到一个"0%"或"100%"的确定说法，而真相是我们还不知道。
+export function extractionProgress(st: ExtractionStatus): [number, number] | null {
+  if (st.total_items === null || st.succeeded_items === null || st.failed_items === null) {
+    return null;
+  }
+  return [st.succeeded_items + st.failed_items, st.total_items];
+}
+
+function extractionKey(kbId: string, docId: string) {
+  return ["knowledge-bases", kbId, "documents", docId, "extraction"];
+}
+
+// useExtractionStatus 轮询抽取状态。
+//
+// ⚠️ 只在**真的在跑**的时候轮询。pending 也要轮：它在等文档处理完成，
+// 而那件事随时会完成。已完成/已暂停/已失败都不再轮——一个停着的作业
+// 每 3 秒查一次，除了发热什么都不产生。
+export function useExtractionStatus(kbId: string | null, docId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: kbId && docId ? extractionKey(kbId, docId) : ["extraction", "disabled"],
+    queryFn: () =>
+      api.get<ExtractionStatus>(`/knowledge-bases/${kbId}/documents/${docId}/extraction`),
+    enabled: enabled && kbId !== null && docId !== null,
+    refetchInterval: (query) => {
+      const st = query.state.data;
+      if (!st) return false;
+      const live = st.state === "pending" || st.state === "initializing" || st.state === "running";
+      return live ? 3000 : false;
+    },
+  });
+}
+
+// ExtractionOperation 是所有写操作的请求体。
+//
+// ⚠️ 额度字段是**追加量**不是新上限。写成上限的话，一个填小了的值会把
+// 已经用掉的额度算成超支，作业立刻停在"额度用尽"上。
+export interface ExtractionOperation {
+  idempotency_key: string;
+  model_id?: string;
+  additional_chunks?: number;
+  additional_calls?: number;
+  additional_active_seconds?: number;
+  additional_retry_rounds?: number;
+}
+
+// newIdempotencyKey 给每次操作生成一个键。
+//
+// ⭐ 键在**用户点击的那一刻**生成并跟着这次操作走：重试同一次点击要用
+// 同一个键（后端据此判定重放），而下一次点击必须是新键。
+// ⚠️ 不能以 "upload:" 开头——那是后端给"上传时就开启"保留的前缀。
+export function newIdempotencyKey(action: string): string {
+  return `${action}-${crypto.randomUUID()}`;
+}
+
+type ExtractionAction = "enable" | "disable" | "pause" | "resume" | "restart";
+
+export function useExtractionOperation(kbId: string, docId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ action, op }: { action: ExtractionAction; op: ExtractionOperation }) =>
+      api.post<ExtractionStatus>(
+        `/knowledge-bases/${kbId}/documents/${docId}/extraction/${action}`,
+        op,
+      ),
+    onSuccess: (st) => {
+      // ⭐ 直接把响应写进缓存：每个写操作都返回**操作之后**的状态，
+      // 再查一次只会多一次往返，而且中间那一小段时间界面显示的是旧状态。
+      qc.setQueryData(extractionKey(kbId, docId), st);
+      qc.invalidateQueries({ queryKey: documentsQueryKey(kbId) });
+    },
+  });
 }

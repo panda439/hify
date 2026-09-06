@@ -41,7 +41,11 @@ type Service interface {
 	// that point on, any failure becomes an in-band StreamEvent, never a
 	// second HTTP response, since the handler will already have committed
 	// SSE response headers by then.
-	StreamMessage(ctx context.Context, userID, conversationID, content string) (<-chan StreamEvent, error)
+	StreamMessage(ctx context.Context, userID, conversationID, content string, opts StreamOptions) (<-chan StreamEvent, error)
+
+	// ListRelationDocuments 列出这个会话的 Agent 能问人物关系的书目
+	// （010 T035）。⚠️ 范围来自 Agent 挂的知识库，不是全库。
+	ListRelationDocuments(ctx context.Context, userID, conversationID string) ([]RelationDocument, error)
 }
 
 // service is constructed via NewService in wire.go. agentSvc/providerSvc/
@@ -139,7 +143,24 @@ func (s *service) ListMessages(ctx context.Context, userID, conversationID strin
 	return rows, citations, nextCursor, nil
 }
 
-func (s *service) StreamMessage(ctx context.Context, userID, conversationID, content string) (<-chan StreamEvent, error) {
+// StreamOptions 是一轮对话的显式选项（010 T035）。
+//
+// ⭐ **零值等于改动前的行为**：Relation 为 nil 时这一轮与本功能上线前
+// 逐字节相同。这不是巧合而是硬要求——两条确定性门禁盯着它。
+type StreamOptions struct {
+	// Relation 非空表示这一轮问的是「A 和 B 是什么关系」。
+	// ⚠️ 由调用方显式给出，不从提问里猜意图（理由见 dto.go）。
+	Relation *RelationQuery
+}
+
+// RelationQuery 是一次关系提问的三个要素。
+type RelationQuery struct {
+	DocumentID string
+	Subject    string
+	Object     string
+}
+
+func (s *service) StreamMessage(ctx context.Context, userID, conversationID, content string, opts StreamOptions) (<-chan StreamEvent, error) {
 	conv, err := s.repo.getConversationForUser(ctx, conversationID, userID)
 	if err != nil {
 		return nil, err
@@ -178,7 +199,24 @@ func (s *service) StreamMessage(ctx context.Context, userID, conversationID, con
 	traceID := platform.NewID()
 	turnStart := time.Now()
 
-	assembled, err := s.assembleContext(ctx, conversationID, ag, model, content, traceID)
+	// ⭐ 关系提问是一条**并列分支**（010 T035）：零选项时下面这个 if 整个
+	// 不进，普通对话逐字节不变——两条确定性门禁盯着这件事。
+	var rel relationTurn
+	if opts.Relation != nil {
+		ans, fixed, relErr := s.runRelationTurn(ctx, conv, ag, *opts.Relation)
+		if relErr != nil {
+			return nil, relErr
+		}
+		if fixed != nil {
+			// ⚠️ 非 found 的结局**不调用模型**，直接把固定文案发回去。
+			// 理由见 relation_branch.go：这几种结局是系统已经确定的事实，
+			// 交给模型复述一遍只会引入它自己的措辞和不确定性。
+			return fixed, nil
+		}
+		rel = relationEvidenceFor(ans)
+	}
+
+	assembled, err := s.assembleContext(ctx, conversationID, ag, model, content, traceID, rel)
 	if err != nil {
 		return nil, err
 	}

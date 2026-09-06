@@ -440,7 +440,7 @@ func TestIntegrationQueryRewriteSpanNeverStoresQuestionOrRewriteContent(t *testi
 		knowledgeSvc, &fakeMCPSvc{}, trace.NewStore(db),
 		true, "", 1500*time.Millisecond)
 
-	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-span-privacy", sensitiveQuestion)
+	events, err := svc.StreamMessage(ctx, "u1", "conv-rw-span-privacy", sensitiveQuestion, StreamOptions{})
 	if err != nil {
 		t.Fatalf("StreamMessage: %v", err)
 	}

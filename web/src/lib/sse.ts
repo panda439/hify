@@ -35,7 +35,21 @@ interface ErrorBody {
   error?: { message?: string };
 }
 
-async function postStream(conversationId: string, content: string, token: string | null, signal: AbortSignal) {
+// RelationQueryOptions 是"这一轮问的是人物关系"的显式选项（010 T035）。
+// ⭐ 省略等于完全走原来的路径——后端的零选项路径由两条确定性门禁盯着。
+export interface RelationQueryOptions {
+  document_id: string;
+  subject: string;
+  object: string;
+}
+
+async function postStream(
+  conversationId: string,
+  content: string,
+  relation: RelationQueryOptions | undefined,
+  token: string | null,
+  signal: AbortSignal,
+) {
   return fetch(`/api/v1/conversations/${conversationId}/messages`, {
     method: "POST",
     headers: {
@@ -43,7 +57,9 @@ async function postStream(conversationId: string, content: string, token: string
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     credentials: "include",
-    body: JSON.stringify({ content }),
+    // ⚠️ 只在真的要问关系时才带这个字段。无脑带一个 null 也能工作，
+    // 但会让"没传"和"传了空"在抓包和后端日志里长得不一样。
+    body: JSON.stringify(relation ? { content, relation } : { content }),
     signal,
   });
 }
@@ -52,17 +68,22 @@ export function useChatStream() {
   const [streaming, setStreaming] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
 
-  const send = useCallback(async (conversationId: string, content: string, onEvent: (event: StreamEvent) => void) => {
+  const send = useCallback(async (
+    conversationId: string,
+    content: string,
+    onEvent: (event: StreamEvent) => void,
+    relation?: RelationQueryOptions,
+  ) => {
     const controller = new AbortController();
     controllerRef.current = controller;
     setStreaming(true);
 
     try {
-      let res = await postStream(conversationId, content, getAccessToken(), controller.signal);
+      let res = await postStream(conversationId, content, relation, getAccessToken(), controller.signal);
       if (res.status === 401) {
         const user = await refreshAccessToken();
         if (user) {
-          res = await postStream(conversationId, content, getAccessToken(), controller.signal);
+          res = await postStream(conversationId, content, relation, getAccessToken(), controller.signal);
         }
       }
 
