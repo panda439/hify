@@ -41,12 +41,13 @@ type Message struct {
 // the stream has started, even a failure surfaces as an Error-typed event,
 // never a second HTTP response — see conversation/handler.go.
 type StreamEvent struct {
-	Type      string               `json:"type"`
-	TraceID   string               `json:"trace_id,omitempty"`
-	Content   string               `json:"content,omitempty"`
-	Error     string               `json:"error,omitempty"`
-	Retrieved []RetrievedChunkInfo `json:"retrieved,omitempty"`
-	ToolCall  *ToolCallInfo        `json:"tool_call,omitempty"`
+	Type               string                    `json:"type"`
+	TraceID            string                    `json:"trace_id,omitempty"`
+	Content            string                    `json:"content,omitempty"`
+	Error              string                    `json:"error,omitempty"`
+	Retrieved          []RetrievedChunkInfo      `json:"retrieved,omitempty"`
+	ToolCall           *ToolCallInfo             `json:"tool_call,omitempty"`
+	RelationCandidates []RelationCandidateOption `json:"relation_candidates,omitempty"`
 	// Citations is populated only on the EventFinal frame — see
 	// runStream's doc comment for why citations can't be known until the
 	// full streamed answer has been parsed. The `omitempty` tag here only
@@ -95,6 +96,13 @@ type ToolCallInfo struct {
 	Name   string `json:"name"`
 	Status string `json:"status"` // running | done | error
 	Result string `json:"result,omitempty"`
+}
+
+type RelationCandidateOption struct {
+	CharacterID      string `json:"character_id"`
+	DisplayName      string `json:"display_name"`
+	FirstSourceOrder int64  `json:"first_source_order"`
+	Role             string `json:"role"`
 }
 
 // RetrievedChunkInfo is what the debug panel actually needs from an
@@ -193,8 +201,9 @@ const (
 	EventRetrieval = "retrieval"
 	// EventToolCall fires twice per tool invocation (status=running, then
 	// status=done|error) — backs the chat UI's tool-call trace.
-	EventToolCall = "tool_call"
-	EventDelta    = "delta"
+	EventToolCall           = "tool_call"
+	EventRelationCandidates = "relation_candidates"
+	EventDelta              = "delta"
 	// EventFinal is the authoritative post-processing frame: normalized
 	// content (invalid [Sx] refs stripped) and the structured citations
 	// that were actually persisted — sent once, always immediately before

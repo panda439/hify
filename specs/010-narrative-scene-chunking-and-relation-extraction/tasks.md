@@ -60,8 +60,8 @@ T014～T023保持未勾选，具体缺口及复审顺序见 [review-fixes 第六
 - [ ] T032 先写selection/budget测试，再实现按源顺序多类型/跨章选证据、候选200/引用12、LIMIT+1截断提示；仅用一份既有RAG预算，不伪造相似度；验证极小ContextWindow与无证据可容纳。
 - [ ] T033 对话领域选项→Service→dto/handler接入：普通StreamMessage零选项不变；关系分支停query rewrite/tool循环，固定无结果/歧义/故障文本，有证据才受限生成。
 - [ ] T034 引用来源PG批量核验+入模前MySQL复检，实际引用与message_citations一致；删除/新run并发变化停止本轮，刷新后消息/覆盖/截断提示可重放。
-- [ ] T035 前端knowledge.ts/conversations.ts及两个页面接入：上传开关、状态/暂停/续跑、同一聊天页关系选项/书目/两人输入/歧义选择；提示不出现epoch/hash等内部术语。
-- [ ] T036 真实HTTP/UI冒烟：普通对话、禁用/未开始/部分/完成/故障/歧义、两章关系变化、范围外文档、跨书同名、默认关闭回归；确认操作和提示均符合契约。
+- [x] T035 前端knowledge.ts/conversations.ts及两个页面接入：上传开关、状态/暂停/续跑、同一聊天页关系选项/书目/两人输入/歧义选择；提示不出现epoch/hash等内部术语。
+- [x] T036 真实HTTP/UI冒烟：普通对话、禁用/未开始/部分/完成/故障/歧义、两章关系变化、范围外文档、跨书同名、默认关闭回归；确认操作和提示均符合契约。证据见 `evidence/phase5-smoke/README.md`。
 
 ## Phase 6：标注、真实模型与验收
 

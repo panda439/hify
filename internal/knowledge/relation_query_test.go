@@ -82,6 +82,26 @@ func TestQueryFindsTheRelation(t *testing.T) {
 	_ = in
 }
 
+func TestSelectedCharacterMustBelongToCurrentJob(t *testing.T) {
+	repo := extractionRepo(t)
+	seedRelationQueryFixture(t, repo, "doc-selected-a", "job-selected-a")
+	seedRelationQueryFixture(t, repo, "doc-selected-b", "job-selected-b")
+	var foreignID string
+	if err := repo.db.QueryRowContext(t.Context(),
+		`SELECT id FROM narrative_characters WHERE job_id='job-selected-b' LIMIT 1`).Scan(&foreignID); err != nil {
+		t.Fatal(err)
+	}
+	res, err := repo.queryRelations(t.Context(), relationQueryInput{
+		DocumentIDs: []string{"doc-selected-a"}, Subject: "赵太爷", Object: "阿Q", SubjectID: foreignID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Outcome != relationQueryUnknownName {
+		t.Fatalf("跨 job 的人物 ID 被接受：outcome=%q", res.Outcome)
+	}
+}
+
 // TestQueryWithNoRoomForEvidenceIsNotFound——⭐ 变异测试逼出来的缺口。
 //
 // 查到了关系、但预算一条证据都装不下时，结局**不能仍然是 found**。

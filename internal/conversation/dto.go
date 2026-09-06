@@ -107,4 +107,6 @@ type relationQueryRequest struct {
 	DocumentID string `json:"document_id" binding:"required"`
 	Subject    string `json:"subject" binding:"required"`
 	Object     string `json:"object" binding:"required"`
+	SubjectID  string `json:"subject_character_id"`
+	ObjectID   string `json:"object_character_id"`
 }

@@ -1,9 +1,13 @@
+import { useEffect } from "react";
+
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   relationDocumentHint,
   useRelationDocuments,
   type RelationDocument,
 } from "@/lib/conversations";
+import type { RelationCandidateOption } from "@/lib/sse";
 
 // relation-ask-panel.tsx 是聊天页里问「A 和 B 是什么关系」的那一小块
 // （010 T035）。
@@ -20,6 +24,8 @@ export interface RelationAskState {
   documentId: string;
   subject: string;
   object: string;
+  subjectId: string;
+  objectId: string;
 }
 
 export const emptyRelationAsk: RelationAskState = {
@@ -27,6 +33,8 @@ export const emptyRelationAsk: RelationAskState = {
   documentId: "",
   subject: "",
   object: "",
+  subjectId: "",
+  objectId: "",
 };
 
 // relationAskReady 判断这一轮能不能真的带上关系选项。
@@ -41,16 +49,24 @@ export function RelationAskPanel({
   conversationId,
   state,
   onChange,
+  candidates,
 }: {
   conversationId: string | null;
   state: RelationAskState;
   onChange: (next: RelationAskState) => void;
+  candidates: RelationCandidateOption[];
 }) {
   // ⚠️ 只有开关打开时才去要书目：这个 Agent 多半一本关系书都没有，
   // 而每次进聊天页都发一个必然为空的请求没有意义。
   const { data } = useRelationDocuments(conversationId, state.on);
   const docs: RelationDocument[] = data?.items ?? [];
   const selected = docs.find((d) => d.document_id === state.documentId);
+
+  useEffect(() => {
+    if (data && state.documentId !== "" && !selected) {
+      onChange({ ...state, documentId: "" });
+    }
+  }, [data, onChange, selected, state]);
 
   return (
     <div className="mx-auto mb-2 max-w-3xl">
@@ -99,16 +115,46 @@ export function RelationAskPanel({
                   className="h-8 text-xs"
                   placeholder="第一个人物"
                   value={state.subject}
-                  onChange={(e) => onChange({ ...state, subject: e.target.value })}
+                  onChange={(e) => onChange({ ...state, subject: e.target.value, subjectId: "" })}
                 />
                 <span className="shrink-0 text-xs text-muted-foreground">与</span>
                 <Input
                   className="h-8 text-xs"
                   placeholder="第二个人物"
                   value={state.object}
-                  onChange={(e) => onChange({ ...state, object: e.target.value })}
+                  onChange={(e) => onChange({ ...state, object: e.target.value, objectId: "" })}
                 />
               </div>
+              {!relationAskReady(state) && (
+                <p className="text-xs text-muted-foreground">
+                  选择书目并填写两个人物后才能发送关系提问。
+                </p>
+              )}
+              {candidates.length > 0 && (
+                <div className="grid gap-1 rounded-md bg-muted/50 p-2 text-xs">
+                  <span>请选择具体人物：</span>
+                  {candidates.map((candidate) => (
+                    <Button
+                      key={`${candidate.role}:${candidate.character_id}`}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="justify-start"
+                      onClick={() =>
+                        onChange({
+                          ...state,
+                          [candidate.role]: candidate.display_name,
+                          [candidate.role === "subject" ? "subjectId" : "objectId"]:
+                            candidate.character_id,
+                        })
+                      }
+                    >
+                      {candidate.role === "subject" ? "第一个人物" : "第二个人物"}：
+                      {candidate.display_name}（原文第 {candidate.first_source_order} 个字符处）
+                    </Button>
+                  ))}
+                </div>
+              )}
               {/* ⭐ 同名多人时的澄清**不在这里做**：候选由后端在回答里列出
                   （带首次出现位置），用户看到之后把名字写得更具体再问一次。
                   ⚠️ 在这里预先展开候选需要先查一次，而那次查询的结果与

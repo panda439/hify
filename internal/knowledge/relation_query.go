@@ -58,6 +58,8 @@ type relationQueryInput struct {
 	DocumentIDs []string
 	Subject     string
 	Object      string
+	SubjectID   string
+	ObjectID    string
 }
 
 type relationCandidate struct {
@@ -65,6 +67,7 @@ type relationCandidate struct {
 	DisplayName      string
 	FirstSourceOrder int64
 	HasAmbiguity     bool
+	QueryRole        string
 }
 
 type relationEvidenceRecord struct {
@@ -164,11 +167,11 @@ func (r *Repository) queryRelationsInDocument(ctx context.Context, docID string,
 		return out, fmt.Errorf("knowledge: load job for relation query: %w", err)
 	}
 
-	subjects, err := r.findCharacters(ctx, jobID, in.Subject)
+	subjects, err := r.findCharacters(ctx, jobID, in.Subject, in.SubjectID)
 	if err != nil {
 		return out, err
 	}
-	objects, err := r.findCharacters(ctx, jobID, in.Object)
+	objects, err := r.findCharacters(ctx, jobID, in.Object, in.ObjectID)
 	if err != nil {
 		return out, err
 	}
@@ -196,6 +199,12 @@ func (r *Repository) queryRelationsInDocument(ctx context.Context, docID string,
 	// ⚠️ 挑一个的后果是把甲的事答成乙的，而用户完全看不出来。
 	if len(subjects) > 1 || len(objects) > 1 {
 		out.Outcome = relationQueryAmbiguous
+		for i := range subjects {
+			subjects[i].QueryRole = "subject"
+		}
+		for i := range objects {
+			objects[i].QueryRole = "object"
+		}
 		out.Candidates = append(append([]relationCandidate{}, subjects...), objects...)
 		if len(subjects) == 1 {
 			out.Candidates = objects
@@ -275,7 +284,17 @@ func (r *Repository) queryRelationsInDocument(ctx context.Context, docID string,
 	return out, nil
 }
 
-func (r *Repository) findCharacters(ctx context.Context, jobID, name string) ([]relationCandidate, error) {
+func (r *Repository) findCharacters(ctx context.Context, jobID, name, selectedID string) ([]relationCandidate, error) {
+	if selectedID != "" {
+		id, err := r.queries.GetNarrativeCharacterInJob(ctx, gen.GetNarrativeCharacterInJobParams{ID: selectedID, JobID: jobID})
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("knowledge: find selected character: %w", err)
+		}
+		return []relationCandidate{{ID: id, DisplayName: name}}, nil
+	}
 	rows, err := r.queries.FindCharactersByNameInJob(ctx, gen.FindCharactersByNameInJobParams{
 		JobID: jobID, DisplayName: name, Surface: name, Limit: maxRelationCandidates,
 	})
@@ -326,9 +345,11 @@ type RelationCitation struct {
 }
 
 type RelationCandidateInfo struct {
+	CharacterID      string
 	DisplayName      string
 	FirstSourceOrder int64
 	HasAmbiguity     bool
+	QueryRole        string
 }
 
 // 对外的结局常量。
@@ -352,8 +373,12 @@ const (
 //
 // budgetRunes 是**既有 RAG 预算里分给关系证据的那一份**，不是另开的一份。
 func (s *service) QueryRelations(ctx context.Context, documentIDs []string, subject, object string, budgetRunes int) (RelationAnswer, error) {
+	return s.QueryRelationsSelected(ctx, documentIDs, subject, object, "", "", budgetRunes)
+}
+
+func (s *service) QueryRelationsSelected(ctx context.Context, documentIDs []string, subject, object, subjectID, objectID string, budgetRunes int) (RelationAnswer, error) {
 	res, err := s.repo.queryRelations(ctx, relationQueryInput{
-		DocumentIDs: documentIDs, Subject: subject, Object: object,
+		DocumentIDs: documentIDs, Subject: subject, Object: object, SubjectID: subjectID, ObjectID: objectID,
 	})
 	if err != nil {
 		return RelationAnswer{}, err
@@ -365,8 +390,9 @@ func (s *service) QueryRelations(ctx context.Context, documentIDs []string, subj
 	}
 	for _, c := range res.Candidates {
 		ans.Candidates = append(ans.Candidates, RelationCandidateInfo{
+			CharacterID: c.ID,
 			DisplayName: c.DisplayName, FirstSourceOrder: c.FirstSourceOrder,
-			HasAmbiguity: c.HasAmbiguity,
+			HasAmbiguity: c.HasAmbiguity, QueryRole: c.QueryRole,
 		})
 	}
 	if res.Outcome != relationQueryFound {

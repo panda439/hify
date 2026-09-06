@@ -48,6 +48,7 @@ type Service interface {
 	// 空列表表示"没有任何可查的文档"，不是"不限定"。
 	// budgetRunes 是既有 RAG 预算里分给关系证据的那一份，不是另开的一份。
 	QueryRelations(ctx context.Context, documentIDs []string, subject, object string, budgetRunes int) (RelationAnswer, error)
+	QueryRelationsSelected(ctx context.Context, documentIDs []string, subject, object, subjectID, objectID string, budgetRunes int) (RelationAnswer, error)
 
 	// ListRelationDocuments 列出这些知识库里可以问人物关系的书目（010 T035）。
 	//

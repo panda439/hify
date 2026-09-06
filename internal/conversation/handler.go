@@ -102,6 +102,8 @@ func (h *Handler) SendMessage(c *gin.Context) error {
 			DocumentID: req.Relation.DocumentID,
 			Subject:    req.Relation.Subject,
 			Object:     req.Relation.Object,
+			SubjectID:  req.Relation.SubjectID,
+			ObjectID:   req.Relation.ObjectID,
 		}
 	}
 	events, err := h.service.StreamMessage(

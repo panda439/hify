@@ -93,6 +93,17 @@ func TestAmbiguousTextListsCandidates(t *testing.T) {
 	}
 }
 
+func TestAmbiguousCandidatesCarryOpaqueIDAndSide(t *testing.T) {
+	ans := knowledge.RelationAnswer{Outcome: knowledge.RelationOutcomeAmbiguous,
+		Candidates: []knowledge.RelationCandidateInfo{{
+			CharacterID: "char-1", DisplayName: "老王", FirstSourceOrder: 42, QueryRole: "subject",
+		}}}
+	got := relationCandidateOptions(ans)
+	if len(got) != 1 || got[0].CharacterID != "char-1" || got[0].Role != "subject" {
+		t.Fatalf("候选没有携带可回填的 ID 和位置：%+v", got)
+	}
+}
+
 // TestNoRecordsTextDoesNotOverclaim——⭐ "没有记录"的文案不能说成
 // "他们没有关系"。
 //

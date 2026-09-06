@@ -16,7 +16,12 @@ import {
   useMessages,
   type Message,
 } from "@/lib/conversations";
-import { useChatStream, type RetrievedChunkInfo, type ToolCallInfo } from "@/lib/sse";
+import {
+  useChatStream,
+  type RelationCandidateOption,
+  type RetrievedChunkInfo,
+  type ToolCallInfo,
+} from "@/lib/sse";
 import {
   RelationAskPanel,
   emptyRelationAsk,
@@ -84,6 +89,7 @@ export function ChatPage() {
   const { send, stop, streaming } = useChatStream();
   // 010 T035：关系提问是显式开关，默认关闭——关闭时这一页与本功能上线前完全一致。
   const [relationAsk, setRelationAsk] = useState<RelationAskState>(emptyRelationAsk);
+  const [relationCandidates, setRelationCandidates] = useState<RelationCandidateOption[]>([]);
   const qc = useQueryClient();
 
   const { data: messagesData } = useMessages(conversationId);
@@ -98,12 +104,22 @@ export function ChatPage() {
     if (streaming) return;
     setConversationId(id);
     setPending([]);
+    setRelationAsk(emptyRelationAsk);
+    setRelationCandidates([]);
   };
 
   const handleSend = async () => {
     const content = draft.trim();
-    if (!content || !conversationId || streaming) return;
+    if (
+      !content ||
+      !conversationId ||
+      streaming ||
+      (relationAsk.on && !relationAskReady(relationAsk))
+    ) {
+      return;
+    }
     setDraft("");
+    setRelationCandidates([]);
     setPending([
       { id: "pending-user", role: "user", content },
       { id: "pending-assistant", role: "assistant", content: "" },
@@ -115,6 +131,8 @@ export function ChatPage() {
           document_id: relationAsk.documentId,
           subject: relationAsk.subject.trim(),
           object: relationAsk.object.trim(),
+          subject_character_id: relationAsk.subjectId || undefined,
+          object_character_id: relationAsk.objectId || undefined,
         }
       : undefined;
 
@@ -123,6 +141,8 @@ export function ChatPage() {
         setPending((prev) =>
           prev.map((m) => (m.id === "pending-assistant" ? { ...m, retrieved: event.retrieved } : m)),
         );
+      } else if (event.type === "relation_candidates") {
+        setRelationCandidates(event.relation_candidates ?? []);
       } else if (event.type === "tool_call" && event.tool_call) {
         const call = event.tool_call;
         setPending((prev) =>
@@ -234,7 +254,13 @@ export function ChatPage() {
               <RelationAskPanel
                 conversationId={conversationId}
                 state={relationAsk}
-                onChange={setRelationAsk}
+                onChange={(next) => {
+                  if (!next.on || next.documentId !== relationAsk.documentId) {
+                    setRelationCandidates([]);
+                  }
+                  setRelationAsk(next);
+                }}
+                candidates={relationCandidates}
               />
               <div className="mx-auto flex max-w-3xl items-end gap-2">
                 <Textarea
@@ -252,7 +278,10 @@ export function ChatPage() {
                     停止
                   </Button>
                 ) : (
-                  <Button onClick={handleSend} disabled={!draft.trim()}>
+                  <Button
+                    onClick={handleSend}
+                    disabled={!draft.trim() || (relationAsk.on && !relationAskReady(relationAsk))}
+                  >
                     <Send />
                     发送
                   </Button>
@@ -269,6 +298,8 @@ export function ChatPage() {
         onCreated={(id) => {
           setConversationId(id);
           setPending([]);
+          setRelationAsk(emptyRelationAsk);
+          setRelationCandidates([]);
         }}
       />
     </div>

@@ -24,11 +24,19 @@ export interface ToolCallInfo {
 }
 
 export interface StreamEvent {
-  type: "retrieval" | "tool_call" | "delta" | "done" | "error";
+  type: "retrieval" | "tool_call" | "relation_candidates" | "delta" | "final" | "done" | "error";
   content?: string;
   error?: string;
   retrieved?: RetrievedChunkInfo[];
   tool_call?: ToolCallInfo;
+  relation_candidates?: RelationCandidateOption[];
+}
+
+export interface RelationCandidateOption {
+  character_id: string;
+  display_name: string;
+  first_source_order: number;
+  role: "subject" | "object";
 }
 
 interface ErrorBody {
@@ -41,6 +49,8 @@ export interface RelationQueryOptions {
   document_id: string;
   subject: string;
   object: string;
+  subject_character_id?: string;
+  object_character_id?: string;
 }
 
 async function postStream(

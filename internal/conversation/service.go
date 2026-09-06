@@ -158,6 +158,8 @@ type RelationQuery struct {
 	DocumentID string
 	Subject    string
 	Object     string
+	SubjectID  string
+	ObjectID   string
 }
 
 func (s *service) StreamMessage(ctx context.Context, userID, conversationID, content string, opts StreamOptions) (<-chan StreamEvent, error) {

@@ -259,7 +259,7 @@ func (s *service) runRelationTurn(
 		scope = nil
 	}
 
-	ans, err := s.knowledgeSvc.QueryRelations(ctx, scope, q.Subject, q.Object, relationEvidenceBudgetRunes)
+	ans, err := s.knowledgeSvc.QueryRelationsSelected(ctx, scope, q.Subject, q.Object, q.SubjectID, q.ObjectID, relationEvidenceBudgetRunes)
 	if err != nil {
 		return knowledge.RelationAnswer{}, nil, err
 	}
@@ -267,7 +267,7 @@ func (s *service) runRelationTurn(
 	// 非 found：固定文案，不经过模型。
 	if ans.Outcome != knowledge.RelationOutcomeFound {
 		text := relationTurnContent(ans, q.Subject, q.Object, "")
-		return ans, s.emitFixedRelationReply(conv.ID, text), nil
+		return ans, s.emitFixedRelationReply(conv.ID, text, relationCandidateOptions(ans)), nil
 	}
 
 	// found：把证据交给模型走受限生成。events 为 nil 表示"接着走普通生成
@@ -290,8 +290,8 @@ const relationEvidenceBudgetRunes = 6000
 //
 // ⭐ 落库的正文与流里发出去的**是同一个字符串**。⚠️ 只在流里发一次的话，
 // 用户刷新页面后这条消息就没了，而他刚刚问过的问题还在。
-func (s *service) emitFixedRelationReply(conversationID, text string) <-chan StreamEvent {
-	events := make(chan StreamEvent, 3)
+func (s *service) emitFixedRelationReply(conversationID, text string, candidates []RelationCandidateOption) <-chan StreamEvent {
+	events := make(chan StreamEvent, 4)
 	go func() {
 		defer close(events)
 		msg := Message{
@@ -307,12 +307,27 @@ func (s *service) emitFixedRelationReply(conversationID, text string) <-chan Str
 			events <- StreamEvent{Type: EventError, Error: "回答保存失败，请重试"}
 			return
 		}
+		if len(candidates) > 0 {
+			events <- StreamEvent{Type: EventRelationCandidates, RelationCandidates: candidates}
+		}
 		events <- StreamEvent{Type: EventDelta, Content: text}
 		// ⛔ 不挂任何 Citation：这是一条程序文案，不是基于检索证据生成的回答。
 		events <- StreamEvent{Type: EventFinal, Content: text}
 		events <- StreamEvent{Type: EventDone}
 	}()
 	return events
+}
+
+func relationCandidateOptions(ans knowledge.RelationAnswer) []RelationCandidateOption {
+	if ans.Outcome != knowledge.RelationOutcomeAmbiguous {
+		return nil
+	}
+	out := make([]RelationCandidateOption, 0, len(ans.Candidates))
+	for _, c := range ans.Candidates {
+		out = append(out, RelationCandidateOption{CharacterID: c.CharacterID, DisplayName: c.DisplayName,
+			FirstSourceOrder: c.FirstSourceOrder, Role: c.QueryRole})
+	}
+	return out
 }
 
 // --- 010 T035：可以问关系的书目 ---
