@@ -1253,10 +1253,6 @@ func (q *Queries) ListAliasCandidates(ctx context.Context, arg ListAliasCandidat
 const listDeadJobsWithDerivedRows = `-- name: ListDeadJobsWithDerivedRows :many
 SELECT id FROM relation_extraction_jobs
 WHERE state IN ('superseded', 'failed') AND finished_at IS NOT NULL AND finished_at < ?
-  AND (EXISTS (SELECT 1 FROM narrative_relation_evidence e WHERE e.job_id = relation_extraction_jobs.id)
-    OR EXISTS (SELECT 1 FROM narrative_relations r WHERE r.job_id = relation_extraction_jobs.id)
-    OR EXISTS (SELECT 1 FROM narrative_aliases a WHERE a.job_id = relation_extraction_jobs.id)
-    OR EXISTS (SELECT 1 FROM narrative_characters c WHERE c.job_id = relation_extraction_jobs.id))
 ORDER BY id
 LIMIT ?
 `
