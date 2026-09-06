@@ -301,7 +301,10 @@ LIMIT 1;
 -- 避免一次扫描把成千上万行拉回来。
 SELECT id, document_id, document_version, epoch, state, initialization_complete
 FROM relation_extraction_jobs
-WHERE state IN ('initializing', 'running')
+-- ⚠️ pending 必须在列：那是 enable 登记的「等待文档就绪」意图，
+-- 正等着恢复扫描来补 items。漏掉它的表现是用户开启了抽取、界面显示已开启，
+-- 而那个作业永远不会开始——没有报错，没有进度，什么都不发生。
+WHERE state IN ('pending', 'initializing', 'running')
   AND (lease_until IS NULL OR lease_until < ?)
   AND id > ?
 ORDER BY id
@@ -332,7 +335,7 @@ UPDATE relation_extraction_jobs
 SET state = 'superseded', finished_at = ?, lease_until = NULL,
     updated_at = CURRENT_TIMESTAMP(3)
 WHERE document_id = ? AND id <> ?
-  AND state IN ('initializing', 'running', 'paused', 'budget_exhausted');
+  AND state IN ('pending', 'initializing', 'running', 'paused', 'budget_exhausted');
 
 -- ---------------------------------------------------------------------
 -- 清理与账目归档
@@ -502,3 +505,11 @@ INSERT INTO relation_extraction_jobs (
     approved_item_limit, call_limit, active_ms_limit,
     operation_key_hash, operation_request_hash, state
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending');
+
+-- name: GetJobBudgetOperations :one
+SELECT CAST(budget_operations AS CHAR) AS budget_operations FROM relation_extraction_jobs WHERE id = ?;
+
+-- name: SetJobBudgetOperations :execrows
+UPDATE relation_extraction_jobs
+SET budget_operations = ?, updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ?;

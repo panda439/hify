@@ -174,6 +174,7 @@ type Querier interface {
 	// 原始响应单独取：它最大 64 KiB，不该出现在任何列表或统计查询里。
 	GetExtractionAttemptRawResponse(ctx context.Context, id string) (sql.NullString, error)
 	GetItemAttemptCounts(ctx context.Context, id string) (GetItemAttemptCountsRow, error)
+	GetJobBudgetOperations(ctx context.Context, id string) (interface{}, error)
 	GetKnowledgeBaseByID(ctx context.Context, id string) (KnowledgeBase, error)
 	GetMCPServerByID(ctx context.Context, id string) (McpServer, error)
 	GetMCPToolByID(ctx context.Context, id string) (McpTool, error)
@@ -297,6 +298,9 @@ type Querier interface {
 	//
 	// 条件是"没人持有，或者持有者的租约已经过期"。id 收尾做游标分页，
 	// 避免一次扫描把成千上万行拉回来。
+	// ⚠️ pending 必须在列：那是 enable 登记的「等待文档就绪」意图，
+	// 正等着恢复扫描来补 items。漏掉它的表现是用户开启了抽取、界面显示已开启，
+	// 而那个作业永远不会开始——没有报错，没有进度，什么都不发生。
 	ListRecoverableExtractionJobs(ctx context.Context, arg ListRecoverableExtractionJobsParams) ([]ListRecoverableExtractionJobsRow, error)
 	// reconciliation 扫描用：pending 状态停留超过阈值，大概率是入队失败（见
 	// UploadDocument 的注释）导致没有任何任务在处理它。pending 从没有 worker
@@ -423,6 +427,7 @@ type Querier interface {
 	// ⚠️ 守卫 is_narrative：非叙事文档不得开启（与 000017 的 CHECK 同义，
 	// 在这里先挡一道好给中文提示）。关闭不需要这个守卫。
 	SetExtractionEnabled(ctx context.Context, arg SetExtractionEnabledParams) (int64, error)
+	SetJobBudgetOperations(ctx context.Context, arg SetJobBudgetOperationsParams) (int64, error)
 	// 状态跃迁，带 from 白名单。⚠️ 无条件改状态会让一条迟到的 pause 把已经
 	// 结束的作业改回 paused，恢复扫描随后又把它捡起来。
 	SetJobState(ctx context.Context, arg SetJobStateParams) (int64, error)

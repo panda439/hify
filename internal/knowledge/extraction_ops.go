@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -360,6 +361,13 @@ func (s *service) ResumeExtraction(ctx context.Context, kbID, docID, userID, rol
 		}
 		if op.AdditionalItems > 0 || op.AdditionalCalls > 0 ||
 			op.AdditionalActiveSec > 0 || op.AdditionalRetries > 0 {
+			// ⭐ 先记账再加额度，且**同一个事务**：加了额度却没记下来，
+			// 最终成本里就有一部分无法解释——报告只能说"总共花了 N"，
+			// 说不出"其中 M 是中途追加的"。而追加恰恰是最需要复盘的动作：
+			// 一次实验追加了五轮，本身就说明第一次的预算估计错了。
+			if err := recordBudgetOperation(ctx, q, scope.ActiveJobID, userID, op); err != nil {
+				return err
+			}
 			if _, err := q.AddJobBudget(ctx, gen.AddJobBudgetParams{
 				ApprovedItemLimit: int32(op.AdditionalItems),
 				CallLimit:         int32(op.AdditionalCalls),
@@ -470,6 +478,58 @@ func (s *service) transitionJob(
 		return ExtractionStatus{}, err
 	}
 	return s.repo.extractionStatus(ctx, scope)
+}
+
+// maxBudgetOperations 是每个 run 的控制操作上限。
+//
+// ⚠️ 上限存在的理由不是省空间：一个被追加了几十轮额度的 run，它的"预算"
+// 已经和最初批准的那个数字没有关系了。到那个程度应该 restart 并重新说明
+// 要花多少，而不是继续在同一个 run 上加。
+const maxBudgetOperations = 100
+
+// budgetOperation 是一次额度追加的记录。
+type budgetOperation struct {
+	IdempotencyKey  string `json:"idempotency_key"`
+	ByUserID        string `json:"by_user_id"`
+	AdditionalItems int    `json:"additional_chunks"`
+	AdditionalCalls int    `json:"additional_calls"`
+	AdditionalSecs  int    `json:"additional_active_seconds"`
+	AdditionalRetry int    `json:"additional_retry_rounds"`
+}
+
+func recordBudgetOperation(ctx context.Context, q *gen.Queries, jobID, userID string, op ExtractionOperation) error {
+	raw, err := q.GetJobBudgetOperations(ctx, jobID)
+	if err != nil {
+		return fmt.Errorf("knowledge: read budget operations: %w", err)
+	}
+	var ops []budgetOperation
+	if blob := asString(raw); blob != "" {
+		if err := json.Unmarshal([]byte(blob), &ops); err != nil {
+			// ⚠️ 损坏的记录**报错**，不当成空数组重来。当成空的话，
+			// 已经追加过的那些额度从记录里消失，而额度本身还在——
+			// 一个总额对不上任何记录的 run。
+			return fmt.Errorf("knowledge: parse budget operations for job %s: %w", jobID, err)
+		}
+	}
+	if len(ops) >= maxBudgetOperations {
+		return apperr.Conflict("knowledge.budget_operations_exhausted",
+			"本次运行的额度追加次数已达上限，请重新开始一次抽取")
+	}
+	ops = append(ops, budgetOperation{
+		IdempotencyKey: op.IdempotencyKey, ByUserID: userID,
+		AdditionalItems: op.AdditionalItems, AdditionalCalls: op.AdditionalCalls,
+		AdditionalSecs: op.AdditionalActiveSec, AdditionalRetry: op.AdditionalRetries,
+	})
+	blob, err := json.Marshal(ops)
+	if err != nil {
+		return fmt.Errorf("knowledge: marshal budget operations: %w", err)
+	}
+	if _, err := q.SetJobBudgetOperations(ctx, gen.SetJobBudgetOperationsParams{
+		BudgetOperations: blob, ID: jobID,
+	}); err != nil {
+		return fmt.Errorf("knowledge: write budget operations: %w", err)
+	}
+	return nil
 }
 
 func boolLabel(b bool, yes, no string) string {

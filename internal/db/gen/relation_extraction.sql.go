@@ -809,6 +809,17 @@ func (q *Queries) GetItemAttemptCounts(ctx context.Context, id string) (GetItemA
 	return i, err
 }
 
+const getJobBudgetOperations = `-- name: GetJobBudgetOperations :one
+SELECT CAST(budget_operations AS CHAR) AS budget_operations FROM relation_extraction_jobs WHERE id = ?
+`
+
+func (q *Queries) GetJobBudgetOperations(ctx context.Context, id string) (interface{}, error) {
+	row := q.db.QueryRowContext(ctx, getJobBudgetOperations, id)
+	var budget_operations interface{}
+	err := row.Scan(&budget_operations)
+	return budget_operations, err
+}
+
 const getNarrativeRelationByKey = `-- name: GetNarrativeRelationByKey :one
 SELECT id FROM narrative_relations WHERE job_id = ? AND relation_key_hash = ?
 `
@@ -1121,7 +1132,7 @@ func (q *Queries) ListJobsWithArchivableAttempts(ctx context.Context, arg ListJo
 const listRecoverableExtractionJobs = `-- name: ListRecoverableExtractionJobs :many
 SELECT id, document_id, document_version, epoch, state, initialization_complete
 FROM relation_extraction_jobs
-WHERE state IN ('initializing', 'running')
+WHERE state IN ('pending', 'initializing', 'running')
   AND (lease_until IS NULL OR lease_until < ?)
   AND id > ?
 ORDER BY id
@@ -1152,6 +1163,9 @@ type ListRecoverableExtractionJobsRow struct {
 //
 // 条件是"没人持有，或者持有者的租约已经过期"。id 收尾做游标分页，
 // 避免一次扫描把成千上万行拉回来。
+// ⚠️ pending 必须在列：那是 enable 登记的「等待文档就绪」意图，
+// 正等着恢复扫描来补 items。漏掉它的表现是用户开启了抽取、界面显示已开启，
+// 而那个作业永远不会开始——没有报错，没有进度，什么都不发生。
 func (q *Queries) ListRecoverableExtractionJobs(ctx context.Context, arg ListRecoverableExtractionJobsParams) ([]ListRecoverableExtractionJobsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listRecoverableExtractionJobs, arg.LeaseUntil, arg.ID, arg.Limit)
 	if err != nil {
@@ -1520,6 +1534,25 @@ func (q *Queries) SetExtractionEnabled(ctx context.Context, arg SetExtractionEna
 	return result.RowsAffected()
 }
 
+const setJobBudgetOperations = `-- name: SetJobBudgetOperations :execrows
+UPDATE relation_extraction_jobs
+SET budget_operations = ?, updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ?
+`
+
+type SetJobBudgetOperationsParams struct {
+	BudgetOperations json.RawMessage `json:"budget_operations"`
+	ID               string          `json:"id"`
+}
+
+func (q *Queries) SetJobBudgetOperations(ctx context.Context, arg SetJobBudgetOperationsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setJobBudgetOperations, arg.BudgetOperations, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setJobState = `-- name: SetJobState :execrows
 UPDATE relation_extraction_jobs
 SET state = ?, stop_reason = ?, lease_until = NULL, updated_at = CURRENT_TIMESTAMP(3)
@@ -1707,7 +1740,7 @@ UPDATE relation_extraction_jobs
 SET state = 'superseded', finished_at = ?, lease_until = NULL,
     updated_at = CURRENT_TIMESTAMP(3)
 WHERE document_id = ? AND id <> ?
-  AND state IN ('initializing', 'running', 'paused', 'budget_exhausted')
+  AND state IN ('pending', 'initializing', 'running', 'paused', 'budget_exhausted')
 `
 
 type SupersedePriorExtractionJobsParams struct {
