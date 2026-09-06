@@ -294,12 +294,21 @@ func (r *Repository) applyExtractionSwitch(ctx context.Context, scope documentSc
 		// 作业建出来了但没人指向它，第二次 enable 仍然看到"没有作业"，
 		// 于是再建一个 run_number=1 的——撞上唯一键，用户看到 500。
 		// 而在唯一键之前，这就是一个悄悄开出两个 run 的路径。
-		if _, err := q.SetDocumentRelationJob(ctx, gen.SetDocumentRelationJobParams{
+		//
+		// ⚠️ 用 Intent 这一条（不要求 status='ready'）。第一版用了带 ready
+		// 守卫的那条，于是在**文档还没解析完**就开启的情况下 UPDATE 影响
+		// 0 行——同一个坑，只是触发条件更窄，而且这次连错误都没有。
+		// 影响行数必须查：0 行说明版本在这中间变过。
+		n, err = q.SetDocumentRelationJobIntent(ctx, gen.SetDocumentRelationJobIntentParams{
 			ActiveRelationJobID: sql.NullString{String: jobID, Valid: true},
 			RelationModelID:     sql.NullString{String: op.ModelID, Valid: true},
 			ID:                  scope.DocumentID, Version: scope.Version,
-		}); err != nil {
+		})
+		if err != nil {
 			return fmt.Errorf("knowledge: point document at job intent: %w", err)
+		}
+		if n == 0 {
+			return ErrDocumentVersionChanged
 		}
 		return nil
 	})
@@ -537,4 +546,46 @@ func boolLabel(b bool, yes, no string) string {
 		return yes
 	}
 	return no
+}
+
+// createUploadExtractionIntent 是"上传时就勾了抽取"这条路径上的作业登记
+// （010 T035）。
+//
+// ⭐ 与 applyExtractionSwitch 的首次 enable 是同一件事，区别只有两点：
+// 文档刚建出来、还没 ready（所以不锁文档、不查幂等——这一刻不可能有
+// 并发的第二次操作），以及幂等键由系统按 uploadKeyPrefix 生成。
+//
+// ⚠️ 与建文档**不在同一个事务**里：createDocument 已经提交了。这里失败
+// 会让调用方整个上传报错，文档行留在库里而没有作业——用户看到的是
+// 上传失败，重传一次即可，比"上传成功但抽取永远不会开始"要好得多。
+func (r *Repository) createUploadExtractionIntent(ctx context.Context, doc Document, modelID string) error {
+	op := ExtractionOperation{IdempotencyKey: uploadKeyPrefix + doc.ID, ModelID: modelID}
+	keyHash, reqHash := operationHashes(op, "enable")
+	jobID := platform.NewID()
+	if err := r.queries.CreateRelationExtractionJobIntent(ctx, gen.CreateRelationExtractionJobIntentParams{
+		ID: jobID, DocumentID: doc.ID, KnowledgeBaseID: doc.KnowledgeBaseID,
+		DocumentVersion: 1, RunNumber: 1, ModelID: modelID,
+		ConfigHash: reqHash, ConfigSnapshot: []byte(`{}`),
+		ApprovedItemLimit: defaultApprovedItemLimit, CallLimit: defaultCallLimit,
+		ActiveMsLimit:        defaultActiveMsLimit,
+		OperationKeyHash:     nullBytes(keyHash),
+		OperationRequestHash: nullBytes(reqHash),
+	}); err != nil {
+		return fmt.Errorf("knowledge: create upload extraction intent: %w", err)
+	}
+	// ⭐ 同 applyExtractionSwitch：必须把文档指向它。不指的话，用户之后
+	// 手动开启会看到"没有作业"，于是再建一个 run_number=1 的——撞唯一键。
+	// ⚠️ 必须用不要求 status='ready' 的那一条：文档这会儿是 pending。
+	n, err := r.queries.SetDocumentRelationJobIntent(ctx, gen.SetDocumentRelationJobIntentParams{
+		ActiveRelationJobID: sql.NullString{String: jobID, Valid: true},
+		RelationModelID:     sql.NullString{String: modelID, Valid: true},
+		ID:                  doc.ID, Version: 1,
+	})
+	if err != nil {
+		return fmt.Errorf("knowledge: point uploaded document at job intent: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("knowledge: uploaded document %s vanished before intent", doc.ID)
+	}
+	return nil
 }

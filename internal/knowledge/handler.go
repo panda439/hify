@@ -166,6 +166,7 @@ func (h *Handler) UploadDocument(c *gin.Context) error {
 		// 请求字段和数据库列名本来就不必相同，而契约是对外的那一份。
 		Narrative:          c.PostForm("narrative_mode") == "true",
 		RelationExtraction: c.PostForm("extract_relations") == "true",
+		RelationModelID:    c.PostForm("relation_model_id"),
 	}
 
 	doc, err := h.service.UploadDocumentWithOptions(

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -342,6 +343,21 @@ func (s *service) UploadDocumentWithOptions(ctx context.Context, kbID, userID, r
 		return Document{}, err
 	}
 
+	// ⭐ 上传时就勾了抽取的话，**在这里**把作业意图登记下来（010 T035）。
+	//
+	// ⚠️ 只存下 is_relation_extraction_enabled 而不建意图，就是这个开关
+	// 上线前一直被硬拒绝的那个理由：文档带着一个"已开启"的开关停在那里，
+	// 而没有任何作业会开始。恢复扫描只捡**已存在**的作业，不会替一份
+	// 光有开关的文档凭空造一个。
+	//
+	// state 保持 pending：文档这会儿还在排队解析，items 由恢复扫描在
+	// 文档 ready 之后补上——这正是 pending 这个状态存在的理由。
+	if opts.RelationExtraction {
+		if err := s.repo.createUploadExtractionIntent(ctx, doc, opts.RelationModelID); err != nil {
+			return Document{}, err
+		}
+	}
+
 	// version starts at 1, matching the DB column's default — this task
 	// instance is authorized to process exactly this (as yet unclaimed)
 	// attempt.
@@ -367,9 +383,10 @@ func validateUploadOptions(fileType string, opts UploadOptions) error {
 		// 而不是一条数据库约束错误。
 		return ErrRelationExtractionRequiresNarrative
 	}
-	if opts.RelationExtraction {
-		// Phase 3 接上作业编排后删掉这条。
-		return ErrRelationExtractionUnavailable
+	if opts.RelationExtraction && strings.TrimSpace(opts.RelationModelID) == "" {
+		// ⚠️ 这条守卫替换了 Phase 3 之前那个"抽取暂不可用"的硬拒绝。
+		// 现在编排已经接上，缺的只是模型——而没有模型的开关等于没开关。
+		return ErrRelationModelRequired
 	}
 	if opts.Narrative && fileType != FileTypeTxt && fileType != FileTypeMD {
 		return ErrNarrativeUnsupportedFileType

@@ -439,6 +439,19 @@ type Querier interface {
 	// ⚠️ 守卫 status='ready' AND version=?：文档在这中间改了版本，
 	// 这次开启就该失败，而不是把作业挂到一批已经不是真相的 chunk 上。
 	SetDocumentRelationJob(ctx context.Context, arg SetDocumentRelationJobParams) (int64, error)
+	// 把文档指向一个**还是 pending 意图**的作业（010 T035）。
+	//
+	// ⭐ 与 SetDocumentRelationJob 只差一条：不要求 status='ready'。
+	// 上传时就勾了抽取的文档这会儿还在排队解析，首次 enable 也可能发生在
+	// 文档就绪之前——那两种情况下要求 ready，UPDATE 影响 0 行，
+	// 文档永远不指向这个作业。⚠️ 后果不是报错：用户第二次开启时系统看到
+	// "没有作业"，于是再建一个 run_number=1 的，撞上唯一键变成 500；
+	// 而在唯一键之前，这是一条悄悄开出两个 run 同时花钱的路径。
+	//
+	// ⚠️ version 守卫保留。ready 这一条之所以可以去掉，是因为作业真正开始
+	// 之前还要过 initializeExtractionJob，那里会重新核对 ready 与版本——
+	// 挂到一批不是真相的 chunk 上这件事在那里被挡住，不靠这条 UPDATE。
+	SetDocumentRelationJobIntent(ctx context.Context, arg SetDocumentRelationJobIntentParams) (int64, error)
 	// ⚠️ 守卫 is_narrative：非叙事文档不得开启（与 000017 的 CHECK 同义，
 	// 在这里先挡一道好给中文提示）。关闭不需要这个守卫。
 	SetExtractionEnabled(ctx context.Context, arg SetExtractionEnabledParams) (int64, error)

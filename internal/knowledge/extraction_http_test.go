@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -280,5 +281,85 @@ func TestEnableOnPausedDoesNotAutoRun(t *testing.T) {
 	}
 	if state != jobStatePaused {
 		t.Errorf("enable 把暂停的作业自动跑起来了：state = %q", state)
+	}
+}
+
+// TestEnableBeforeDocumentIsReadyStillPointsAtTheJob——⭐ 在文档**还没解析完**
+// 的时候开启抽取，文档同样必须指向那个新建的作业。
+//
+// ⚠️ 这一格补的是一个真实存在过的洞：指向作业的那条 UPDATE 原本带着
+// status='ready' 守卫，于是文档处于 pending 时影响 0 行——**没有报错**，
+// 作业建出来了却没人指向它。用户第二次开启时系统看到"没有作业"，
+// 再建一个 run_number=1 的，撞上唯一键变成 500；而在唯一键之前，
+// 这是一条悄悄开出两个 run 同时花钱的路径。
+//
+// 它是 T035 写"上传时就开启"那条路径时被顺带发现的——上传的文档必然
+// 是 pending，一写测试就撞上了。已有的用例全都用 ready 的文档做夹具，
+// 所以谁都没碰到它。
+func TestEnableBeforeDocumentIsReadyStillPointsAtTheJob(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	kbID, svc := extractionFixture(t, repo, "doc-notready")
+	// 把文档退回"还在解析"的状态。
+	if _, err := repo.db.ExecContext(ctx,
+		`UPDATE documents SET status='processing' WHERE id='doc-notready'`); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := svc.SetExtractionEnabled(ctx, kbID, "doc-notready", "u1", "admin", true,
+		ExtractionOperation{IdempotencyKey: "k-notready", ModelID: "m-1"})
+	if err != nil {
+		t.Fatalf("SetExtractionEnabled: %v", err)
+	}
+	if st.JobID == nil || *st.JobID == "" {
+		t.Fatal("文档还没就绪时开启，状态里没有 job_id——作业建了却没人指向它")
+	}
+
+	// ⭐ 再开一次必须是幂等重放，不能撞唯一键。
+	if _, err := svc.SetExtractionEnabled(ctx, kbID, "doc-notready", "u1", "admin", true,
+		ExtractionOperation{IdempotencyKey: "k-notready", ModelID: "m-1"}); err != nil {
+		t.Errorf("第二次开启失败（第一次没指向作业时就会这样）：%v", err)
+	}
+	var runs int
+	if err := repo.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM relation_extraction_jobs WHERE document_id='doc-notready'`).
+		Scan(&runs); err != nil {
+		t.Fatal(err)
+	}
+	if runs != 1 {
+		t.Errorf("开出了 %d 个 run，want 1", runs)
+	}
+}
+
+// TestEnableRejectsAStaleDocumentVersion——⭐ 开启抽取的过程中文档改了版本
+// 时，指向作业的那条 UPDATE 影响 0 行，必须**报错**。
+//
+// ⚠️ 静默忽略的后果和上一格一样：作业建出来了却没人指向它，
+// 第二次开启会撞唯一键。这里直接拿一份版本过期的 scope 去调，
+// 模拟的是 resolveDocumentScope 读完之后、事务锁上文档之前那个窗口。
+func TestEnableRejectsAStaleDocumentVersion(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	seedNarrativeDocument(t, repo, "doc-stalever", 2)
+
+	scope := documentScope{
+		DocumentID: "doc-stalever", KnowledgeBaseID: "kb-x",
+		Status: "ready", Version: 99, // ⚠️ 已经不是库里的版本了
+		IsNarrative: true,
+	}
+	err := repo.applyExtractionSwitch(ctx, scope, true,
+		ExtractionOperation{IdempotencyKey: "k-stalever", ModelID: "m-1"})
+	if !errors.Is(err, ErrDocumentVersionChanged) {
+		t.Fatalf("版本过期却没报错：%v", err)
+	}
+	// 事务必须整体回滚：不能留下一个没人指向的作业。
+	var jobs int
+	if err := repo.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM relation_extraction_jobs WHERE document_id='doc-stalever'`).
+		Scan(&jobs); err != nil {
+		t.Fatal(err)
+	}
+	if jobs != 0 {
+		t.Errorf("失败之后还留下了 %d 个作业", jobs)
 	}
 }

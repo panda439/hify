@@ -3,6 +3,7 @@ package knowledge
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"mime/multipart"
 	"net/http"
@@ -11,11 +12,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"hify/internal/db/gen"
 	"hify/internal/db/pggen"
 	"hify/internal/platform/apperr"
+	"hify/internal/user"
 )
 
 // narrative_upload_test.go 守 010 US1 的上传开关（T012/T013）。
@@ -104,9 +108,18 @@ func TestUploadOptionsRejectionsAreExplicit(t *testing.T) {
 			ErrNarrativeUnsupportedFileType},
 		{"抽取但没开叙事", FileTypeTxt,
 			UploadOptions{RelationExtraction: true}, ErrRelationExtractionRequiresNarrative},
-		{"抽取尚未开放", FileTypeTxt,
+		// ⚠️ 勾了抽取却没给模型必须**报错**，不能默默接受。
+		// 接受的表现是文档带着一个"已开启"的开关停在那里，
+		// 而没有任何作业会开始——恢复扫描只捡已存在的作业。
+		{"抽取但没指定模型", FileTypeTxt,
 			UploadOptions{Narrative: true, RelationExtraction: true},
-			ErrRelationExtractionUnavailable},
+			ErrRelationModelRequired},
+		{"抽取模型只有空白也算没给", FileTypeTxt,
+			UploadOptions{Narrative: true, RelationExtraction: true, RelationModelID: "   "},
+			ErrRelationModelRequired},
+		{"叙事 + 抽取 + 模型", FileTypeTxt,
+			UploadOptions{Narrative: true, RelationExtraction: true, RelationModelID: "m-1"},
+			nil},
 		// ⚠️ PDF 且关闭叙事必须照常通过——拒绝理由不能扩大到不该管的路径。
 		{"普通 pdf 不受影响", FileTypePDF, UploadOptions{}, nil},
 	}
@@ -345,5 +358,126 @@ func TestNonNarrativeDocumentStillProcessesIdentically(t *testing.T) {
 	}
 	if withMeta != 0 {
 		t.Errorf("关闭模式下有 %d 个片段落了叙事元数据", withMeta)
+	}
+}
+
+// --- 010 T035：上传时就开启抽取 ---
+
+// TestUploadWithExtractionCreatesARunnableIntent——⭐ 上传开关必须真的
+// 建出一个**恢复扫描捡得到**的作业意图。
+//
+// ⚠️ 只把 is_relation_extraction_enabled 存下来是不够的，而这正是这个开关
+// 上线前一直被硬拒绝的理由：恢复扫描只捡**已存在**的作业，不会替一份
+// 光有开关的文档凭空造一个。少了这一步，文档带着一个"已开启"的开关停在
+// 那里，界面显示已开启，而永远不会有任何进度——没有报错，什么都不发生。
+func TestUploadWithExtractionCreatesARunnableIntent(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	if _, err := repo.db.ExecContext(ctx, `INSERT INTO documents
+		(id, knowledge_base_id, file_name, file_type, file_size, storage_path,
+		 status, chunk_count, created_by, is_narrative, is_relation_extraction_enabled)
+		VALUES ('doc-up1','kb-x','novel.txt','txt',1,'/tmp/n','pending',0,'u1',1,1)`); err != nil {
+		t.Fatal(err)
+	}
+	doc := Document{ID: "doc-up1", KnowledgeBaseID: "kb-x"}
+	if err := repo.createUploadExtractionIntent(ctx, doc, "m-1"); err != nil {
+		t.Fatalf("createUploadExtractionIntent: %v", err)
+	}
+
+	// 文档必须指向这个作业。⚠️ 不指的话，用户之后手动开启会看到
+	// "没有作业"，于是再建一个 run_number=1 的——撞唯一键，用户看到 500。
+	var jobID string
+	if err := repo.db.QueryRowContext(ctx,
+		`SELECT active_relation_job_id FROM documents WHERE id='doc-up1'`).Scan(&jobID); err != nil {
+		t.Fatal(err)
+	}
+	if jobID == "" {
+		t.Fatal("上传建了作业却没让文档指向它")
+	}
+
+	var state string
+	var initComplete bool
+	if err := repo.db.QueryRowContext(ctx,
+		`SELECT state, initialization_complete FROM relation_extraction_jobs WHERE id=?`,
+		jobID).Scan(&state, &initComplete); err != nil {
+		t.Fatal(err)
+	}
+	// ⭐ 必须是 pending 且未初始化：文档这会儿还在排队解析，items 由恢复
+	// 扫描在 ready 之后补上。写成 running 会让状态接口报告一个正在跑、
+	// 而实际上没有任何 item 的作业。
+	if state != jobStatePending || initComplete {
+		t.Errorf("state=%q initialization_complete=%v，want pending/false", state, initComplete)
+	}
+
+	// ⭐ 最要紧的一格：恢复扫描确实捡得到它。
+	jobs, err := repo.queries.ListRecoverableExtractionJobs(ctx,
+		gen.ListRecoverableExtractionJobsParams{
+			LeaseUntil: sql.NullTime{Time: time.Now(), Valid: true}, ID: "", Limit: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, j := range jobs {
+		if j.ID == jobID {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("上传建出来的作业意图不在恢复扫描的范围里——它永远不会开始")
+	}
+}
+
+// TestUploadWithExtractionGoesThroughTheServicePath——⭐ 上面那一格直接调的是
+// repository，这一格走**真实的 UploadDocumentWithOptions**。
+//
+// ⚠️ 变异测试逼出来的：把 service 里那次 createUploadExtractionIntent 整个
+// 删掉，上面那格照样通过——它证明的是"这个函数能建意图"，
+// 而不是"上传时真的会调它"。而没人调它的表现正是这个开关最怕的那件事：
+// 文档带着"已开启"的开关，永远没有作业。
+func TestUploadWithExtractionGoesThroughTheServicePath(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	client := newTestAsynqClient(t)
+	seedKB(t, repo, "kb-upsvc", "m3", "u1", true)
+	svc := NewService(repo, newFakeProvider(), client, t.TempDir(),
+		false, "", 1500*time.Millisecond, false)
+
+	doc, err := svc.UploadDocumentWithOptions(ctx, "kb-upsvc", "u1", user.RoleAdmin,
+		"novel.txt", FileTypeTxt, []byte("第一章　甲\n正文。\n"),
+		UploadOptions{Narrative: true, RelationExtraction: true, RelationModelID: "m-1"})
+	if err != nil {
+		t.Fatalf("UploadDocumentWithOptions: %v", err)
+	}
+	if !doc.IsRelationExtractionEnabled {
+		t.Fatal("文档上的开关没落下")
+	}
+
+	var jobID string
+	var state string
+	if err := repo.db.QueryRowContext(ctx,
+		`SELECT j.id, j.state FROM documents d
+		 JOIN relation_extraction_jobs j ON j.id = d.active_relation_job_id
+		 WHERE d.id = ?`, doc.ID).Scan(&jobID, &state); err != nil {
+		t.Fatalf("上传勾了抽取，却没有一个被文档指向的作业：%v", err)
+	}
+	if state != jobStatePending {
+		t.Errorf("state = %q, want pending", state)
+	}
+
+	// ⭐ 没勾抽取时**一个作业都不能建**——这是"零值等于改动前行为"那条
+	// 硬要求在这条路径上的具体形式。
+	plain, err := svc.UploadDocumentWithOptions(ctx, "kb-upsvc", "u1", user.RoleAdmin,
+		"plain.txt", FileTypeTxt, []byte("正文。\n"), UploadOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := repo.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM relation_extraction_jobs WHERE document_id=?`, plain.ID).
+		Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("没勾抽取却建了 %d 个作业", n)
 	}
 }
