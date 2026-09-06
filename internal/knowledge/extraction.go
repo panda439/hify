@@ -183,6 +183,20 @@ func (r *Repository) initializeExtractionJob(ctx context.Context, spec extractio
 	if len(rows) > spec.ApprovedItemLimit {
 		return RelationExtractionJob{}, ErrExtractionTooManyItems
 	}
+	// ⭐ 每一片段都要**完整核对来源映射**，不是"能解 JSON 就算有来源"
+	// （010 R6-05）。
+	//
+	// ⚠️ decodeNarrativeMetadata 只解 JSON 并核对 schema_version，
+	// 于是把两个已发布片段的 metadata 改成 `{"schema_version":1}`——
+	// 没有任何 segment、覆盖不了正文一个字——初始化照样成功。
+	// 作业于是挂在一批**没有来源坐标**的片段上：抽出来的每一条关系都
+	// 拿不出出处，而失败要等到入模前核验那一步才显现，那时钱已经花完了。
+	//
+	// 三件事一起查，因为它们的下一步相同（重新处理这份文档）：
+	//   - 结构与覆盖：segment 有序、无缝、恰好铺满正文（validateNarrativeMetadata）；
+	//   - 来源坐标：可引用的段必须有文档区间，不可引用的段必须没有；
+	//   - 同一份来源：全部片段的 normalized_document_hash 必须一致。
+	var sourceText string
 	for _, row := range rows {
 		meta, err := decodeNarrativeMetadata(row.NarrativeMetadata)
 		if err != nil {
@@ -190,6 +204,27 @@ func (r *Repository) initializeExtractionJob(ctx context.Context, spec extractio
 		}
 		if meta == nil {
 			return RelationExtractionJob{}, ErrExtractionChunkMetadataMissing
+		}
+		if err := validateNarrativeMetadata(*meta, len([]rune(row.Content))); err != nil {
+			// ⚠️ 整批拒绝，不跳过这一片。跳过的后果见
+			// ErrExtractionChunkMetadataMissing 的注释：分母静默变小，
+			// 而覆盖率、成本、召回率全都拿它当分母。
+			return RelationExtractionJob{}, fmt.Errorf("%w: chunk %s: %w",
+				ErrExtractionChunkMetadataMissing, row.ID, err)
+		}
+		if meta.NormalizedDocumentHash == "" {
+			// 没有来源指纹就无法判断这些片段是不是同一次处理的产物。
+			return RelationExtractionJob{}, fmt.Errorf("%w: chunk %s has no source hash",
+				ErrExtractionChunkMetadataMissing, row.ID)
+		}
+		if sourceText == "" {
+			sourceText = meta.NormalizedDocumentHash
+		} else if meta.NormalizedDocumentHash != sourceText {
+			// ⭐ 片段横跨了两次不同的处理。⚠️ 这正是版本号抓不住的那一种：
+			// document_version 相同、is_published 都是 true，而它们的
+			// rune 坐标属于两份不同的正文——据此产出的引用会指向错的位置，
+			// 且偏移量没有任何规律。
+			return RelationExtractionJob{}, ErrExtractionSourceChanged
 		}
 	}
 

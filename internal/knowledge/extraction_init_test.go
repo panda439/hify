@@ -374,3 +374,126 @@ func TestSourceHashSeparatesChunkBoundaries(t *testing.T) {
 		t.Error("同一份语料两次算出的 source_hash 不同")
 	}
 }
+
+// --- 010 R6-05：初始化必须完整核对来源映射 ---
+
+// setChunkMetadataRaw 直接把某个块的 narrative_metadata 换成一段原始 JSON。
+func setChunkMetadataRaw(t *testing.T, repo *Repository, chunkID, raw string) {
+	t.Helper()
+	if _, err := repo.pgdb.ExecContext(t.Context(),
+		`UPDATE chunks SET narrative_metadata = $1::jsonb WHERE id = $2`, raw, chunkID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestInitializationRejectsSchemaOnlyMetadata——⭐ 审核报告里那条复现：
+// 把两个已发布片段的 metadata 改成 `{"schema_version":1}`，初始化必须失败。
+//
+// ⚠️ 此前 decodeNarrativeMetadata 只解 JSON 并核对 schema_version，
+// 于是"能解 JSON"被当成了"每个片段都有可用的来源"。作业因此挂在一批
+// **没有来源坐标**的片段上：抽出来的每一条关系都拿不出出处，
+// 而失败要等到入模前核验那一步才显现——那时钱已经花完了。
+func TestInitializationRejectsSchemaOnlyMetadata(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	ids := seedNarrativeDocument(t, repo, "doc-r605a", 3)
+	setChunkMetadataRaw(t, repo, ids[1], `{"schema_version":1}`)
+
+	_, err := repo.initializeExtractionJob(ctx,
+		newExtractionJobSpec("job-r605a", "doc-r605a", 1, "m-1"))
+	if !errors.Is(err, ErrExtractionChunkMetadataMissing) {
+		t.Fatalf("只有 schema_version 的元数据通过了初始化：%v", err)
+	}
+	// ⭐ 整批拒绝：不能留下一个"少了一片"的作业。
+	if n := countRows(t, repo,
+		`SELECT COUNT(*) FROM relation_extraction_jobs WHERE id='job-r605a'`); n != 0 {
+		t.Errorf("被拒之后仍然留下了 %d 个作业", n)
+	}
+	if n := countRows(t, repo,
+		`SELECT COUNT(*) FROM relation_extraction_items WHERE job_id='job-r605a'`); n != 0 {
+		t.Errorf("被拒之后仍然留下了 %d 个待处理项", n)
+	}
+}
+
+// TestInitializationRejectsIncompleteCoverage——覆盖不满正文的元数据同样拒绝。
+//
+// ⚠️ 少覆盖几个 rune 不会报错，但那几个字**永远无法被引用**：
+// 模型引到它们时映射不回文档坐标，那条关系被整条丢掉，
+// 而现象是"模型漏抽"——责任被归到了模型头上。
+func TestInitializationRejectsIncompleteCoverage(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	ids := seedNarrativeDocument(t, repo, "doc-r605b", 2)
+	// 只覆盖前 3 个 rune 的 segment。
+	setChunkMetadataRaw(t, repo, ids[0], `{"schema_version":1,"boundary_kind":"none",
+		"normalized_document_hash":"deadbeef","scene_key":null,"chapter_number":null,
+		"chapter_title":null,"source_order":0,
+		"segments":[{"chunk_start":0,"chunk_end":3,"document_start":0,"document_end":3,
+		             "page":null,"is_generated_separator":false,"is_overlap_copy":false}]}`)
+
+	_, err := repo.initializeExtractionJob(ctx,
+		newExtractionJobSpec("job-r605b", "doc-r605b", 1, "m-1"))
+	if !errors.Is(err, ErrExtractionChunkMetadataMissing) {
+		t.Fatalf("覆盖不满正文的元数据通过了初始化：%v", err)
+	}
+}
+
+// TestInitializationRejectsMixedSourceVersions——⭐ 片段横跨两次不同的处理。
+//
+// ⚠️ 这是版本号抓不住的那一种：document_version 相同、is_published 都是
+// true，而它们的 rune 坐标属于两份不同的正文——据此产出的引用会指向错的
+// 位置，且偏移量没有任何规律。
+func TestInitializationRejectsMixedSourceVersions(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	ids := seedNarrativeDocument(t, repo, "doc-r605c", 3)
+
+	// 把其中一块的来源指纹改掉，其余结构保持完全合法。
+	if _, err := repo.pgdb.ExecContext(ctx,
+		`UPDATE chunks SET narrative_metadata =
+		   jsonb_set(narrative_metadata, '{normalized_document_hash}', '"other-source"')
+		 WHERE id = $1`, ids[2]); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := repo.initializeExtractionJob(ctx,
+		newExtractionJobSpec("job-r605c", "doc-r605c", 1, "m-1"))
+	if !errors.Is(err, ErrExtractionSourceChanged) {
+		t.Fatalf("片段来自两份不同的正文，初始化却通过了：%v", err)
+	}
+}
+
+// TestInitializationRejectsMissingSourceHash——没有来源指纹就无法判断
+// 这些片段是不是同一次处理的产物。
+func TestInitializationRejectsMissingSourceHash(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	ids := seedNarrativeDocument(t, repo, "doc-r605d", 2)
+	if _, err := repo.pgdb.ExecContext(ctx,
+		`UPDATE chunks SET narrative_metadata =
+		   jsonb_set(narrative_metadata, '{normalized_document_hash}', '""')
+		 WHERE id = $1`, ids[0]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.initializeExtractionJob(ctx,
+		newExtractionJobSpec("job-r605d", "doc-r605d", 1, "m-1")); !errors.Is(err, ErrExtractionChunkMetadataMissing) {
+		t.Fatalf("没有来源指纹却通过了初始化：%v", err)
+	}
+}
+
+// TestInitializationAcceptsWellFormedSources——⚠️ 底线用例：正常的文档
+// 必须照常初始化。少了它，一个"全部拒绝"的实现能让上面四条都通过。
+func TestInitializationAcceptsWellFormedSources(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	ids := seedNarrativeDocument(t, repo, "doc-r605e", 4)
+
+	job, err := repo.initializeExtractionJob(ctx,
+		newExtractionJobSpec("job-r605e", "doc-r605e", 1, "m-1"))
+	if err != nil {
+		t.Fatalf("结构完好的文档被拒了：%v", err)
+	}
+	if job.TotalItems != len(ids) {
+		t.Errorf("total_items = %d, want %d", job.TotalItems, len(ids))
+	}
+}

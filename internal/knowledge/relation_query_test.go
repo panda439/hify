@@ -382,4 +382,14 @@ func setNarrativeChunkContent(t *testing.T, repo *Repository, chunkID string, pi
 	if n, _ := res.RowsAffected(); n != 1 {
 		t.Fatalf("要改的块 %s 不存在（影响 %d 行）", chunkID, n)
 	}
+	// ⚠️ 把同文档的其余块删掉：它们是 seedNarrativeDocument 用**另一段正文**
+	// 切出来的，normalized_document_hash 与刚换上去的这块不同。
+	// 留着的话，同一个文档版本里混着两次不同处理的产物——而这正是
+	// 010 R6-05 的来源一致性检查要拒绝的情形（它确实拒绝了，
+	// 这条注释就是那次失败逼出来的）。
+	if _, err := repo.pgdb.ExecContext(t.Context(),
+		`DELETE FROM chunks WHERE document_id = (SELECT document_id FROM chunks WHERE id=$1)
+		   AND id <> $1`, chunkID); err != nil {
+		t.Fatal(err)
+	}
 }
