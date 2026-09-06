@@ -89,25 +89,25 @@ func (r *resilientClient) ChatOnce(ctx context.Context, req ChatRequest, timeout
 	if timeout <= 0 || timeout > maxChatOnceTimeout {
 		timeout = maxChatOnceTimeout
 	}
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	start := time.Now()
 
 	// 并发槽：拿不到（上下文取消）说明这次尝试根本没开始。
-	if err := r.acquire(ctx); err != nil {
+	if err := r.acquire(callCtx); err != nil {
 		return ChatAttemptResult{
 			Outcome: AttemptNotDispatched, ErrorCode: "concurrency", Cause: err,
+			ElapsedMs: time.Since(start).Milliseconds(),
 		}, nil
 	}
 	defer r.sem.Release(1)
 
-	if err := r.checkRateLimit(ctx); err != nil {
+	if err := r.checkRateLimit(callCtx); err != nil {
 		return ChatAttemptResult{
 			Outcome: AttemptNotDispatched, ErrorCode: "rate_limited", Cause: err,
+			ElapsedMs: time.Since(start).Milliseconds(),
 		}, nil
 	}
-
-	callCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	start := time.Now()
 	msg, err := r.callWithinDeadline(callCtx, req)
 	elapsed := time.Since(start).Milliseconds()
 

@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"sort"
 
@@ -291,8 +292,12 @@ func strictDecode(body string, dst any) error {
 	if err := dec.Decode(dst); err != nil {
 		return invalid("decode: %v", err)
 	}
-	if dec.More() {
-		return invalid("unexpected trailing content after the JSON object")
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return invalid("unexpected trailing content after the JSON object")
+		}
+		return invalid("trailing content: %v", err)
 	}
 	return nil
 }
@@ -322,12 +327,6 @@ func buildOutcome(
 		if !ok {
 			return out, fmt.Errorf("mention %q has no alias decision", m.Ref)
 		}
-		if d.Action == aliasActionLink {
-			// 已有人物：本期先按新建处理，链接到既有人物由 T028 之后的
-			// 查询层承担；这里只保证不把两个人合成一个。
-			refToLocal[m.Ref] = "link:" + d.CharacterID
-			continue
-		}
 		// ⭐ 每个称呼都留一条判定记录，无论它是新建、链接还是歧义。
 		// ⚠️ 只记"合并成功"的那些，等于把系统判断不了的部分从记录里抹掉——
 		// 而那部分恰恰是人工复核最需要看的。
@@ -348,6 +347,12 @@ func buildOutcome(
 			DecisionKey: aliasDecisionKey(in.ChunkID, m.Ref, mentionFrom, d),
 		})
 		aliasIdx := len(out.Aliases) - 1
+		if d.Action == aliasActionLink {
+			local := "link:" + d.CharacterID
+			refToLocal[m.Ref] = local
+			out.Aliases[aliasIdx].CharacterRef = local
+			continue
+		}
 
 		local, seen := groupRef[d.NewGroup]
 		if !seen {

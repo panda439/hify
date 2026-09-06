@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 
 	"hify/internal/db/gen"
 	"hify/internal/platform"
@@ -117,6 +119,17 @@ func (r *Repository) publishItemOutcome(ctx context.Context, in publishInput) er
 		// 但**生成顺序**决定了 first_source_order 相同时的排序结果，
 		// map 迭代顺序会让同一份响应两次产出不同的记录顺序（宪法第 V 条）。
 		ids := make(map[string]string, len(in.Outcome.Characters))
+		for _, ref := range linkedCharacterRefs(in.Outcome) {
+			id := strings.TrimPrefix(ref, "link:")
+			found, err := q.GetNarrativeCharacterInJob(ctx, gen.GetNarrativeCharacterInJobParams{ID: id, JobID: in.JobID})
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return fmt.Errorf("knowledge: linked character %q is not in job %q", id, in.JobID)
+				}
+				return fmt.Errorf("knowledge: verify linked character: %w", err)
+			}
+			ids[ref] = found
+		}
 		for _, c := range in.Outcome.Characters {
 			id := platform.NewID()
 			ids[c.LocalRef] = id
@@ -219,6 +232,26 @@ func (r *Repository) publishItemOutcome(ctx context.Context, in publishInput) er
 		}
 		return nil
 	})
+}
+
+func linkedCharacterRefs(out extractionOutcome) []string {
+	seen := map[string]bool{}
+	var refs []string
+	add := func(ref string) {
+		if strings.HasPrefix(ref, "link:") && !seen[ref] {
+			seen[ref] = true
+			refs = append(refs, ref)
+		}
+	}
+	for _, rel := range out.Relations {
+		add(rel.SubjectRef)
+		add(rel.ObjectRef)
+	}
+	for _, alias := range out.Aliases {
+		add(alias.CharacterRef)
+	}
+	sort.Strings(refs)
+	return refs
 }
 
 // relationKeyHash 算关系的去重键。
@@ -363,7 +396,27 @@ func (r *Repository) verifyJobSourceStillCurrent(ctx context.Context, q *gen.Que
 	if doc.Status != StatusReady || doc.Version != int64(job.DocumentVersion) {
 		return ErrExtractionSourceChanged
 	}
-	if job.State == jobStateSuperseded {
+	// ⭐ 文档现在指向的还是这个作业吗（010 R6-02）。
+	// ⚠️ 这一句上面的注释一直声称在做这件事，而 LockDocumentForExtraction
+	// 根本没把 active_relation_job_id 选出来——核对是空话。restart 换了 run
+	// 之后，旧 worker 的结果照样发布进去，与新 run 的结果混在一起，
+	// 而两边都不会报错：人物重复、关系重复、覆盖率分母对不上。
+	if !doc.ActiveRelationJobID.Valid || doc.ActiveRelationJobID.String != jobID {
+		return ErrExtractionSourceChanged
+	}
+	// ⭐ 用户在这中间关掉了抽取开关，同样不该再写入。
+	// ⚠️ 关掉开关之后仍然发布，用户看到的是一份自己已经关停的抽取
+	// 还在往库里加东西。
+	if !doc.IsRelationExtractionEnabled {
+		return ErrExtractionSourceChanged
+	}
+	// ⭐ 只有**活着的**作业能接受发布。
+	// ⚠️ 此前只挡 superseded，于是一个已经 paused / failed / succeeded 的
+	// 作业照样能被一条迟到的发布改写——而 succeeded_items 会因此超过
+	// total_items，覆盖率算出大于 100% 的数。
+	switch job.State {
+	case jobStateInitializing, jobStateRunning:
+	default:
 		return ErrExtractionSourceChanged
 	}
 	return nil

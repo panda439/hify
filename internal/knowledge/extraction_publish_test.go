@@ -387,3 +387,139 @@ func TestReplayRejectsNonCompletedAttempt(t *testing.T) {
 		t.Errorf("状态不是 completed 的响应被当成可回放：ok=%v err=%v", ok, err)
 	}
 }
+
+// --- 010 R6-02：发布与调用预留的状态/当前 run/租约守卫 ---
+
+// TestPublishRejectedOnceAnotherRunTakesOver——⭐ 文档已经指向别的 run 时
+// **不得再发布**。
+//
+// ⚠️ verifyJobSourceStillCurrent 的注释一直声称在核对这件事，而
+// LockDocumentForExtraction 根本没把 active_relation_job_id 选出来——
+// 那句核对是空话。restart 换了 run 之后，旧 worker 的结果照样发布进去，
+// 与新 run 的结果混在一起：人物重复、关系重复、覆盖率的分母对不上，
+// 而两边都不会报错。
+func TestPublishRejectedOnceAnotherRunTakesOver(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	job, epoch, item := publishFixture(t, repo, "doc-r602a", "job-r602a")
+
+	// 模拟 restart：文档改指另一个 run。
+	if _, err := repo.db.ExecContext(ctx,
+		`UPDATE documents SET active_relation_job_id='job-r602a-new' WHERE id='doc-r602a'`); err != nil {
+		t.Fatal(err)
+	}
+	err := repo.publishItemOutcome(ctx, publishInput{
+		JobID: job.ID, ItemID: item, Epoch: epoch, Outcome: sampleOutcome(),
+		ExtractResponse: []byte(`{"ok":true}`),
+	})
+	if !errors.Is(err, ErrExtractionSourceChanged) {
+		t.Fatalf("文档已经指向新 run，旧 run 却发布成功了：%v", err)
+	}
+	for _, table := range []string{"narrative_characters", "narrative_relations"} {
+		if n := countRows(t, repo,
+			`SELECT COUNT(*) FROM `+table+` WHERE job_id=?`, job.ID); n != 0 {
+			t.Errorf("%s 留下了 %d 条", table, n)
+		}
+	}
+}
+
+// TestPublishRejectedOnceExtractionIsDisabled——用户关掉开关之后不得再写入。
+//
+// ⚠️ 继续发布的表现是：用户看到一份自己已经关停的抽取还在往库里加东西。
+func TestPublishRejectedOnceExtractionIsDisabled(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	job, epoch, item := publishFixture(t, repo, "doc-r602b", "job-r602b")
+
+	if _, err := repo.db.ExecContext(ctx,
+		`UPDATE documents SET is_relation_extraction_enabled=0 WHERE id='doc-r602b'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.publishItemOutcome(ctx, publishInput{
+		JobID: job.ID, ItemID: item, Epoch: epoch, Outcome: sampleOutcome(),
+		ExtractResponse: []byte(`{"ok":true}`),
+	}); !errors.Is(err, ErrExtractionSourceChanged) {
+		t.Fatalf("开关已关闭，发布却成功了：%v", err)
+	}
+}
+
+// TestPublishRejectedOnceTheJobHasStopped——已经停下的作业不得接受发布。
+//
+// ⚠️ 此前只挡 superseded，于是一个已经 paused / failed / succeeded 的作业
+// 照样能被一条迟到的发布改写——succeeded_items 因此可以超过 total_items，
+// 覆盖率算出大于 100% 的数。
+func TestPublishRejectedOnceTheJobHasStopped(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	for _, state := range []string{jobStatePaused, jobStateFailed, jobStateSucceeded, jobStateBudgetExhausted} {
+		docID, jobID := "doc-r602c-"+state, "job-r602c-"+state
+		job, epoch, item := publishFixture(t, repo, docID, jobID)
+		if _, err := repo.db.ExecContext(ctx,
+			`UPDATE relation_extraction_jobs SET state=? WHERE id=?`, state, job.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := repo.publishItemOutcome(ctx, publishInput{
+			JobID: job.ID, ItemID: item, Epoch: epoch, Outcome: sampleOutcome(),
+			ExtractResponse: []byte(`{"ok":true}`),
+		}); !errors.Is(err, ErrExtractionSourceChanged) {
+			t.Errorf("状态 %s 的作业接受了发布：%v", state, err)
+		}
+	}
+}
+
+// TestReservationRequiresALiveJobAndLease——⭐ 预留调用额度光守 epoch 不够。
+//
+// ⚠️ epoch 只在**别人抢走租约**时才变，而下面两件事都不会动它：
+//   - 用户点了暂停 → worker 手上的 epoch 照样有效，于是它继续一次次花钱，
+//     而界面显示"已暂停"；
+//   - 自己的租约已经过期但还没被别人抢 → 同样继续花钱，而下一个 worker
+//     随时可能接手同一批 item，那部分钱花两遍。
+func TestReservationRequiresALiveJobAndLease(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+
+	t.Run("暂停之后不得再预留", func(t *testing.T) {
+		job, epoch := ledgerJob(t, repo, "doc-r602d", "job-r602d")
+		item := firstItemID(t, repo, job.ID)
+		if _, err := repo.db.ExecContext(ctx,
+			`UPDATE relation_extraction_jobs SET state='paused' WHERE id=?`, job.ID); err != nil {
+			t.Fatal(err)
+		}
+		_, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
+			JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
+			RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+		})
+		if err == nil {
+			t.Fatal("作业已暂停，却仍然预留成功——它会继续花钱，而界面显示已暂停")
+		}
+	})
+
+	t.Run("租约过期之后不得再预留", func(t *testing.T) {
+		job, epoch := ledgerJob(t, repo, "doc-r602e", "job-r602e")
+		item := firstItemID(t, repo, job.ID)
+		if _, err := repo.db.ExecContext(ctx,
+			`UPDATE relation_extraction_jobs SET lease_until = DATE_SUB(NOW(3), INTERVAL 1 MINUTE)
+			 WHERE id=?`, job.ID); err != nil {
+			t.Fatal(err)
+		}
+		_, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
+			JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
+			RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+		})
+		if err == nil {
+			t.Fatal("租约已过期，却仍然预留成功——下一个 worker 随时会接手同一批 item")
+		}
+	})
+
+	t.Run("正常持有时照常预留", func(t *testing.T) {
+		// ⚠️ 底线用例：少了它，一个"永远拒绝"的实现能让上面两条都通过。
+		job, epoch := ledgerJob(t, repo, "doc-r602f", "job-r602f")
+		item := firstItemID(t, repo, job.ID)
+		if _, err := repo.reserveExtractionAttempt(ctx, attemptReservation{
+			JobID: job.ID, ItemID: item, Epoch: epoch, Phase: phaseExtract,
+			RequestHash: make([]byte, 32), MaxOutputTokens: 2048,
+		}); err != nil {
+			t.Fatalf("正常持有租约却预留失败：%v", err)
+		}
+	})
+}

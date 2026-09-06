@@ -220,6 +220,13 @@ func TestOccurrenceSelectsTheRightPosition(t *testing.T) {
 	}
 }
 
+func TestStrictDecodeRejectsTrailingJSONObject(t *testing.T) {
+	var out extractionResponse
+	if err := strictDecode(`{"mentions":[],"relations":[],"alias_proposals":[]} {"mentions":[]}`, &out); err == nil {
+		t.Fatal("尾随第二个 JSON 对象被接受")
+	}
+}
+
 // TestOverlappingOccurrencesAreCounted——⚠️ 契约要求"允许重叠匹配"。
 // 用 strings.Index 逐段跳过会漏掉重叠的那次，于是 occurrence=1 被判越界，
 // 一条完全合法的响应被整次拒绝。

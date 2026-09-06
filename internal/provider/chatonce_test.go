@@ -132,6 +132,31 @@ func TestChatOnceClassifiesDispatch(t *testing.T) {
 	}
 }
 
+func TestChatOnceTimeoutIncludesConcurrencyWait(t *testing.T) {
+	c := &countingClient{}
+	wrapped := WithResilience(c, ResilienceConfig{ProviderID: "p-timeout", MaxConcurrent: 1})
+	r := wrapped.(*resilientClient)
+	if err := r.sem.Acquire(context.Background(), 1); err != nil {
+		t.Fatal(err)
+	}
+	defer r.sem.Release(1)
+
+	start := time.Now()
+	res, err := singleAttempt(t, wrapped).ChatOnce(context.Background(), ChatRequest{}, 20*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Fatalf("ChatOnce 排队 %v，timeout 没覆盖并发槽等待", elapsed)
+	}
+	if res.Outcome != AttemptNotDispatched || res.ErrorCode != "concurrency" {
+		t.Fatalf("result = %+v, want not_dispatched/concurrency", res)
+	}
+	if c.onceCalls.Load() != 0 {
+		t.Fatal("拿不到并发槽时不应发出请求")
+	}
+}
+
 // TestChatOnceReportsNotDispatchedWhenBreakerOpen——⭐ 熔断打开时
 // **一个字节都没发出去**，这笔调用预留必须能退还。
 // 把它记成 failed 会让账目凭空多出一次从未发生的调用。
