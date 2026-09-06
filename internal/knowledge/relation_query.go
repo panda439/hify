@@ -280,3 +280,101 @@ func (r *Repository) findCharacters(ctx context.Context, jobID, name string) ([]
 	}
 	return out, nil
 }
+
+// --- 对外契约（供 conversation 调用）---
+
+// RelationAnswer 是一次关系查询的对外结果。
+//
+// ⚠️ Outcome 是**给调用方分支用的**，不是给用户看的文案。
+// 文案由对话层决定，因为同一个结局在不同语境下要说的话不同。
+type RelationAnswer struct {
+	Outcome        string
+	DocumentID     string
+	Citations      []RelationCitation
+	Candidates     []RelationCandidateInfo
+	UnknownName    string
+	RemainingItems *int
+	Truncated      bool
+}
+
+// RelationCitation 是一条可以送进 prompt 的关系证据。
+// ⚠️ 没有相似度字段，理由见 relation_citation.go。
+type RelationCitation struct {
+	RelationType  string
+	IsDirected    bool
+	SubjectName   string
+	ObjectName    string
+	ChapterNumber *int
+	Quote         string
+	SourceOrder   int64
+	SourceStart   int
+	SourceEnd     int
+	ChunkID       string
+}
+
+type RelationCandidateInfo struct {
+	DisplayName      string
+	FirstSourceOrder int64
+	HasAmbiguity     bool
+}
+
+// 对外的结局常量。
+const (
+	RelationOutcomeFound        = string(relationQueryFound)
+	RelationOutcomeNoRecords    = string(relationQueryNoRecords)
+	RelationOutcomeIncomplete   = string(relationQueryIncomplete)
+	RelationOutcomeNotExtracted = string(relationQueryNotExtracted)
+	RelationOutcomeUnknownName  = string(relationQueryUnknownName)
+	RelationOutcomeAmbiguous    = string(relationQueryAmbiguous)
+	RelationOutcomeSameEntity   = string(relationQuerySameEntity)
+	RelationOutcomeOutOfScope   = string(relationQueryOutOfScope)
+)
+
+// QueryRelations 回答「A 和 B 是什么关系」。
+//
+// ⚠️ documentIDs 必须是**调用方已经下推过 Agent 范围**的列表。
+// 空列表表示"没有任何可查的文档"，不是"不限定"——本函数不会替调用方
+// 去猜范围，因为猜错的表现是 Agent 悄悄用起范围外的资料。
+//
+// budgetRunes 是**既有 RAG 预算里分给关系证据的那一份**，不是另开的一份。
+func (s *service) QueryRelations(ctx context.Context, documentIDs []string, subject, object string, budgetRunes int) (RelationAnswer, error) {
+	res, err := s.repo.queryRelations(ctx, relationQueryInput{
+		DocumentIDs: documentIDs, Subject: subject, Object: object,
+	})
+	if err != nil {
+		return RelationAnswer{}, err
+	}
+	ans := RelationAnswer{
+		Outcome: string(res.Outcome), DocumentID: res.DocumentID,
+		UnknownName: res.UnknownName, RemainingItems: res.RemainingItems,
+		Truncated: res.Truncated,
+	}
+	for _, c := range res.Candidates {
+		ans.Candidates = append(ans.Candidates, RelationCandidateInfo{
+			DisplayName: c.DisplayName, FirstSourceOrder: c.FirstSourceOrder,
+			HasAmbiguity: c.HasAmbiguity,
+		})
+	}
+	if res.Outcome != relationQueryFound {
+		return ans, nil
+	}
+	cites, truncated := selectRelationCitations(res.Relations, budgetRunes)
+	ans.Truncated = ans.Truncated || truncated
+	for _, c := range cites {
+		ans.Citations = append(ans.Citations, RelationCitation{
+			RelationType: c.RelationType, IsDirected: c.IsDirected,
+			SubjectName: c.SubjectName, ObjectName: c.ObjectName,
+			ChapterNumber: c.ChapterNumber, Quote: c.Quote,
+			SourceOrder: c.SourceOrder, SourceStart: c.SourceStart,
+			SourceEnd: c.SourceEnd, ChunkID: c.ChunkID,
+		})
+	}
+	// ⭐ 挑完之后一条都没剩下时，结局改成"截断"而不是留着 found。
+	// ⚠️ 留着 found 而 Citations 为空，对话层会走"有证据"分支去做受限生成，
+	// 而它手上一条证据都没有——模型只能编。
+	if len(ans.Citations) == 0 {
+		ans.Outcome = RelationOutcomeIncomplete
+		ans.Truncated = true
+	}
+	return ans, nil
+}

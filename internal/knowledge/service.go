@@ -41,6 +41,13 @@ type Service interface {
 	ResumeExtraction(ctx context.Context, kbID, docID, userID, role string, op ExtractionOperation) (ExtractionStatus, error)
 	RestartExtraction(ctx context.Context, kbID, docID, userID, role string, op ExtractionOperation) (ExtractionStatus, error)
 
+	// QueryRelations 回答「A 和 B 是什么关系」（010 T031）。
+	//
+	// ⚠️ documentIDs 必须是调用方**已经下推过 Agent 范围**的列表；
+	// 空列表表示"没有任何可查的文档"，不是"不限定"。
+	// budgetRunes 是既有 RAG 预算里分给关系证据的那一份，不是另开的一份。
+	QueryRelations(ctx context.Context, documentIDs []string, subject, object string, budgetRunes int) (RelationAnswer, error)
+
 	// ReconcileRelationExtractions 是抽取作业的恢复扫描（010）。
 	// ⚠️ 它**不会**恢复用户暂停或预算耗尽的作业——那两个是显式决定，
 	// 不是故障；自动重启它们等于系统擅自推翻用户的选择，而用户会看到

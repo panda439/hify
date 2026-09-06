@@ -76,6 +76,41 @@ func TestQueryFindsTheRelation(t *testing.T) {
 	_ = in
 }
 
+// TestQueryWithNoRoomForEvidenceIsNotFound——⭐ 变异测试逼出来的缺口。
+//
+// 查到了关系、但预算一条证据都装不下时，结局**不能仍然是 found**。
+// ⚠️ 留着 found 而引用为空，对话层会走"有证据"分支去做受限生成，
+// 而它手上一条证据都没有——模型只能编。而且编出来的答案看起来
+// 和一个有依据的答案完全一样。
+func TestQueryWithNoRoomForEvidenceIsNotFound(t *testing.T) {
+	repo := extractionRepo(t)
+	seedRelationQueryFixture(t, repo, "doc-q11", "job-q11")
+	svc := newTestService(repo, newFakeProvider(), t.TempDir())
+
+	ans, err := svc.QueryRelations(t.Context(), []string{"doc-q11"}, "赵太爷", "阿Q", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ans.Outcome == RelationOutcomeFound {
+		t.Error("预算装不下任何证据却仍然报 found——对话层会拿着空证据去生成")
+	}
+	if len(ans.Citations) != 0 {
+		t.Errorf("预算为 0 却给出了 %d 条引用", len(ans.Citations))
+	}
+	if !ans.Truncated {
+		t.Error("没有报告截断")
+	}
+	// 预算充足时正常返回 found。
+	ans, err = svc.QueryRelations(t.Context(), []string{"doc-q11"}, "赵太爷", "阿Q", 10000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ans.Outcome != RelationOutcomeFound || len(ans.Citations) == 0 {
+		t.Errorf("预算充足却没有正常返回：outcome=%q citations=%d",
+			ans.Outcome, len(ans.Citations))
+	}
+}
+
 // TestQueryIsSymmetricForUndirectedTypes——无向关系两个方向都能查到。
 // ⚠️ 只查一个方向的话，「阿Q 和 王胡 是什么关系」有答案而
 // 「王胡 和 阿Q 是什么关系」没有——同一个问题换个语序就查不到了。
