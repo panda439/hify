@@ -193,6 +193,10 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 	mux.Handle(knowledge.TaskTypeReconcileDocuments, knowledge.NewReconcileTaskHandler(knowledgeSvc))
 	mux.Handle(knowledge.TaskTypeReconcileRelationExtractions,
 		knowledge.NewRelationExtractionReconcileHandler(knowledgeSvc))
+	// ⚠️ 少了这一行，恢复扫描会把作业排进一个没有人消费的队列——
+	// 表现与 R6-01 的原始症状完全一样：界面显示"已开启"，进度永远 0。
+	mux.Handle(knowledge.TaskTypeRunRelationExtraction,
+		knowledge.NewRelationExtractionRunHandler(knowledgeSvc))
 	mux.Handle(auth.TaskTypeCleanupRefreshTokens, auth.NewCleanupTaskHandler(authSvc))
 	asynqServer := platform.NewAsynqServer(redisCfg, cfg.AsynqConcurrency)
 	if err := asynqServer.Start(mux); err != nil {

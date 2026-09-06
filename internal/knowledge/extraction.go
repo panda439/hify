@@ -34,6 +34,11 @@ const (
 	jobStateSucceeded    = "succeeded"
 	jobStateFailed       = "failed"
 	jobStateSuperseded   = "superseded"
+	// jobStateBudgetExhausted 与 failed 分开：⚠️ 前者是**额度**用完了，
+	// 追加额度点续跑就继续；后者是内容或配置有问题，续跑只会再失败一次。
+	// 两者的下一步完全不同，合成一个状态等于让用户无从判断该做什么。
+	// 恢复扫描的白名单里同样不含它——见 ListRecoverableExtractionJobs。
+	jobStateBudgetExhausted = "budget_exhausted"
 
 	itemStatePending   = "pending"
 	itemStateRunning   = "running"
@@ -123,6 +128,14 @@ type extractionJobSpec struct {
 	// ⚠️ 生产路径恒为 nil。这个竞态**没有任何自然发生的窗口可供测试**——
 	// 它要求恰好在两次数据库往返之间有人重新发布文档，靠等是等不到的。
 	afterEnumerate func() error
+
+	// JobAlreadyExists 表示作业行已经由 enable/upload 登记好了（010 R6-01），
+	// 这次初始化只补 items 与完成标志。
+	//
+	// ⚠️ 不区分的话，给一个已存在的 pending 意图做初始化会撞主键——
+	// 而"从零开一个 run"和"把一个意图落实成作业"是两条真实存在的路径，
+	// 前者至今没有生产调用方。
+	JobAlreadyExists bool
 }
 
 // newExtractionJobSpec 造一个用默认预算的 spec。
@@ -210,16 +223,18 @@ func (r *Repository) initializeExtractionJob(ctx context.Context, spec extractio
 			}
 			return fmt.Errorf("knowledge: lock document: %w", err)
 		}
-		if err := q.CreateRelationExtractionJob(ctx, gen.CreateRelationExtractionJobParams{
-			ID: spec.JobID, DocumentID: spec.DocumentID, KnowledgeBaseID: spec.KnowledgeBaseID,
-			DocumentVersion: int32(spec.DocumentVersion), RunNumber: int32(spec.RunNumber),
-			ModelID: spec.ModelID, ConfigHash: spec.ConfigHash, ConfigSnapshot: spec.ConfigSnapshot,
-			ApprovedItemLimit: int32(spec.ApprovedItemLimit), CallLimit: int32(spec.CallLimit),
-			ActiveMsLimit:        spec.ActiveMsLimit,
-			OperationKeyHash:     nullBytes(spec.OperationKey),
-			OperationRequestHash: nullBytes(spec.RequestHash),
-		}); err != nil {
-			return fmt.Errorf("knowledge: create extraction job: %w", err)
+		if !spec.JobAlreadyExists {
+			if err := q.CreateRelationExtractionJob(ctx, gen.CreateRelationExtractionJobParams{
+				ID: spec.JobID, DocumentID: spec.DocumentID, KnowledgeBaseID: spec.KnowledgeBaseID,
+				DocumentVersion: int32(spec.DocumentVersion), RunNumber: int32(spec.RunNumber),
+				ModelID: spec.ModelID, ConfigHash: spec.ConfigHash, ConfigSnapshot: spec.ConfigSnapshot,
+				ApprovedItemLimit: int32(spec.ApprovedItemLimit), CallLimit: int32(spec.CallLimit),
+				ActiveMsLimit:        spec.ActiveMsLimit,
+				OperationKeyHash:     nullBytes(spec.OperationKey),
+				OperationRequestHash: nullBytes(spec.RequestHash),
+			}); err != nil {
+				return fmt.Errorf("knowledge: create extraction job: %w", err)
+			}
 		}
 		for _, row := range rows {
 			sum := sha256.Sum256([]byte(row.Content))

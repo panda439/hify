@@ -57,6 +57,15 @@ type Querier interface {
 	// 写数据都要带上自己抢到的 epoch；租约过期后被别人抢走，旧 worker 迟到的写入
 	// 会因为 epoch 对不上被拒。⚠️ 它**只约束数据发布**——旧 worker 那次外部调用
 	// 该花的钱已经花了，账目照记，见 relation_extraction_attempts。
+	// ⚠️ 白名单里**必须有 pending**（010 R6-01）。pending 是 enable/upload 登记
+	// 的意图，它正等着有人来把它初始化成真正的作业。漏掉它的表现是：
+	// 用户开启抽取、界面显示"已开启"、恢复扫描每分钟把它排进队，
+	// 而 worker 每次都抢不到租约、直接返回——**一次调用都不会发生**，
+	// 没有报错，进度永远 0/0。这是同一类漏洞的第三处（前两处见 T030）。
+	//
+	// ⭐ 抢到一个 pending 意图就把它推进到 initializing：这一步不能省，
+	// CompleteJobInitialization 守的正是 state='initializing'，
+	// 停在 pending 上会让初始化事务在最后一步影响 0 行而整体回滚。
 	ClaimRelationExtractionJob(ctx context.Context, arg ClaimRelationExtractionJobParams) (int64, error)
 	// 预留被拒之后**再问一次**是哪一维用尽了。
 	//
@@ -297,6 +306,15 @@ type Querier interface {
 	// inside a tuple comparison (it silently generated a 2-arg function for a
 	// 4-placeholder query when tried), so this is the safe form.
 	ListMessagesByConversationBeforeCursor(ctx context.Context, arg ListMessagesByConversationBeforeCursorParams) ([]Message, error)
+	// 工作循环要处理的下一批 item（010 R6-01）。
+	//
+	// ⭐ 只取 pending 和 running。⚠️ running 必须在列：一次崩溃会把 item 留在
+	// running 上，漏掉它的表现是那个 item 永远不再被处理，而作业的
+	// succeeded+failed 永远凑不满 total——用户看到进度条卡在 99%，
+	// 而没有任何东西说明为什么。
+	//
+	// 按 chunk_index 游标推进，顺序确定（宪法第 V 条），走 idx_rei_job_state。
+	ListPendingExtractionItems(ctx context.Context, arg ListPendingExtractionItemsParams) ([]ListPendingExtractionItemsRow, error)
 	ListProviderModelsByProvider(ctx context.Context, providerID string) ([]ProviderModel, error)
 	ListProviders(ctx context.Context, arg ListProvidersParams) ([]ModelProvider, error)
 	// Most recent N messages, newest first. Used both for context assembly
@@ -317,6 +335,16 @@ type Querier interface {
 	// 正等着恢复扫描来补 items。漏掉它的表现是用户开启了抽取、界面显示已开启，
 	// 而那个作业永远不会开始——没有报错，没有进度，什么都不发生。
 	ListRecoverableExtractionJobs(ctx context.Context, arg ListRecoverableExtractionJobsParams) ([]ListRecoverableExtractionJobsRow, error)
+	// 对话里"能问关系的书目"（010 T035）。
+	//
+	// ⚠️ 只列 is_relation_extraction_enabled = 1 的文档。把开了叙事分块但
+	// 没开抽取的也列出来，用户选中之后必然得到"这份文档没做过关系抽取"——
+	// 一个本来就不该出现在列表里的选项。
+	//
+	// ⭐ 带上作业状态：书目本身要能说出"这本还没跑完"。前端据此提示，
+	// 而不是等用户问完一次才知道。LEFT JOIN 是必要的——意图刚登记、
+	// 作业行存在但还没开始的文档同样要出现在列表里。
+	ListRelationDocumentsInKnowledgeBases(ctx context.Context, arg ListRelationDocumentsInKnowledgeBasesParams) ([]ListRelationDocumentsInKnowledgeBasesRow, error)
 	// reconciliation 扫描用：pending 状态停留超过阈值，大概率是入队失败（见
 	// UploadDocument 的注释）导致没有任何任务在处理它。pending 从没有 worker
 	// 持有过租约，"入队丢了"这个问题只能靠 updated_at 阈值判断。
@@ -423,6 +451,9 @@ type Querier interface {
 	RenewDocumentLease(ctx context.Context, arg RenewDocumentLeaseParams) (int64, error)
 	// 心跳续租，必须带 epoch：租约已经被别人抢走时返回 0 行，
 	// 持有者据此知道自己已经出局，必须停止调用模型。
+	// ⚠️ 同样要含 pending：抢占那一步已经把 pending 推成 initializing，
+	// 但文档还没就绪时 worker 会原样退出、状态留在 initializing，
+	// 而下一轮重新抢占之前的那段时间里心跳仍要能续上。
 	RenewRelationExtractionLease(ctx context.Context, arg RenewRelationExtractionLeaseParams) (int64, error)
 	// ---------------------------------------------------------------------
 	// attempt 账目：这张表是"成本数字可信"的全部依据
@@ -433,6 +464,14 @@ type Querier interface {
 	// 而它的钱已经花了。恢复扫描把停留过久的 reserved 改判 unknown，
 	// 于是"可能花了"这件事被如实记下来——这正是 unknown 这个状态存在的理由。
 	ReserveExtractionAttempt(ctx context.Context, arg ReserveExtractionAttemptParams) error
+	// 抢到了但文档还没就绪时，把作业退回 pending（010 R6-01）。
+	//
+	// ⭐ 状态要说实话：initializing 的意思是"正在枚举语料"，而这会儿
+	// 语料根本还不存在。⚠️ 留在 initializing 上，状态接口会一直显示
+	// "正在初始化"，用户以为卡住了；而真实情况是文档还在解析队列里排队。
+	//
+	// 守 epoch：只有当前持有者能把它退回去。
+	ReturnJobToPending(ctx context.Context, arg ReturnJobToPendingParams) (int64, error)
 	RevokeAllUserRefreshTokens(ctx context.Context, userID string) error
 	RevokeRefreshToken(ctx context.Context, id string) error
 	// 把文档的 active_relation_job_id 指向新 run，并落下所选模型。
@@ -456,6 +495,18 @@ type Querier interface {
 	// 在这里先挡一道好给中文提示）。关闭不需要这个守卫。
 	SetExtractionEnabled(ctx context.Context, arg SetExtractionEnabledParams) (int64, error)
 	SetJobBudgetOperations(ctx context.Context, arg SetJobBudgetOperationsParams) (int64, error)
+	// worker 收尾用的跃迁（010 R6-01）：按 epoch 守卫而不是按 from 状态白名单。
+	//
+	// ⭐ 守 epoch 而不是守 from：worker 是**当前持有者**，它有权把作业从
+	// pending/initializing/running 中的任何一个停到终态；而一个 epoch 已经
+	// 过期的旧 worker 无权改动任何东西。
+	// ⚠️ 用 SetJobState 那条（守 from）会漏掉一半情况：作业在 running，
+	// worker 想停成 failed 就得先知道自己现在是哪个状态，而它中间可能已经
+	// 被 pause 改过了——那时这条 UPDATE 影响 0 行，正是想要的结果。
+	//
+	// ⚠️ 顺带写 finished_at：账目归档按它判断作业是否已经结束，
+	// 不写的话一个已经跑完的作业会被当成"还活着"而永不归档。
+	SetJobFinalState(ctx context.Context, arg SetJobFinalStateParams) (int64, error)
 	// 状态跃迁，带 from 白名单。⚠️ 无条件改状态会让一条迟到的 pause 把已经
 	// 结束的作业改回 paused，恢复扫描随后又把它捡起来。
 	SetJobState(ctx context.Context, arg SetJobStateParams) (int64, error)

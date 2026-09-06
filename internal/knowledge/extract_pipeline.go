@@ -50,7 +50,15 @@ func (p extractionPipeline) processItem(ctx context.Context, in itemInput) error
 		return fmt.Errorf("knowledge: item %s: %w", in.ItemID, err)
 	}
 
-	body, err := p.runOrReplay(ctx, in, phaseExtract, proj.Text, func(b string) error {
+	// ⭐ 指令与正文一起进入 runOrReplay，与归一阶段同一口径。
+	// ⚠️ 只把正文送进去、指令留在调用层拼，会让 request_hash 不覆盖指令——
+	// 改了 prompt 之后旧响应照样被当成可回放的，新规则一次都不生效，
+	// 而账目上看起来一切正常。
+	rendered, err := fitExtractionInput(extractInstruction, proj.Text)
+	if err != nil {
+		return fmt.Errorf("knowledge: item %s: extract input: %w", in.ItemID, err)
+	}
+	body, err := p.runOrReplay(ctx, in, phaseExtract, rendered, func(b string) error {
 		_, err := parseExtractionResponse(b, proj.Text)
 		return err
 	})
@@ -205,11 +213,6 @@ type aliasEvidence struct {
 	Action       string         `json:"action"`
 	Supports     []aliasSupport `json:"supports"`
 }
-
-// aliasInstruction 是归一阶段的固定指令头。
-// ⚠️ 它属于 config_snapshot 的一部分（prompt 版本），改动它必须 restart，
-// 否则同一个 run 的前后半段用的是两套规则，而报告里只写一个版本号。
-const aliasInstruction = "根据下面的正文，判断每个称呼指向新人物、已有候选，还是无法确定。"
 
 func renderCandidates(in aliasInput) []string {
 	ids := make([]string, 0, len(in.Candidates))

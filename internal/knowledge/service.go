@@ -49,11 +49,24 @@ type Service interface {
 	// budgetRunes 是既有 RAG 预算里分给关系证据的那一份，不是另开的一份。
 	QueryRelations(ctx context.Context, documentIDs []string, subject, object string, budgetRunes int) (RelationAnswer, error)
 
+	// ListRelationDocuments 列出这些知识库里可以问人物关系的书目（010 T035）。
+	//
+	// ⚠️ kbIDs 必须是**调用方已经下推过 Agent 范围**的列表。
+	// 空列表表示"这个 Agent 没挂任何知识库"，不是"不限定"。
+	ListRelationDocuments(ctx context.Context, kbIDs []string) ([]RelationDocument, error)
+
 	// ReconcileRelationExtractions 是抽取作业的恢复扫描（010）。
 	// ⚠️ 它**不会**恢复用户暂停或预算耗尽的作业——那两个是显式决定，
 	// 不是故障；自动重启它们等于系统擅自推翻用户的选择，而用户会看到
 	// 一个自己明明暂停过的作业又开始花钱。
 	ReconcileRelationExtractions(ctx context.Context) (ReconcileResult, error)
+
+	// RunRelationExtraction 跑一个抽取作业（010 R6-01）。
+	//
+	// ⭐ 这是整条链路唯一真正调用模型的入口，由 asynq worker 触发，
+	// 不走 HTTP。⚠️ 返回 nil 不代表作业完成——抢不到租约、文档还没就绪、
+	// 租约中途丢失都是正常结局，由下一轮恢复扫描接手。
+	RunRelationExtraction(ctx context.Context, jobID string) error
 	ListDocuments(ctx context.Context, kbID string, limit, offset int) ([]Document, int, error)
 	GetDocument(ctx context.Context, id string) (Document, error)
 
@@ -1483,5 +1496,38 @@ func (s *service) DocumentCoverages(ctx context.Context, documentIDs []string) (
 }
 
 func (s *service) ReconcileRelationExtractions(ctx context.Context) (ReconcileResult, error) {
-	return s.repo.reconcileRelationExtractions(ctx)
+	// ⭐ 真正的**入队**在这一层，不在 repository：repository 不该知道
+	// asynq 的存在（CLAUDE.md 分层）。
+	//
+	// ⚠️ 这里原本是一句 `return s.repo.reconcileRelationExtractions(ctx)`，
+	// 而扫描回调只打了一行日志——于是 JobsRequeued 照样累加、扫描每分钟
+	// 报告"已重排 N 个"，**一个作业都不会被跑**。用 nil 队列客户端调它
+	// 也返回成功。这是 R6-01 的核心症状：每一层都认为自己工作正常。
+	res, err := s.repo.reconcileRelationExtractionsWith(ctx, func(job recoverableJob) {
+		if enqErr := s.enqueueRunExtraction(ctx, job.ID); enqErr != nil {
+			// ⚠️ 入队失败只记日志、不中断整轮扫描：一个作业排不进去
+			// 不该让其余几十个也排不进去。下一轮会再试。
+			slog.Error("knowledge: enqueue extraction job failed",
+				"err", enqErr, "job_id", job.ID, "state", job.State)
+		}
+	})
+	return res, err
+}
+
+// enqueueRunExtraction 把一个作业排进执行队列。
+//
+// ⚠️ MaxRetry(0)：重试是本模块自己那一层的事，asynq 再叠一层会让同一个
+// 作业被重复入队，而账目上看不出区别。
+func (s *service) enqueueRunExtraction(ctx context.Context, jobID string) error {
+	if s.asynqClient == nil {
+		// ⭐ 明确报错。⚠️ 静默跳过正是 R6-01 的形态：没有队列时扫描
+		// 仍然"成功"，而没有任何作业会开始。
+		return errors.New("knowledge: no task queue configured for relation extraction")
+	}
+	task, err := newRunRelationExtractionTask(jobID)
+	if err != nil {
+		return err
+	}
+	_, err = s.asynqClient.EnqueueContext(ctx, task, asynq.MaxRetry(0))
+	return err
 }

@@ -497,9 +497,20 @@ func TestPipelineFeedsOnlyCitableText(t *testing.T) {
 	if err := pipelineDeps(repo, chat).processItem(t.Context(), in); err != nil {
 		t.Fatalf("processItem: %v", err)
 	}
+	// ⚠️ 不能只比长度：指令头现在也一起送进去了（R6-01），
+	// 加上指令之后总长必然比块内容长。要比的是**正文那一段**。
+	// 也不能断言"送出去的文本不含 overlap 那几个字"——这个夹具是
+	// 「甲的正文。」重复 60 次，那几个字在可引用区里也照样出现。
+	proj, err := newChunkProjection(withCopy.Content, *withCopy.Narrative)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len([]rune(proj.Text)) >= len([]rune(withCopy.Content)) {
+		t.Errorf("投影没有短于块内容，overlap 拷贝没被去掉：%d vs %d",
+			len([]rune(proj.Text)), len([]rune(withCopy.Content)))
+	}
 	sent := chat.inputs[phaseExtract][0]
-	if len([]rune(sent)) >= len([]rune(withCopy.Content)) {
-		t.Errorf("送给模型的正文没有短于块内容：%d vs %d",
-			len([]rune(sent)), len([]rune(withCopy.Content)))
+	if want := extractInstruction + "\n\n" + proj.Text; sent != want {
+		t.Errorf("送给模型的不是「指令 + 可引用正文」：\n got %q\nwant %q", sent, want)
 	}
 }

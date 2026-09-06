@@ -92,3 +92,37 @@ func NewRelationExtractionReconcileHandler(svc Service) asynq.HandlerFunc {
 		return nil
 	}
 }
+
+// TaskTypeRunRelationExtraction 是**真正跑一个抽取作业**的任务（010 R6-01）。
+//
+// ⭐ 它与恢复扫描分开是必须的：扫描每分钟一次、必须是短任务，
+// 而跑一本书是几百到几千次模型调用、可能持续几十分钟。
+// 合在一起的表现是扫描迟迟不返回，所有作业的租约在这期间滴答到期。
+//
+// ⚠️ MaxRetry(0)：重试由本模块自己的那一层负责（extraction_retry.go），
+// asynq 再叠一层重试会让同一个作业被重复入队，而账目上看不出区别。
+// 作业需要接着跑时由下一轮恢复扫描重新入队——那是唯一的重排入口。
+const TaskTypeRunRelationExtraction = "knowledge:run_relation_extraction"
+
+type runRelationExtractionPayload struct {
+	JobID string `json:"job_id"`
+}
+
+func newRunRelationExtractionTask(jobID string) (*asynq.Task, error) {
+	payload, err := json.Marshal(runRelationExtractionPayload{JobID: jobID})
+	if err != nil {
+		return nil, fmt.Errorf("knowledge: marshal extraction task payload: %w", err)
+	}
+	return asynq.NewTask(TaskTypeRunRelationExtraction, payload), nil
+}
+
+// NewRelationExtractionRunHandler 是执行任务的 asynq 适配器。
+func NewRelationExtractionRunHandler(svc Service) asynq.HandlerFunc {
+	return func(ctx context.Context, t *asynq.Task) error {
+		var payload runRelationExtractionPayload
+		if err := json.Unmarshal(t.Payload(), &payload); err != nil {
+			return fmt.Errorf("knowledge: unmarshal extraction task payload: %w", err)
+		}
+		return svc.RunRelationExtraction(ctx, payload.JobID)
+	}
+}

@@ -73,7 +73,13 @@ type ReconcileResult struct {
 //
 // ⚠️ 它**只把作业重新丢进队列**，不在这里直接跑——恢复扫描是个短任务，
 // 在里面同步跑几百次模型调用会让下一次扫描迟迟不来，而租约还在滴答。
+// reconcileRelationExtractions 保留无副作用的形态，只给测试与不需要入队的
+// 调用方用。⚠️ 生产路径必须走 reconcileRelationExtractionsWith 并真的入队。
 func (r *Repository) reconcileRelationExtractions(ctx context.Context) (ReconcileResult, error) {
+	return r.reconcileRelationExtractionsWith(ctx, nil)
+}
+
+func (r *Repository) reconcileRelationExtractionsWith(ctx context.Context, requeue func(recoverableJob)) (ReconcileResult, error) {
 	var res ReconcileResult
 
 	fixed, err := r.reconcileStaleReservedAttempts(ctx, staleReservationThreshold, reconcileBatchSize)
@@ -99,11 +105,15 @@ func (r *Repository) reconcileRelationExtractions(ctx context.Context) (Reconcil
 	}
 
 	n, err := r.walkRecoverableJobs(ctx, reconcileBatchSize, func(job recoverableJob) {
-		// ⚠️ 只在这里记账与计数；真正的接手由调用方（Service）负责入队，
-		// repository 不该知道 asynq 的存在。
-		slog.Info("knowledge: extraction job needs recovery",
+		// ⚠️ repository 不该知道 asynq 的存在，所以接手动作由调用方注入。
+		// 但**注入的那个函数必须真的做事**——它曾经只是一行日志，
+		// 而 JobsRequeued 照样累加（R6-01）。
+		slog.Debug("knowledge: extraction job needs recovery",
 			"job_id", job.ID, "state", job.State,
 			"initialized", job.InitializationComplete)
+		if requeue != nil {
+			requeue(job)
+		}
 	})
 	res.JobsRequeued = n
 	return res, err

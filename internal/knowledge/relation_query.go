@@ -419,3 +419,72 @@ func (s *service) QueryRelations(ctx context.Context, documentIDs []string, subj
 	}
 	return ans, nil
 }
+
+// --- 010 T035：对话里可以问关系的书目 ---
+
+// RelationDocument 是一本"可以问人物关系的书"。
+//
+// ⚠️ 字段全部是**用户能看懂的话**：没有 epoch、没有 hash、没有 job_id。
+// 这些是系统内部用来保证正确性的东西，对用户没有任何意义，
+// 出现在界面上只会让人以为自己需要理解它们。
+type RelationDocument struct {
+	DocumentID string
+	FileName   string
+	// Ready 表示"现在问就能得到基于全书的答案"。
+	// ⚠️ 它**不是** document.status == ready：抽取跑完才算，
+	// 而抽取比解析晚得多。混同的表现是用户看到"已就绪"、
+	// 问出来却是"还没跑完"。
+	Ready bool
+	// RemainingItems 是还没处理的片段数，Ready 时为 0。
+	RemainingItems int
+	// Stopped 表示这一轮已经停下来了（暂停、预算耗尽、失败）。
+	// ⚠️ 与"还没跑完"分开：前者要用户去点续跑，后者只要等。
+	Stopped bool
+}
+
+const maxRelationDocuments = 200
+
+// listRelationDocuments 列出这些知识库里开启了关系抽取的文档。
+func (r *Repository) listRelationDocuments(ctx context.Context, kbIDs []string) ([]RelationDocument, error) {
+	if len(kbIDs) == 0 {
+		// ⭐ 空范围不是全库，同 queryRelations。
+		return nil, nil
+	}
+	rows, err := r.queries.ListRelationDocumentsInKnowledgeBases(ctx,
+		gen.ListRelationDocumentsInKnowledgeBasesParams{
+			KnowledgeBaseIds: kbIDs, Limit: maxRelationDocuments,
+		})
+	if err != nil {
+		return nil, fmt.Errorf("knowledge: list relation documents: %w", err)
+	}
+	out := make([]RelationDocument, 0, len(rows))
+	for _, row := range rows {
+		doc := RelationDocument{DocumentID: row.ID, FileName: row.FileName}
+		if !row.JobState.Valid {
+			// 开关开着但作业行不在了——按"还没开始"报，不报就绪。
+			out = append(out, doc)
+			continue
+		}
+		total, done := int(row.TotalItems.Int32), int(row.SucceededItems.Int32)+int(row.FailedItems.Int32)
+		doc.RemainingItems = total - done
+		if doc.RemainingItems < 0 {
+			doc.RemainingItems = 0
+		}
+		doc.Ready = row.InitializationComplete.Valid && row.InitializationComplete.Bool &&
+			doc.RemainingItems == 0
+		switch row.JobState.String {
+		case jobStatePaused, jobStateBudgetExhausted, jobStateFailed:
+			doc.Stopped = true
+		}
+		out = append(out, doc)
+	}
+	return out, nil
+}
+
+// ListRelationDocuments 是 conversation 拿"可以问关系的书目"的入口。
+//
+// ⚠️ kbIDs 必须是**调用方已经下推过 Agent 范围**的列表，同 QueryRelations。
+// 空列表表示"这个 Agent 没挂任何知识库"，不是"不限定"。
+func (s *service) ListRelationDocuments(ctx context.Context, kbIDs []string) ([]RelationDocument, error) {
+	return s.repo.listRelationDocuments(ctx, kbIDs)
+}
