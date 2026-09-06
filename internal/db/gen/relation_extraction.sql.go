@@ -761,6 +761,58 @@ func (q *Queries) GetRelationExtractionJobPayload(ctx context.Context, id string
 	return i, err
 }
 
+const listAliasCandidates = `-- name: ListAliasCandidates :many
+SELECT id, display_name, first_source_order
+FROM narrative_characters
+WHERE job_id = ? AND display_name = ?
+ORDER BY first_source_order, id
+LIMIT ?
+`
+
+type ListAliasCandidatesParams struct {
+	JobID       string `json:"job_id"`
+	DisplayName string `json:"display_name"`
+	Limit       int32  `json:"limit"`
+}
+
+type ListAliasCandidatesRow struct {
+	ID               string `json:"id"`
+	DisplayName      string `json:"display_name"`
+	FirstSourceOrder int64  `json:"first_source_order"`
+}
+
+// 同一次作业里名字匹配的人物，作为归一阶段的候选。
+//
+// ⭐ job_id 的过滤是一条**边界**，不是优化：跨书的同名人物（两本书都有
+// 「张三」）一旦合并，一本书的关系会出现在另一本书的查询结果里，
+// 而用户完全无法解释那些记录从哪来。
+//
+// ⚠️ 按 first_source_order 排序，不按相关度：书里先出现的更可能是主要人物，
+// 而"相关度"在这里没有可复现的定义。候选被截断时删的是排名靠后的，
+// 顺序不确定的话每次截断的都不是同一批。
+func (q *Queries) ListAliasCandidates(ctx context.Context, arg ListAliasCandidatesParams) ([]ListAliasCandidatesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAliasCandidates, arg.JobID, arg.DisplayName, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAliasCandidatesRow{}
+	for rows.Next() {
+		var i ListAliasCandidatesRow
+		if err := rows.Scan(&i.ID, &i.DisplayName, &i.FirstSourceOrder); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDeadJobsWithDerivedRows = `-- name: ListDeadJobsWithDerivedRows :many
 SELECT id FROM relation_extraction_jobs
 WHERE state IN ('superseded', 'failed') AND finished_at IS NOT NULL AND finished_at < ?

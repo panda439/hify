@@ -187,6 +187,16 @@ type Querier interface {
 	ListAgentIDsByKnowledgeBase(ctx context.Context, knowledgeBaseID string) ([]string, error)
 	ListAgentIDsByMCPTool(ctx context.Context, mcpToolID string) ([]string, error)
 	ListAgents(ctx context.Context, arg ListAgentsParams) ([]Agent, error)
+	// 同一次作业里名字匹配的人物，作为归一阶段的候选。
+	//
+	// ⭐ job_id 的过滤是一条**边界**，不是优化：跨书的同名人物（两本书都有
+	// 「张三」）一旦合并，一本书的关系会出现在另一本书的查询结果里，
+	// 而用户完全无法解释那些记录从哪来。
+	//
+	// ⚠️ 按 first_source_order 排序，不按相关度：书里先出现的更可能是主要人物，
+	// 而"相关度"在这里没有可复现的定义。候选被截断时删的是排名靠后的，
+	// 顺序不确定的话每次截断的都不是同一批。
+	ListAliasCandidates(ctx context.Context, arg ListAliasCandidatesParams) ([]ListAliasCandidatesRow, error)
 	// 历史消息接口的批量加载入口——一次查询覆盖一页消息里所有 assistant
 	// message 的 citations，避免按每条消息各查一次（见 CLAUDE.md N+1 规则）。
 	// ORDER BY message_id 让调用方按 message_id 分组后，组内已经是 ref 的字符
