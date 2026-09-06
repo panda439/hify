@@ -333,3 +333,87 @@ SET state = 'superseded', finished_at = ?, lease_until = NULL,
     updated_at = CURRENT_TIMESTAMP(3)
 WHERE document_id = ? AND id <> ?
   AND state IN ('initializing', 'running', 'paused', 'budget_exhausted');
+
+-- ---------------------------------------------------------------------
+-- 清理与账目归档
+-- ---------------------------------------------------------------------
+
+-- name: ListJobsWithArchivableAttempts :many
+-- 哪些作业有过期的 attempt 可以归档。
+--
+-- ⚠️ 分批的单位是**作业**，不是行。一个作业的 attempt 上限就是它的 call_limit
+-- （默认 3000），一次事务处理这么多行是可以接受的；而按行分批会让"求和"和
+-- "删除"必须对齐同一批行，多出一整套游标对齐的复杂度，换来的只是更小的事务。
+SELECT DISTINCT job_id FROM relation_extraction_attempts
+WHERE finished_at IS NOT NULL AND finished_at < ?
+ORDER BY job_id
+LIMIT ?;
+
+-- name: SumArchivableAttempts :one
+-- 归档前先把这一批的账目求和。
+--
+-- ⭐ token 只在 usage_known 时计入，并单独统计"有多少次调用是知道用量的"。
+-- ⚠️ 把未知当 0 相加，就是把"没测到"和"真的没花"混成一个数——而那正是
+-- 000017 的 CHECK 和整条账目链路一路在防的事。报告里必须能说出
+-- "token 数只覆盖 N/M 次调用"。
+SELECT COUNT(*) AS attempts,
+       COALESCE(SUM(dispatch_confirmed), 0) AS confirmed_dispatches,
+       COALESCE(SUM(state = 'unknown'), 0) AS unknown_attempts,
+       COALESCE(SUM(usage_known), 0) AS usage_known_attempts,
+       COALESCE(SUM(CASE WHEN usage_known THEN input_tokens ELSE 0 END), 0) AS input_tokens,
+       COALESCE(SUM(CASE WHEN usage_known THEN output_tokens ELSE 0 END), 0) AS output_tokens,
+       COALESCE(SUM(elapsed_ms), 0) AS active_ms,
+       COALESCE(SUM(cost_amount), 0) AS cost_amount
+FROM relation_extraction_attempts
+WHERE job_id = ? AND finished_at IS NOT NULL AND finished_at < ?;
+
+-- name: DeleteArchivableAttempts :execrows
+-- ⚠️ 谓词必须与 SumArchivableAttempts **逐字相同**。不同的话，求和覆盖的
+-- 行和删掉的行就不是同一批：多删的那些费用永远消失，少删的那些下一轮会被
+-- 再加一遍。两种偏差都不报错。
+DELETE FROM relation_extraction_attempts
+WHERE job_id = ? AND finished_at IS NOT NULL AND finished_at < ?;
+
+-- name: UpdateJobArchivedSummary :execrows
+UPDATE relation_extraction_jobs
+SET archived_ledger_summary = ?, updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ?;
+
+-- name: SumLiveAttempts :one
+-- 未归档 attempt 的账目。⭐ 查询费用 = 本查询 + archived_ledger_summary。
+--
+-- ⚠️ **不能**用 jobs 表上的 confirmed_dispatches / active_ms_used 再加归档汇总：
+-- 那两列是**全生命周期**计数，归档时并不减少，加上汇总就是把同一批调用
+-- 算了两遍。两条口径必须择一，这里择"活账 + 归档汇总"，因为它在
+-- 清理之后仍然成立。
+SELECT COUNT(*) AS attempts,
+       COALESCE(SUM(dispatch_confirmed), 0) AS confirmed_dispatches,
+       COALESCE(SUM(state = 'unknown'), 0) AS unknown_attempts,
+       COALESCE(SUM(usage_known), 0) AS usage_known_attempts,
+       COALESCE(SUM(CASE WHEN usage_known THEN input_tokens ELSE 0 END), 0) AS input_tokens,
+       COALESCE(SUM(CASE WHEN usage_known THEN output_tokens ELSE 0 END), 0) AS output_tokens,
+       COALESCE(SUM(elapsed_ms), 0) AS active_ms,
+       COALESCE(SUM(cost_amount), 0) AS cost_amount
+FROM relation_extraction_attempts WHERE job_id = ?;
+
+-- name: ListDeadJobsWithDerivedRows :many
+-- 被取代 / 失败的作业，其派生记录已经不可查询，可以清理。
+--
+-- ⚠️ 只清 superseded / failed。succeeded 的**不清**：那是用户当前能查到的
+-- 关系数据。paused / budget_exhausted 也不清——它们随时可能被继续。
+SELECT id FROM relation_extraction_jobs
+WHERE state IN ('superseded', 'failed') AND finished_at IS NOT NULL AND finished_at < ?
+ORDER BY id
+LIMIT ?;
+
+-- name: DeleteJobEvidence :execrows
+DELETE FROM narrative_relation_evidence WHERE job_id = ?;
+
+-- name: DeleteJobRelations :execrows
+DELETE FROM narrative_relations WHERE job_id = ?;
+
+-- name: DeleteJobAliases :execrows
+DELETE FROM narrative_aliases WHERE job_id = ?;
+
+-- name: DeleteJobCharacters :execrows
+DELETE FROM narrative_characters WHERE job_id = ?;

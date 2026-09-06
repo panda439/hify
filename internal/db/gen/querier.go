@@ -128,8 +128,16 @@ type Querier interface {
 	// agent.Service's replace-all semantics for this association.
 	DeleteAgentKnowledgeBases(ctx context.Context, agentID string) error
 	DeleteAgentMCPTools(ctx context.Context, agentID string) error
+	// ⚠️ 谓词必须与 SumArchivableAttempts **逐字相同**。不同的话，求和覆盖的
+	// 行和删掉的行就不是同一批：多删的那些费用永远消失，少删的那些下一轮会被
+	// 再加一遍。两种偏差都不报错。
+	DeleteArchivableAttempts(ctx context.Context, arg DeleteArchivableAttemptsParams) (int64, error)
 	DeleteDocument(ctx context.Context, id string) error
 	DeleteExpiredRefreshTokens(ctx context.Context, revokedAt sql.NullTime) (int64, error)
+	DeleteJobAliases(ctx context.Context, jobID string) (int64, error)
+	DeleteJobCharacters(ctx context.Context, jobID string) (int64, error)
+	DeleteJobEvidence(ctx context.Context, jobID string) (int64, error)
+	DeleteJobRelations(ctx context.Context, jobID string) (int64, error)
 	// ⚠️ 只在 job 还没结束时生效。已经 succeeded/failed 的 job 不该被一条迟到的
 	// 失败改写——那条失败属于一个早就被取代的 epoch。
 	FailRelationExtractionJob(ctx context.Context, arg FailRelationExtractionJobParams) (int64, error)
@@ -193,6 +201,11 @@ type Querier interface {
 	// subquery return SQL NULL, and sqlc generates a plain non-nullable string
 	// field for it — scanning a real NULL into that panics at runtime.
 	ListConversationsByUser(ctx context.Context, arg ListConversationsByUserParams) ([]ListConversationsByUserRow, error)
+	// 被取代 / 失败的作业，其派生记录已经不可查询，可以清理。
+	//
+	// ⚠️ 只清 superseded / failed。succeeded 的**不清**：那是用户当前能查到的
+	// 关系数据。paused / budget_exhausted 也不清——它们随时可能被继续。
+	ListDeadJobsWithDerivedRows(ctx context.Context, arg ListDeadJobsWithDerivedRowsParams) ([]string, error)
 	// 009-evidence-boundary-awareness：批量取一组文档"有多少内容没能入库"。
 	//
 	// ⚠️ 只 SELECT 三列，不是整行。调用方（conversation 组装上下文时）要的是
@@ -212,6 +225,15 @@ type Querier interface {
 	// 日志、诊断和测试断言可复现，不依赖 MySQL 的返回顺序（宪法第 V 条）。
 	ListDocumentIDsByAgent(ctx context.Context, agentID string) ([]string, error)
 	ListDocumentsByKnowledgeBase(ctx context.Context, arg ListDocumentsByKnowledgeBaseParams) ([]Document, error)
+	// ---------------------------------------------------------------------
+	// 清理与账目归档
+	// ---------------------------------------------------------------------
+	// 哪些作业有过期的 attempt 可以归档。
+	//
+	// ⚠️ 分批的单位是**作业**，不是行。一个作业的 attempt 上限就是它的 call_limit
+	// （默认 3000），一次事务处理这么多行是可以接受的；而按行分批会让"求和"和
+	// "删除"必须对齐同一批行，多出一整套游标对齐的复杂度，换来的只是更小的事务。
+	ListJobsWithArchivableAttempts(ctx context.Context, arg ListJobsWithArchivableAttemptsParams) ([]string, error)
 	ListKnowledgeBaseIDsByAgent(ctx context.Context, agentID string) ([]string, error)
 	ListKnowledgeBases(ctx context.Context, arg ListKnowledgeBasesParams) ([]KnowledgeBase, error)
 	// reconciliation 扫描用：processing 状态且租约已过期，大概率是 worker
@@ -373,6 +395,20 @@ type Querier interface {
 	// 结算一次尝试。⚠️ 守卫 state='reserved'：一次尝试只能被结算一次，
 	// 重复结算会让 usage 和费用被重复累加进上层聚合。
 	SettleExtractionAttempt(ctx context.Context, arg SettleExtractionAttemptParams) (int64, error)
+	// 归档前先把这一批的账目求和。
+	//
+	// ⭐ token 只在 usage_known 时计入，并单独统计"有多少次调用是知道用量的"。
+	// ⚠️ 把未知当 0 相加，就是把"没测到"和"真的没花"混成一个数——而那正是
+	// 000017 的 CHECK 和整条账目链路一路在防的事。报告里必须能说出
+	// "token 数只覆盖 N/M 次调用"。
+	SumArchivableAttempts(ctx context.Context, arg SumArchivableAttemptsParams) (SumArchivableAttemptsRow, error)
+	// 未归档 attempt 的账目。⭐ 查询费用 = 本查询 + archived_ledger_summary。
+	//
+	// ⚠️ **不能**用 jobs 表上的 confirmed_dispatches / active_ms_used 再加归档汇总：
+	// 那两列是**全生命周期**计数，归档时并不减少，加上汇总就是把同一批调用
+	// 算了两遍。两条口径必须择一，这里择"活账 + 归档汇总"，因为它在
+	// 清理之后仍然成立。
+	SumLiveAttempts(ctx context.Context, jobID string) (SumLiveAttemptsRow, error)
 	// restart：把这份文档上此前的作业全部标为 superseded。
 	//
 	// ⚠️ 只把文档指针改到新作业是不够的：旧作业的 state 还是 running，
@@ -386,6 +422,7 @@ type Querier interface {
 	SupersedePriorExtractionJobs(ctx context.Context, arg SupersedePriorExtractionJobsParams) (int64, error)
 	TouchConversation(ctx context.Context, arg TouchConversationParams) error
 	UpdateAgent(ctx context.Context, arg UpdateAgentParams) error
+	UpdateJobArchivedSummary(ctx context.Context, arg UpdateJobArchivedSummaryParams) (int64, error)
 	// embedding_model_id/chunk_size/chunk_overlap are deliberately not
 	// updatable here — see the "创建后不可修改" note in the plan's
 	// knowledge_bases design.

@@ -61,6 +61,8 @@ func (r *Repository) listRecoverableExtractionJobs(ctx context.Context, afterID 
 type ReconcileResult struct {
 	JobsRequeued         int
 	ReservationsResolved int
+	AttemptsArchived     int
+	DeadJobsCleaned      int
 }
 
 // reconcileRelationExtractions 跑一轮恢复。
@@ -78,6 +80,22 @@ func (r *Repository) reconcileRelationExtractions(ctx context.Context) (Reconcil
 	res.ReservationsResolved = fixed
 	if err != nil {
 		return res, err
+	}
+
+	// ⚠️ 清理放在**捡作业之前**：清理只碰已经结束的作业，与接手互不影响，
+	// 而放在后面的话，一次"捡作业"阶段的错误会让清理这一轮整个不跑——
+	// 过期明细越积越多，而日志上只有那条接手的错误。
+	if archived, err := r.archiveExpiredAttempts(ctx, attemptRetention, reconcileBatchSize); err != nil {
+		res.AttemptsArchived = archived
+		return res, err
+	} else {
+		res.AttemptsArchived = archived
+	}
+	if cleaned, err := r.cleanupDeadJobDerivedRows(ctx, derivedRowRetention, reconcileBatchSize); err != nil {
+		res.DeadJobsCleaned = cleaned
+		return res, err
+	} else {
+		res.DeadJobsCleaned = cleaned
 	}
 
 	n, err := r.walkRecoverableJobs(ctx, reconcileBatchSize, func(job recoverableJob) {

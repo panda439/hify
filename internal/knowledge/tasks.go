@@ -81,10 +81,13 @@ func NewRelationExtractionReconcileHandler(svc Service) asynq.HandlerFunc {
 		if err != nil {
 			return err
 		}
-		if res.JobsRequeued > 0 || res.ReservationsResolved > 0 {
+		if res.JobsRequeued > 0 || res.ReservationsResolved > 0 ||
+			res.AttemptsArchived > 0 || res.DeadJobsCleaned > 0 {
 			slog.Info("knowledge: reconciled relation extractions",
 				"jobs_requeued", res.JobsRequeued,
-				"reservations_resolved", res.ReservationsResolved)
+				"reservations_resolved", res.ReservationsResolved,
+				"attempts_archived", res.AttemptsArchived,
+				"dead_jobs_cleaned", res.DeadJobsCleaned)
 		}
 		return nil
 	}

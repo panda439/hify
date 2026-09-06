@@ -329,6 +329,75 @@ func (q *Queries) CreateRelationExtractionJob(ctx context.Context, arg CreateRel
 	return err
 }
 
+const deleteArchivableAttempts = `-- name: DeleteArchivableAttempts :execrows
+DELETE FROM relation_extraction_attempts
+WHERE job_id = ? AND finished_at IS NOT NULL AND finished_at < ?
+`
+
+type DeleteArchivableAttemptsParams struct {
+	JobID      string       `json:"job_id"`
+	FinishedAt sql.NullTime `json:"finished_at"`
+}
+
+// ⚠️ 谓词必须与 SumArchivableAttempts **逐字相同**。不同的话，求和覆盖的
+// 行和删掉的行就不是同一批：多删的那些费用永远消失，少删的那些下一轮会被
+// 再加一遍。两种偏差都不报错。
+func (q *Queries) DeleteArchivableAttempts(ctx context.Context, arg DeleteArchivableAttemptsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteArchivableAttempts, arg.JobID, arg.FinishedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteJobAliases = `-- name: DeleteJobAliases :execrows
+DELETE FROM narrative_aliases WHERE job_id = ?
+`
+
+func (q *Queries) DeleteJobAliases(ctx context.Context, jobID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteJobAliases, jobID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteJobCharacters = `-- name: DeleteJobCharacters :execrows
+DELETE FROM narrative_characters WHERE job_id = ?
+`
+
+func (q *Queries) DeleteJobCharacters(ctx context.Context, jobID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteJobCharacters, jobID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteJobEvidence = `-- name: DeleteJobEvidence :execrows
+DELETE FROM narrative_relation_evidence WHERE job_id = ?
+`
+
+func (q *Queries) DeleteJobEvidence(ctx context.Context, jobID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteJobEvidence, jobID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteJobRelations = `-- name: DeleteJobRelations :execrows
+DELETE FROM narrative_relations WHERE job_id = ?
+`
+
+func (q *Queries) DeleteJobRelations(ctx context.Context, jobID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteJobRelations, jobID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const failRelationExtractionJob = `-- name: FailRelationExtractionJob :execrows
 UPDATE relation_extraction_jobs
 SET state = 'failed', stop_reason = ?, finished_at = ?, lease_until = NULL,
@@ -690,6 +759,89 @@ func (q *Queries) GetRelationExtractionJobPayload(ctx context.Context, id string
 	var i GetRelationExtractionJobPayloadRow
 	err := row.Scan(&i.ConfigSnapshot, &i.ArchivedLedgerSummary, &i.BudgetOperations)
 	return i, err
+}
+
+const listDeadJobsWithDerivedRows = `-- name: ListDeadJobsWithDerivedRows :many
+SELECT id FROM relation_extraction_jobs
+WHERE state IN ('superseded', 'failed') AND finished_at IS NOT NULL AND finished_at < ?
+ORDER BY id
+LIMIT ?
+`
+
+type ListDeadJobsWithDerivedRowsParams struct {
+	FinishedAt sql.NullTime `json:"finished_at"`
+	Limit      int32        `json:"limit"`
+}
+
+// 被取代 / 失败的作业，其派生记录已经不可查询，可以清理。
+//
+// ⚠️ 只清 superseded / failed。succeeded 的**不清**：那是用户当前能查到的
+// 关系数据。paused / budget_exhausted 也不清——它们随时可能被继续。
+func (q *Queries) ListDeadJobsWithDerivedRows(ctx context.Context, arg ListDeadJobsWithDerivedRowsParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listDeadJobsWithDerivedRows, arg.FinishedAt, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listJobsWithArchivableAttempts = `-- name: ListJobsWithArchivableAttempts :many
+
+SELECT DISTINCT job_id FROM relation_extraction_attempts
+WHERE finished_at IS NOT NULL AND finished_at < ?
+ORDER BY job_id
+LIMIT ?
+`
+
+type ListJobsWithArchivableAttemptsParams struct {
+	FinishedAt sql.NullTime `json:"finished_at"`
+	Limit      int32        `json:"limit"`
+}
+
+// ---------------------------------------------------------------------
+// 清理与账目归档
+// ---------------------------------------------------------------------
+// 哪些作业有过期的 attempt 可以归档。
+//
+// ⚠️ 分批的单位是**作业**，不是行。一个作业的 attempt 上限就是它的 call_limit
+// （默认 3000），一次事务处理这么多行是可以接受的；而按行分批会让"求和"和
+// "删除"必须对齐同一批行，多出一整套游标对齐的复杂度，换来的只是更小的事务。
+func (q *Queries) ListJobsWithArchivableAttempts(ctx context.Context, arg ListJobsWithArchivableAttemptsParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listJobsWithArchivableAttempts, arg.FinishedAt, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var job_id string
+		if err := rows.Scan(&job_id); err != nil {
+			return nil, err
+		}
+		items = append(items, job_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listRecoverableExtractionJobs = `-- name: ListRecoverableExtractionJobs :many
@@ -1130,6 +1282,102 @@ func (q *Queries) SettleExtractionAttempt(ctx context.Context, arg SettleExtract
 	return result.RowsAffected()
 }
 
+const sumArchivableAttempts = `-- name: SumArchivableAttempts :one
+SELECT COUNT(*) AS attempts,
+       COALESCE(SUM(dispatch_confirmed), 0) AS confirmed_dispatches,
+       COALESCE(SUM(state = 'unknown'), 0) AS unknown_attempts,
+       COALESCE(SUM(usage_known), 0) AS usage_known_attempts,
+       COALESCE(SUM(CASE WHEN usage_known THEN input_tokens ELSE 0 END), 0) AS input_tokens,
+       COALESCE(SUM(CASE WHEN usage_known THEN output_tokens ELSE 0 END), 0) AS output_tokens,
+       COALESCE(SUM(elapsed_ms), 0) AS active_ms,
+       COALESCE(SUM(cost_amount), 0) AS cost_amount
+FROM relation_extraction_attempts
+WHERE job_id = ? AND finished_at IS NOT NULL AND finished_at < ?
+`
+
+type SumArchivableAttemptsParams struct {
+	JobID      string       `json:"job_id"`
+	FinishedAt sql.NullTime `json:"finished_at"`
+}
+
+type SumArchivableAttemptsRow struct {
+	Attempts            int64       `json:"attempts"`
+	ConfirmedDispatches interface{} `json:"confirmed_dispatches"`
+	UnknownAttempts     interface{} `json:"unknown_attempts"`
+	UsageKnownAttempts  interface{} `json:"usage_known_attempts"`
+	InputTokens         interface{} `json:"input_tokens"`
+	OutputTokens        interface{} `json:"output_tokens"`
+	ActiveMs            interface{} `json:"active_ms"`
+	CostAmount          interface{} `json:"cost_amount"`
+}
+
+// 归档前先把这一批的账目求和。
+//
+// ⭐ token 只在 usage_known 时计入，并单独统计"有多少次调用是知道用量的"。
+// ⚠️ 把未知当 0 相加，就是把"没测到"和"真的没花"混成一个数——而那正是
+// 000017 的 CHECK 和整条账目链路一路在防的事。报告里必须能说出
+// "token 数只覆盖 N/M 次调用"。
+func (q *Queries) SumArchivableAttempts(ctx context.Context, arg SumArchivableAttemptsParams) (SumArchivableAttemptsRow, error) {
+	row := q.db.QueryRowContext(ctx, sumArchivableAttempts, arg.JobID, arg.FinishedAt)
+	var i SumArchivableAttemptsRow
+	err := row.Scan(
+		&i.Attempts,
+		&i.ConfirmedDispatches,
+		&i.UnknownAttempts,
+		&i.UsageKnownAttempts,
+		&i.InputTokens,
+		&i.OutputTokens,
+		&i.ActiveMs,
+		&i.CostAmount,
+	)
+	return i, err
+}
+
+const sumLiveAttempts = `-- name: SumLiveAttempts :one
+SELECT COUNT(*) AS attempts,
+       COALESCE(SUM(dispatch_confirmed), 0) AS confirmed_dispatches,
+       COALESCE(SUM(state = 'unknown'), 0) AS unknown_attempts,
+       COALESCE(SUM(usage_known), 0) AS usage_known_attempts,
+       COALESCE(SUM(CASE WHEN usage_known THEN input_tokens ELSE 0 END), 0) AS input_tokens,
+       COALESCE(SUM(CASE WHEN usage_known THEN output_tokens ELSE 0 END), 0) AS output_tokens,
+       COALESCE(SUM(elapsed_ms), 0) AS active_ms,
+       COALESCE(SUM(cost_amount), 0) AS cost_amount
+FROM relation_extraction_attempts WHERE job_id = ?
+`
+
+type SumLiveAttemptsRow struct {
+	Attempts            int64       `json:"attempts"`
+	ConfirmedDispatches interface{} `json:"confirmed_dispatches"`
+	UnknownAttempts     interface{} `json:"unknown_attempts"`
+	UsageKnownAttempts  interface{} `json:"usage_known_attempts"`
+	InputTokens         interface{} `json:"input_tokens"`
+	OutputTokens        interface{} `json:"output_tokens"`
+	ActiveMs            interface{} `json:"active_ms"`
+	CostAmount          interface{} `json:"cost_amount"`
+}
+
+// 未归档 attempt 的账目。⭐ 查询费用 = 本查询 + archived_ledger_summary。
+//
+// ⚠️ **不能**用 jobs 表上的 confirmed_dispatches / active_ms_used 再加归档汇总：
+// 那两列是**全生命周期**计数，归档时并不减少，加上汇总就是把同一批调用
+// 算了两遍。两条口径必须择一，这里择"活账 + 归档汇总"，因为它在
+// 清理之后仍然成立。
+func (q *Queries) SumLiveAttempts(ctx context.Context, jobID string) (SumLiveAttemptsRow, error) {
+	row := q.db.QueryRowContext(ctx, sumLiveAttempts, jobID)
+	var i SumLiveAttemptsRow
+	err := row.Scan(
+		&i.Attempts,
+		&i.ConfirmedDispatches,
+		&i.UnknownAttempts,
+		&i.UsageKnownAttempts,
+		&i.InputTokens,
+		&i.OutputTokens,
+		&i.ActiveMs,
+		&i.CostAmount,
+	)
+	return i, err
+}
+
 const supersedePriorExtractionJobs = `-- name: SupersedePriorExtractionJobs :execrows
 UPDATE relation_extraction_jobs
 SET state = 'superseded', finished_at = ?, lease_until = NULL,
@@ -1156,6 +1404,25 @@ type SupersedePriorExtractionJobsParams struct {
 // 账目查询分不清哪一个是当前 run。
 func (q *Queries) SupersedePriorExtractionJobs(ctx context.Context, arg SupersedePriorExtractionJobsParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, supersedePriorExtractionJobs, arg.FinishedAt, arg.DocumentID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateJobArchivedSummary = `-- name: UpdateJobArchivedSummary :execrows
+UPDATE relation_extraction_jobs
+SET archived_ledger_summary = ?, updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ?
+`
+
+type UpdateJobArchivedSummaryParams struct {
+	ArchivedLedgerSummary json.RawMessage `json:"archived_ledger_summary"`
+	ID                    string          `json:"id"`
+}
+
+func (q *Queries) UpdateJobArchivedSummary(ctx context.Context, arg UpdateJobArchivedSummaryParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateJobArchivedSummary, arg.ArchivedLedgerSummary, arg.ID)
 	if err != nil {
 		return 0, err
 	}
