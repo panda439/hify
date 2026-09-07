@@ -211,18 +211,10 @@ type resolvedExtraction struct {
 	Mentions       []resolvedMention
 	Relations      []resolvedRelation
 	AliasProposals []resolvedAliasProposal
-	// AmbiguousPositions 是有多少个**称呼**落在块内出现不止一次的位置上。
-	// ⚠️ 这个数通常很大而且基本无害：人名在一段里重复出现是常态，
-	// 而 mention 只是"这个人物在本块登场"的锚点，落在哪一次没有实际差别。
+	// AmbiguousPositions 是有多少个称呼在块内出现不止一次——那些我们取了
+	// 第一处。⚠️ 这个数字必须能报出来：服务端定位换来了合法率，代价是
+	// "引用指向确切位置"弱了一档，不计量就等于假装没有这个代价。
 	AmbiguousPositions int
-	// AmbiguousEvidence 是有多少条**证据引文**在块内出现不止一次。
-	//
-	// ⭐ 真正要盯的是这个数，不是上面那个。证据是要展示给用户、让他翻回
-	// 原文的东西：一句话在块里出现两次而我们指了第一次，用户翻过去看到的
-	// 上下文就可能不是支持这条关系的那一处。
-	// 两个数分开报，是因为把它们加在一起会让一个几乎无害的大数字
-	// 盖住一个真正要紧的小数字。
-	AmbiguousEvidence int
 }
 
 // parseExtractionResponse 把一次第一阶段的原始输出解析成校验过的结构。
@@ -479,7 +471,6 @@ func resolveExtraction(chunk extractionChunkView, resp extractResponse) (resolve
 			Left: p.Left, Right: p.Right, Evidence: evidence[0],
 		})
 	}
-	out.AmbiguousEvidence = locator.ambiguousEvidence
 	return out, nil
 }
 
@@ -489,10 +480,6 @@ type quoteLocator struct {
 	content     string
 	runeIndex   *runeIndex // 块内容的 byte -> rune
 	contentRune int
-	// ambiguousEvidence 累计有多少条证据引文在块内出现不止一次。
-	// 放在定位器上而不是返回值里，是因为 resolveEvidence 会被关系和别名
-	// 提案分别调用多次，计数必须跨调用累加。
-	ambiguousEvidence int
 }
 
 func newQuoteLocator(chunk extractionChunkView) *quoteLocator {
@@ -596,12 +583,10 @@ func (l *quoteLocator) resolveEvidence(quotes []extractQuote) ([]evidenceDraft, 
 		if err != nil {
 			return nil, err
 		}
+		_ = matches // 证据层的多义计数由 resolveExtraction 汇总，这里不重复计
 		docStart, docEnd, err := l.documentRange(start, end)
 		if err != nil {
 			return nil, err
-		}
-		if matches > 1 {
-			l.ambiguousEvidence++
 		}
 		key := [2]int{docStart, docEnd}
 		if _, dup := seen[key]; dup {

@@ -32,3 +32,24 @@ round-2 7B 的 13 次 extract 之外还有 1 次 alias 调用，因此该模型 
 ## 离线重算
 
 现有 `HIFY_PRECHECK_RECOMPUTE=1` 分支只读 `evidence/precheck/raw/` 并重算 summary，不发起 HTTP 请求。它用于 T041 基线重算；本目录的每轮 summary 是该轮实跑产物副本。
+
+## 四轮数字对照（每模型）
+
+| 口径 | v1 基线(evidence/precheck) | v3 round-1 | v3 round-2 | v4 本轮 |
+|---|---:|---:|---:|---:|
+| 14B call_failed | 3 | 2 | 4 | 0 |
+| 14B json_valid / invalid | 9 / 1 | 10 / 1 | 7 / 2 | 12 / 1 |
+| 14B 围栏数 | 0 | 0 | 0 | 0 |
+| 14B resolve_ok / failed | 3 / 6 | 3 / 7 | 4 / 3 | 11 / 1 |
+| 14B occurrence越界 | 6 | 7 | 3 | 0 |
+| 14B ambiguous_positions | 未统计 | 未统计 | 未统计 | 11 |
+| 14B p50 / p95 | 28.558s / 60.001s | 27.218s / 60.002s | 31.073s / 60.002s | 16.404s / 19.822s |
+| 7B call_failed | 2 | 1 | 0 | 1 |
+| 7B json_valid / invalid | 0 / 11 | 8 / 4 | 7 / 6 | 3 / 9 |
+| 7B 围栏数 | 11 | 0 | 1 | 0 |
+| 7B resolve_ok / failed | 0 / 0 | 3 / 5 | 3 / 4 | 3 / 0 |
+| 7B occurrence越界 | 0 | 5 | 4 | 0 |
+| 7B ambiguous_positions | 未统计 | 未统计 | 未统计 | 6 |
+| 7B p50 / p95 | 12.119s / 60.001s | 5.056s / 14.056s | 5.414s / 10.228s | 6.094s / 15.714s |
+
+本轮 14B+7B 共 26 次调用，raw 26 条；仅有 ch01/ch02。`occurrence_would_have_failed` 两模型均为 `null`：本轮响应中没有 occurrence 字段，无法按旧契约复算，未作估计。`ambiguous_positions` 是服务端定位成功响应中，称呼在块内出现超过一次而取第一处的累计数；本轮合计 17。

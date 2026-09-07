@@ -80,3 +80,23 @@ T041 第一版 summary 把 14B 的 6 次定位失败归成「引用找不到」�
 
 ⚠️ 两者都会让"引用指向原文的确切位置"这个保证变弱一档，必须显式取舍，不能顺手改。
 在做出决定之前，**T042 跑全书会持续损失约 1/3 的合法响应**（r2：14B 7 条合法里 3 条卡在越界）。
+
+## 第三轮：服务端定位（v4）
+
+产物见 [`evidence/prompt-iter/round-3-serverside-locate/`](../evidence/prompt-iter/round-3-serverside-locate/)，只跑 ch01/ch02，chunkSize=500、overlap=0；两模型各 13 个 extract 调用，共 26 条 raw。没有修改 prompt、校验、schema、契约、eval/annotations/ 或 tasks.md。
+
+### 三条验收命令实际输出
+
+- `go vet ./internal/knowledge/`：通过（无输出）。
+- `go test ./internal/knowledge/ -run TestNarrativePrecheck -count=1 -v`（设置两模型）：`PASS`；总耗时 `318.425s`，14B `174.70s`，7B `142.72s`。
+- `go test ./... -race -count=1`：通过；各包均 `ok` 或 `[no test files]`，其中 knowledge `17.460s`。
+
+### 四列对照
+
+详见 [`evidence/prompt-iter/README.md`](../evidence/prompt-iter/README.md) 的四轮表；本轮关键汇总为：14B `call_failed=0`、`json_valid/invalid=12/1`、围栏 `0`、`resolve_ok/failed=11/1`、`p50/p95=16.404s/19.822s`；7B `call_failed=1`、`json_valid/invalid=3/9`、围栏 `0`、`resolve_ok/failed=3/0`、`p50/p95=6.094s/15.714s`。两模型 `resolve_reject_reasons.occurrence越界` 均为 `0`。
+
+### ambiguous_positions 与开放问题
+
+本轮服务端定位成功响应累计 `ambiguous_positions`：14B 为 `11`，7B 为 `6`，合计 `17`。这些称呼在块内出现不止一次，服务端按契约取第一处；这是“位置可能不再是模型意图中的那一处”的可量化代价，不对其作更好或更差的结论。
+
+`occurrence_would_have_failed` 两模型均为 `null`。本轮原始响应没有 occurrence 字段，因此无法按旧契约计算，未估计。开放问题：样本仅 13 个块×2 模型；服务端取第一处对确切引用位置的影响仍需独立真值集评估；7B 本轮合法 JSON 数下降的原因未作归因。

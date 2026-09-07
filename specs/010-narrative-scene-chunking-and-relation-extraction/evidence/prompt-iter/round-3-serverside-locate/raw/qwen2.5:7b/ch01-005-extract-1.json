@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch01-005",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "509e43174e48dfdc8452464e21734ebed0370b42614d55c1877b8107c9d367dd",
+  "request_runes": 1506,
+  "http_status": 200,
+  "latency_ms": 8561,
+  "response": {
+    "id": "chatcmpl-940",
+    "object": "chat.completion",
+    "created": 1788793241,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"阿Quei\"},{\"ref\":\"m3\",\"surface\":\"阿桂\"},{\"ref\":\"m4\",\"surface\":\"阿富\"},{\"ref\":\"m5\",\"表面\":\"阿貴\"},{\"ref\":\"m6\",\"surface\":\"阿Q\"},{\"ref\":\"m7\",\"surface\":\"阿Quei\"},{\"ref\":\"m8\",\"surface\":\"阿Q\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m7\",\"type\":\"同伙\",\"evidence\":[{\"quote\":\"只好用了『洋字』，照英國流行的拼法寫他爲阿Quei，略作阿Q。\"}]}],\"alias_proposals\":[{\"left\":\"m1\",\"right\":\"m7\",\"quote\":\"只好用了『洋字』，照英國流行的拼法寫他爲阿Quei，略作阿Q。\"}]}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 941,
+      "completion_tokens": 179,
+      "total_tokens": 1120
+    }
+  }
+}

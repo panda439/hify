@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch02-001",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "f34ab0e3c8b92f2f013622724385c0fdfd92cca5f27cf9871bae46b8038c7cbc",
+  "request_runes": 1379,
+  "http_status": 200,
+  "latency_ms": 5559,
+  "response": {
+    "id": "chatcmpl-728",
+    "object": "chat.completion",
+    "created": 1788793250,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"未莊的人们\"},{\"ref\":\"m3\",\"surface\":\"和别的人\"},{\"ref\":\"m4\",\"surface\":\"老头子\"}],\"relations\":[],\"alias_proposals\":[[\"阿Q\",\"老头子\",\"阿Q眞能做！这回阿Q赤着膊，懒洋洋的瘦伶仃的正在他面前，别人也摸不着这话是真心还是讥笑，然而阿Q很喜欢。\"]]}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 860,
+      "completion_tokens": 110,
+      "total_tokens": 970
+    }
+  }
+}

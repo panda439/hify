@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch01-006",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "bbfc5aa50cb2bcb73e318b2fa2e1105b90eef3157bc804444fdcf3c434138026",
+  "request_runes": 1286,
+  "http_status": 200,
+  "latency_ms": 3462,
+  "response": {
+    "id": "chatcmpl-462",
+    "object": "chat.completion",
+    "created": 1788793245,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"未莊\"},{\"ref\":\"m3\",\"surface\":\"胡適之\"},{\"ref\":\"m4\",\"surface\":\"阿\"}],\"relations\":[],\"alias_proposals\":[[\"m1\",\"m4\",\"阿Q就是阿\"]]}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 781,
+      "completion_tokens": 65,
+      "total_tokens": 846
+    }
+  }
+}

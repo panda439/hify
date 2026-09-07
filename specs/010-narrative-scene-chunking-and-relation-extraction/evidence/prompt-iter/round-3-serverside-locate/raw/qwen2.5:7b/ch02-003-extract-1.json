@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch02-003",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "4de96c67f1ebe1e40e7967f9d28123b1d7102cf428903b5f31b38fdf1061f653",
+  "request_runes": 1424,
+  "http_status": 200,
+  "latency_ms": 4611,
+  "response": {
+    "id": "chatcmpl-655",
+    "object": "chat.completion",
+    "created": 1788793271,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"未莊的閒人們\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"欺凌\",\"evidence\":[{\"quote\":\"誰知道阿Q採用怒目主義之後，未莊的閒人們便愈喜歡玩笑他\"}]}],\"alias_proposals\":[]}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 921,
+      "completion_tokens": 81,
+      "total_tokens": 1002
+    }
+  }
+}

@@ -349,6 +349,45 @@ func TestSameQuoteCollapsesToTheFirstOccurrence(t *testing.T) {
 	}
 }
 
+// TestAmbiguousEvidenceIsCountedSeparatelyFromMentions：两个多义计数必须分开。
+//
+// ⭐ 称呼的多义几乎无害（人名在一段里重复出现是常态，mention 只是登场锚点），
+// 而**证据引文**的多义才要紧：用户会拿着引用翻回原文，指错一处看到的上下文
+// 就可能不是支持这条关系的那一处。合成一个数，那个几乎无害的大数字会盖住
+// 真正要紧的小数字。
+func TestAmbiguousEvidenceIsCountedSeparatelyFromMentions(t *testing.T) {
+	// "阿Q" 出现两次（称呼多义），"挨打" 只出现一次（证据不多义）。
+	chunk := chunkFixture("阿Q挨打，阿Q回家", 0)
+	raw := `{"mentions":[{"ref":"m1","surface":"阿Q"},{"ref":"m2","surface":"回家"}],
+	         "relations":[{"subject_ref":"m1","object_ref":"m2","type":"冲突",
+	                       "evidence":[{"quote":"挨打"}]}],
+	         "alias_proposals":[]}`
+	resolved, err := resolveExtraction(chunk, mustParse(t, raw))
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if resolved.AmbiguousPositions != 1 {
+		t.Errorf("AmbiguousPositions = %d，「阿Q」出现两次应当计 1", resolved.AmbiguousPositions)
+	}
+	if resolved.AmbiguousEvidence != 0 {
+		t.Errorf("AmbiguousEvidence = %d，「挨打」只出现一次不该计", resolved.AmbiguousEvidence)
+	}
+
+	// 反过来：证据引文本身多义时要计出来。
+	chunk2 := chunkFixture("阿Q挨打，阿Q挨打", 0)
+	raw2 := `{"mentions":[{"ref":"m1","surface":"阿Q"},{"ref":"m2","surface":"挨打"}],
+	          "relations":[{"subject_ref":"m1","object_ref":"m2","type":"冲突",
+	                        "evidence":[{"quote":"阿Q挨打"}]}],
+	          "alias_proposals":[]}`
+	resolved2, err := resolveExtraction(chunk2, mustParse(t, raw2))
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if resolved2.AmbiguousEvidence != 1 {
+		t.Errorf("AmbiguousEvidence = %d，「阿Q挨打」出现两次应当计 1", resolved2.AmbiguousEvidence)
+	}
+}
+
 // TestResolveIsDeterministic：同一份响应重复解析，结果必须逐字节一致
 // （宪法第 V 条）。
 func TestResolveIsDeterministic(t *testing.T) {

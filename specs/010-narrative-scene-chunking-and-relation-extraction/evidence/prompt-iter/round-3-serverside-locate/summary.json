@@ -1,0 +1,82 @@
+{
+  "models": [
+    {
+      "model": "qwen2.5:14b",
+      "digest": "7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6",
+      "chunks": 13,
+      "calls": {
+        "extract": 13,
+        "alias": 0
+      },
+      "json_valid": 12,
+      "json_invalid": 1,
+      "call_failed": 0,
+      "reject_reasons": {
+        "其他": 1,
+        "围栏": 0,
+        "截断": 0,
+        "未知字段": 0,
+        "缺字段": 0,
+        "重复key": 0
+      },
+      "resolve_ok": 11,
+      "resolve_failed": 1,
+      "resolve_reject_reasons": {
+        "occurrence越界": 0,
+        "引用找不到": 1,
+        "跨分隔符": 0
+      },
+      "latency_ms": {
+        "p50": 16404,
+        "p95": 19822,
+        "max": 24388
+      },
+      "usage_returned": 13,
+      "over_60s": 0,
+      "mentions_avg": 1.7692307692307692,
+      "relations_avg": 1.2307692307692308,
+      "note": "直接 POST Ollama /v1/chat/completions；有意绕过 provider.ChatOnce（限流/熔断/账目），不代表完整生产调用路径。；本轮无响应包含 occurrence 字段，因此 occurrence_would_have_failed 无法计算，记为 null。服务端定位成功响应累计 AmbiguousPositions=11。",
+      "ambiguous_positions": 11,
+      "occurrence_would_have_failed": null
+    },
+    {
+      "model": "qwen2.5:7b",
+      "digest": "845dbda0ea48ed749caafd9e6037047aa19acfcfd82e704d7ca97d631a0b697e",
+      "chunks": 13,
+      "calls": {
+        "extract": 13,
+        "alias": 0
+      },
+      "json_valid": 3,
+      "json_invalid": 9,
+      "call_failed": 1,
+      "reject_reasons": {
+        "其他": 9,
+        "围栏": 0,
+        "截断": 0,
+        "未知字段": 0,
+        "缺字段": 0,
+        "重复key": 0
+      },
+      "resolve_ok": 3,
+      "resolve_failed": 0,
+      "resolve_reject_reasons": {
+        "occurrence越界": 0,
+        "引用找不到": 0,
+        "跨分隔符": 0
+      },
+      "latency_ms": {
+        "p50": 6094,
+        "p95": 15714,
+        "max": 60004
+      },
+      "usage_returned": 12,
+      "over_60s": 1,
+      "mentions_avg": 0.5384615384615384,
+      "relations_avg": 0.23076923076923078,
+      "note": "直接 POST Ollama /v1/chat/completions；有意绕过 provider.ChatOnce（限流/熔断/账目），不代表完整生产调用路径。；本轮无响应包含 occurrence 字段，因此 occurrence_would_have_failed 无法计算，记为 null。服务端定位成功响应累计 AmbiguousPositions=6。",
+      "ambiguous_positions": 6,
+      "occurrence_would_have_failed": null
+    }
+  ]
+}

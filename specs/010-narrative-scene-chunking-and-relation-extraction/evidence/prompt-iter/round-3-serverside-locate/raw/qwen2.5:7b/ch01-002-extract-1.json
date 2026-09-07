@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch01-002",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "1f274a9274258d3dcaafa0931a871d19c4dbebd44b8a8754f0da9c321b261924",
+  "request_runes": 1445,
+  "http_status": 200,
+  "latency_ms": 11505,
+  "response": {
+    "id": "chatcmpl-310",
+    "object": "chat.completion",
+    "created": 1788793221,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"文章\"},{\"ref\":\"m2\",\"surface\":\"列傳\"},{\"ref\":\"m3\",\"surface\":\"自傳\"},{\"ref\":\"m4\",\"surface\":\"內傳\"},{\"ref\":\"m5\",\"surface\":\"外傳\"},{\"ref\":\"m6\",\"surface\":\"別傳\"},{\"ref\":\"m7\",\"surface\":\"家傳\"},{\"ref\":\"m8\",\"surface\":\"小傳\"},{\"ref\":\"m9\",\"surface\":\"本傳\"},{\"ref\":\"m10\",\"surface\":\"正傳\"}],\"relations\":[],\"alias_proposals\":[[\"m2\",\"m9\",\"「這原是應該極注意的。」\"],[\"m3\",\"m9\",\"「這原是應該極注意的。」\"],[\"m4\",\"m9\",\"「這原是應該極注意的。」\"],[\"m5\",\"m9\",\"「這原是應該極注意的。」\"],[\"m6\",\"m9\",\"「這原是應該極注意的。」\"],[\"m7\",\"m9\",\"「這原是應該極注意的。」\"],[\"m8\",\"m9\",\"「這原是應該極注意的。」\"],[\"m10\",\"m9\",\"「這原是應該極注意的。」\"]]}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 934,
+      "completion_tokens": 251,
+      "total_tokens": 1185
+    }
+  }
+}
