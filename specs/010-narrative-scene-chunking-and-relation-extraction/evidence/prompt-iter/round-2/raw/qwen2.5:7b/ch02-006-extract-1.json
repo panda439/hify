@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch02-006",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "f013474f2d1952e3703f95e24c9c93d1643a27f7f25b594953c453bb03b4eab8",
+  "request_runes": 1479,
+  "http_status": 200,
+  "latency_ms": 5054,
+  "response": {
+    "id": "chatcmpl-365",
+    "object": "chat.completion",
+    "created": 1788790252,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"未莊\",\"occurrence\":1},{\"ref\":\"m3\",\"surface\":\"樁家\",\"occurrence\":2},{\"ref\":\"m4\",\"surface\":\"天門兩塊\",\"occurrence\":3},{\"ref\":\"m5\",\"surface\":\"土穀祠\",\"occurrence\":4}],\"relations\":[],\"alias_proposals\":[]}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 930,
+      "completion_tokens": 93,
+      "total_tokens": 1023
+    }
+  }
+}

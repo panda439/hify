@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch02-002",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "c54cdf00b9314f4b1beb9d42491a55b4b23ae138341a2897c6a81bb9c4291a73",
+  "request_runes": 1284,
+  "http_status": 200,
+  "latency_ms": 9170,
+  "response": {
+    "id": "chatcmpl-862",
+    "object": "chat.completion",
+    "created": 1788789681,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"未莊的居民\",\"occurrence\":1},{\"ref\":\"m3\",\"surface\":\"文童\",\"occurrence\":2},{\"ref\":\"m4\",\"surface\":\"赵太爷\",\"occurrence\":3},{\"ref\":\"m5\",\"surface\":\"钱太爷\",\"occurrence\":4},{\"ref\":\"m6\",\"surface\":\"文童的爹爹\",\"occurrence\":5},{\"ref\":\"m7\",\"surface\":\"长凳\",\"occurrence\":6},{\"ref\":\"m8\",\"surface\":\"条凳\",\"occurrence\":7},{\"ref\":\"m9\",\"surface\":\"油煎大头鱼\",\"occurrence\":8},{\"ref\":\"m10\",\"surface\":\"葱叶\",\"occurrence\":9},{\"ref\":\"m11\",\"surface\":\"葱丝\",\"occurrence\":10}],\"relations\":[],\"alias_proposals\":[[\"m4\",\"m5\",\"他们都是文童的爹爹\",\"2\"]]}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 779,
+      "completion_tokens": 208,
+      "total_tokens": 987
+    }
+  }
+}

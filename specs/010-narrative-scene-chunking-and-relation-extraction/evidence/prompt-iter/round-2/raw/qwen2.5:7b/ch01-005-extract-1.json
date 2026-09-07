@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch01-005",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "694fc3b0b796b696f77201c219442c68f60218a9fdc53208e2bba57e4060c734",
+  "request_runes": 1564,
+  "http_status": 200,
+  "latency_ms": 8999,
+  "response": {
+    "id": "chatcmpl-91",
+    "object": "chat.completion",
+    "created": 1788790215,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"阿Quei\",\"occurrence\":1},{\"ref\":\"m3\",\"surface\":\"阿桂\",\"occurrence\":2},{\"ref\":\"m4\",\"surface\":\"阿貴\",\"occurrence\":3},{\"ref\":\"m5\",\"surface\":\"阿富\",\"occurrence\":4},{\"ref\":\"m6\",\"surface\":\"阿Q\",\"occurrence\":5}],\"relations\":[],\"alias_proposals\":[{\"left\":\"m1\",\"right\":\"m2\",\"quote\":\"他活着的時候，人都叫他阿Quei\",\"occurrence\":0},{\"left\":\"m1\",\"right\":\"m3\",\"quote\":\"阿桂\",\"occurrence\":1},{\"left\":\"m1\",\"right\":\"m4\",\"quote\":\"阿貴\",\"occurrence\":2},{\"left\":\"m1\",\"right\":\"m5\",\"quote\":\"阿富\",\"occurrence\":3}]}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 960,
+      "completion_tokens": 190,
+      "total_tokens": 1150
+    }
+  }
+}

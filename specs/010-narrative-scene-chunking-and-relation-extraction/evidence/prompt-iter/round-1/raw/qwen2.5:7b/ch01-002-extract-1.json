@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch01-002",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "d1467238e1b971c4ce6f80de1d6aaa0cc4ed86bb2f802ff22f93a71551d67f41",
+  "request_runes": 1434,
+  "http_status": 200,
+  "latency_ms": 14056,
+  "response": {
+    "id": "chatcmpl-482",
+    "object": "chat.completion",
+    "created": 1788789588,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"文章\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"名目\",\"occurrence\":1},{\"ref\":\"m3\",\"surface\":\"列傳\",\"occurrence\":2},{\"ref\":\"m4\",\"surface\":\"自傳\",\"occurrence\":3},{\"ref\":\"m5\",\"surface\":\"內傳\",\"occurrence\":4},{\"ref\":\"m6\",\"surface\":\"外傳\",\"occurrence\":5},{\"ref\":\"m7\",\"surface\":\"別傳\",\"occurrence\":6},{\"ref\":\"m8\",\"surface\":\"家傳\",\"occurrence\":7},{\"ref\":\"m9\",\"surface\":\"小傳\",\"occurrence\":8},{\"ref\":\"m10\",\"surface\":\"本傳\",\"occurrence\":9},{\"ref\":\"m11\",\"surface\":\"正傳\",\"occurrence\":10},{\"ref\":\"m12\",\"surface\":\"阿Q\",\"occurrence\":11}],\"relations\":[],\"alias_proposals\":[[\"m10\",\"m12\",\"這一篇也便是『本傳』，但從我的文章着想，因爲文體卑下，是『引車賣漿者流』所用的話，所以不敢僭稱，便從不入三教九流的小說家所謂『閒話休題言歸正傳』這一句套話裏，取出『正傳』兩個字來，作爲名目，卽使與古人所撰書法正傳的『正傳』字面上很相混，也顧不得了。\",10]]}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 913,
+      "completion_tokens": 321,
+      "total_tokens": 1234
+    }
+  }
+}

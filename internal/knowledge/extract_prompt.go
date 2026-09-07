@@ -35,7 +35,7 @@ const (
 	// extractPromptVersion 标识指令文本本身。与 schema 分开是因为两者
 	// 变化频率不同：措辞调整不改结构，但**足以改变结果**，所以也必须
 	// 进快照，否则两次实验的差异无法归因。
-	extractPromptVersion = "extract/v1"
+	extractPromptVersion = "extract/v3"
 )
 
 // 契约 §1 的规模上限。超限整次拒绝，不截断——截断会让"模型只抽到这些"和
@@ -104,7 +104,7 @@ type extractionChunkView struct {
 //     关系比漏掉一条贵得多：漏掉只是召回率低，编造会被当成书里的事实展示。
 const extractInstruction = `你在为一部中文小说建立人物关系索引。只依据下面给出的原文片段作答。
 
-输出一个 JSON 对象，不要任何解释、不要 Markdown 代码围栏：
+最终回复必须只有一个 JSON 对象。不要输出 Markdown 代码围栏，不要输出三个反引号，不要输出解释、前后缀或第二个对象。回复的第一个字符必须是 {，最后一个字符必须是 }：
 {"mentions":[...],"relations":[...],"alias_proposals":[...]}
 三个数组都必须出现，没有内容就给空数组。
 
@@ -115,14 +115,20 @@ mentions：片段中出现的人物称呼，每项 {"ref","surface","occurrence"
 relations：人物之间有原文支持的关系，每项
   {"subject_ref","object_ref","type","evidence":[{"quote","occurrence"}]}。
   type 只能是：雇佣、亲属、同乡邻里、冲突、欺凌、追求、权势压迫、同伙。
-  evidence 给 1～4 条引用，每条逐字复制原文，不要改写、不要拼接不相邻的句子；
+  evidence 给 1～4 条引用。先在上面的原文中逐字找到支持关系的连续文字，再从原文直接复制到 quote；不要凭记忆或常识补写，不要改写、不要拼接不相邻的句子；如果不能在原文中用眼睛逐字核对 quote，就不要输出这条关系；
   跨越多处的支持请分成多条引用。
 
 alias_proposals：你认为指同一个人的两个称呼，每项 {"left","right","quote","occurrence"}，
   quote 是原文中支持这个判断的那句话。只在原文明确写出时提出，
   "可能是"、"也许"、"不知道是不是"这类说法不要提。
 
-不确定就不要输出。宁可少给，也不要给出原文里找不到的引用。`
+不确定就不要输出。宁可少给，也不要给出原文里找不到的引用。
+
+回复前逐项检查：
+1. 回复只有一个 JSON 对象，且没有代码围栏或任何说明文字。
+2. 三个顶层数组都存在；每个 ref 唯一且关系端点都来自 mentions。
+3. 每个 surface 和每个 quote 都能在上面的原文中逐字找到；不能确认逐字相同就删掉该 mention、relation 或 alias_proposal。尤其不能把符合情节但原文没有的句子当 quote。
+4. 每个 occurrence 从 0 开始按原文出现顺序计数，重叠出现也计数；从原文实际数 occurrence，不要猜。`
 
 // buildExtractInstruction 目前返回固定文本；留成函数是因为下一步要把
 // 章节标题这类块级上下文拼进去，而调用方不该关心它是常量还是拼出来的。

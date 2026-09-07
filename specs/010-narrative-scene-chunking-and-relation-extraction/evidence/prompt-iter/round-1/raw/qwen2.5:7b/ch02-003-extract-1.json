@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch02-003",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "37601f5bfcd4edda3dd3df67c3608daa5dd5342ad5b27f83e95e29f692da935d",
+  "request_runes": 1413,
+  "http_status": 200,
+  "latency_ms": 4922,
+  "response": {
+    "id": "chatcmpl-813",
+    "object": "chat.completion",
+    "created": 1788789686,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"未莊的閒人\",\"occurrence\":0}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"欺凌\",\"evidence\":[{\"quote\":\"一見面，他們便假作喫驚的說：\",\"occurrence\":0}]}],\"alias_proposals\":[]}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 900,
+      "completion_tokens": 89,
+      "total_tokens": 989
+    }
+  }
+}

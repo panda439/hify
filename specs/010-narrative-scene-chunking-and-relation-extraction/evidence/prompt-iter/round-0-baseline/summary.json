@@ -1,0 +1,80 @@
+{
+  "models": [
+    {
+      "model": "qwen2.5:14b",
+      "digest": "",
+      "chunks": 13,
+      "calls": {
+        "extract": 13,
+        "alias": 0
+      },
+      "json_valid": 9,
+      "json_invalid": 1,
+      "call_failed": 3,
+      "reject_reasons": {
+        "其他": 1,
+        "围栏": 0,
+        "截断": 0,
+        "未知字段": 0,
+        "缺字段": 0,
+        "重复key": 0
+      },
+      "resolve_ok": 3,
+      "resolve_failed": 6,
+      "resolve_reject_reasons": {
+        "occurrence越界": 6,
+        "其他": 0,
+        "引用找不到": 0,
+        "跨分隔符": 0
+      },
+      "latency_ms": {
+        "p50": 28558,
+        "p95": 60001,
+        "max": 60001
+      },
+      "usage_returned": 10,
+      "over_60s": 3,
+      "mentions_avg": 0.38461538461538464,
+      "relations_avg": 0.15384615384615385,
+      "note": "从 raw 离线重算；未发起模型请求。json_valid/json_invalid 分母为拿到响应的次数，call_failed 单独统计，calls 为发起调用数。"
+    },
+    {
+      "model": "qwen2.5:7b",
+      "digest": "",
+      "chunks": 13,
+      "calls": {
+        "extract": 13,
+        "alias": 0
+      },
+      "json_valid": 0,
+      "json_invalid": 11,
+      "call_failed": 2,
+      "reject_reasons": {
+        "其他": 0,
+        "围栏": 11,
+        "截断": 0,
+        "未知字段": 0,
+        "缺字段": 0,
+        "重复key": 0
+      },
+      "resolve_ok": 0,
+      "resolve_failed": 0,
+      "resolve_reject_reasons": {
+        "occurrence越界": 0,
+        "其他": 0,
+        "引用找不到": 0,
+        "跨分隔符": 0
+      },
+      "latency_ms": {
+        "p50": 12119,
+        "p95": 60001,
+        "max": 60002
+      },
+      "usage_returned": 11,
+      "over_60s": 2,
+      "mentions_avg": 0,
+      "relations_avg": 0,
+      "note": "从 raw 离线重算；未发起模型请求。json_valid/json_invalid 分母为拿到响应的次数，call_failed 单独统计，calls 为发起调用数。"
+    }
+  ]
+}

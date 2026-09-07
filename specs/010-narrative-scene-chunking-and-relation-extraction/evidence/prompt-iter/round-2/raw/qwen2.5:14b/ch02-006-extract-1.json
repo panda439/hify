@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:14b",
+  "chunk_id": "ch02-006",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "f013474f2d1952e3703f95e24c9c93d1643a27f7f25b594953c453bb03b4eab8",
+  "request_runes": 1479,
+  "http_status": 200,
+  "latency_ms": 24911,
+  "response": {
+    "id": "chatcmpl-699",
+    "object": "chat.completion",
+    "created": 1788790156,
+    "model": "qwen2.5:14b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"阿Q\",\"occurrence\":1},{\"ref\":\"m3\",\"surface\":\"阿Q\",\"occurrence\":2},{\"ref\":\"m4\",\"surface\":\"阿Q\",\"occurrence\":3},{\"ref\":\"m5\",\"surface\":\"阿Q\",\"occurrence\":4}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"同伙\",\"evidence\":[{\"quote\":\"這晚上照例有一臺戲，戲臺左近，也照例有許多的賭攤。\",\"occurrence\":0}]},{\"subject_ref\":\"m3\",\"object_ref\":\"m4\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"他不知道誰和誰爲什麽打起架來了。\",\"occurrence\":0},{\"quote\":\"他纔爬起來，賭攤不見了，人們也不見了，身上有幾處很似乎有些痛，似乎也挨了幾拳幾腳似的，幾個人詫異的對他看。\",\"occurrence\":1}]},{\"subject_ref\":\"m5\",\"object_ref\":\"m4\",\"type\":\"欺凌\",\"evidence\":[{\"quote\":\"他這回纔有些感到失敗的苦痛了。\",\"occurrence\":0}]}],\"alias_proposals\":[]}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 930,
+      "completion_tokens": 281,
+      "total_tokens": 1211
+    }
+  }
+}

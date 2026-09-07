@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:14b",
+  "chunk_id": "ch02-004",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "9297fbe590d89e3f8ec036606b5db9c316bb081bc18dea402d6b98807309d970",
+  "request_runes": 1398,
+  "http_status": 200,
+  "latency_ms": 27218,
+  "response": {
+    "id": "chatcmpl-612",
+    "object": "chat.completion",
+    "created": 1788789485,
+    "model": "qwen2.5:14b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"阿Q\",\"occurrence\":4},{\"ref\":\"m3\",\"surface\":\"阿Q\",\"occurrence\":8},{\"ref\":\"m4\",\"surface\":\"阿Q\",\"occurrence\":10},{\"ref\":\"m5\",\"surface\":\"阿Q\",\"occurrence\":12},{\"ref\":\"m6\",\"surface\":\"阿Q\",\"occurrence\":14},{\"ref\":\"m7\",\"surface\":\"阿Q\",\"occurrence\":16},{\"ref\":\"m8\",\"surface\":\"阿Q\",\"occurrence\":18},{\"ref\":\"m9\",\"surface\":\"阿Q\",\"occurrence\":20},{\"ref\":\"m10\",\"surface\":\"阿Q\",\"occurrence\":22},{\"ref\":\"m11\",\"surface\":\"兒子\",\"occurrence\":6},{\"ref\":\"m12\",\"surface\":\"老子\",\"occurrence\":11}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m11\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"『阿Q，這不是兒子打老子，是人打畜生。自己說，人打畜生！』\",\"occurrence\":14}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m12\",\"type\":\"亲属\",\"evidence\":[{\"quote\":\"『阿Q，這不是兒子打老子，是人打畜生。自己說，人打畜生！』\",\"occurrence\":14}]}],\"alias_proposals\":[]}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 867,
+      "completion_tokens": 312,
+      "total_tokens": 1179
+    }
+  }
+}

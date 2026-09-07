@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch01-003",
+  "phase": "alias",
+  "attempt": 1,
+  "request_sha256": "3d243224fc466fe1b51c695858b4da00dd32fae46d1f48b58f0abf2135775792",
+  "request_runes": 1291,
+  "http_status": 200,
+  "latency_ms": 19116,
+  "response": {
+    "id": "chatcmpl-777",
+    "object": "chat.completion",
+    "created": 1788790203,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "```json\n{\n  \"decisions\": [\n    {\n      \"mention_ref\": \"阿Q\",\n      \"action\": \"link\",\n      \"character_id\": \"m1#0\",\n      \"new_group\": \"\",\n      \"supports\": [\n        {\"source_ref\": \"m1#0\", \"quote\": \"阿Q\", \"occurrence\": 0},\n        {\"source_ref\": \"m4#0\", \"quote\": \"趙\", \"occurrence\": 0}\n      ],\n      \"reason_code\": \"explicit_alias\"\n    },\n    {\n      \"mention_ref\": \"趙太爺\",\n      \"action\": \"link\",\n      \"character_id\": \"m2#0\",\n      \"new_group\": \"\",\n      \"supports\": [\n        {\"source_ref\": \"m2#0\", \"quote\": \"趙太爺\", \"occurrence\": 0},\n        {\"source_ref\": \"m4#0\", \"quote\": \"趙\", \"occurrence\": 0}\n      ],\n      \"reason_code\": \"explicit_alias\"\n    },\n    {\n      \"mention_ref\": \"某\",\n      \"action\": \"ambiguous\",\n      \"character_id\": \"\",\n      \"new_group\": \"0\",\n      \"supports\": [\n        {\"source_ref\": \"m3#0\", \"quote\": \"某\", \"occurrence\": 0}\n      ],\n      \"reason_code\": \"insufficient\"\n    },\n    {\n      \"mention_ref\": \"趙\",\n      \"action\": \"link\",\n      \"character_id\": \"m4#0\",\n      \"new_group\": \"\",\n      \"supports\": [\n        {\"source_ref\": \"m4#0\", \"quote\": \"趙\", \"occurrence\": 0},\n        {\"source_ref\": \"m2#0\", \"quote\": \"趙太爺\", \"occurrence\": 0}\n      ],\n      \"reason_code\": \"explicit_alias\"\n    }\n  ]\n}\n```"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 813,
+      "completion_tokens": 396,
+      "total_tokens": 1209
+    }
+  }
+}

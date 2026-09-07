@@ -1,0 +1,12 @@
+{
+  "model": "qwen2.5:14b",
+  "chunk_id": "ch02-001",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "dad7e751456d18355fcc889a494f841b99cf20f8d71ee45ad32a80a61cdf9a1e",
+  "request_runes": 1368,
+  "http_status": 0,
+  "latency_ms": 60003,
+  "response": null,
+  "error": "Post \"http://127.0.0.1:11434/v1/chat/completions\": context deadline exceeded"
+}

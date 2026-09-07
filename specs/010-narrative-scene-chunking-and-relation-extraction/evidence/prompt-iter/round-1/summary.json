@@ -1,0 +1,78 @@
+{
+  "models": [
+    {
+      "model": "qwen2.5:14b",
+      "digest": "7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6",
+      "chunks": 13,
+      "calls": {
+        "extract": 13,
+        "alias": 0
+      },
+      "json_valid": 10,
+      "json_invalid": 1,
+      "call_failed": 2,
+      "reject_reasons": {
+        "其他": 1,
+        "围栏": 0,
+        "截断": 0,
+        "未知字段": 0,
+        "缺字段": 0,
+        "重复key": 0
+      },
+      "resolve_ok": 3,
+      "resolve_failed": 7,
+      "resolve_reject_reasons": {
+        "occurrence越界": 7,
+        "引用找不到": 0,
+        "跨分隔符": 0
+      },
+      "latency_ms": {
+        "p50": 27218,
+        "p95": 60002,
+        "max": 60003
+      },
+      "usage_returned": 11,
+      "over_60s": 2,
+      "mentions_avg": 0.07692307692307693,
+      "relations_avg": 0,
+      "note": "直接 POST Ollama /v1/chat/completions；有意绕过 provider.ChatOnce（限流/熔断/账目），不代表完整生产调用路径。"
+    },
+    {
+      "model": "qwen2.5:7b",
+      "digest": "845dbda0ea48ed749caafd9e6037047aa19acfcfd82e704d7ca97d631a0b697e",
+      "chunks": 13,
+      "calls": {
+        "extract": 13,
+        "alias": 0
+      },
+      "json_valid": 8,
+      "json_invalid": 4,
+      "call_failed": 1,
+      "reject_reasons": {
+        "其他": 4,
+        "围栏": 0,
+        "截断": 0,
+        "未知字段": 0,
+        "缺字段": 0,
+        "重复key": 0
+      },
+      "resolve_ok": 3,
+      "resolve_failed": 5,
+      "resolve_reject_reasons": {
+        "occurrence越界": 5,
+        "引用找不到": 0,
+        "跨分隔符": 0
+      },
+      "latency_ms": {
+        "p50": 5056,
+        "p95": 14056,
+        "max": 60001
+      },
+      "usage_returned": 12,
+      "over_60s": 1,
+      "mentions_avg": 0.5384615384615384,
+      "relations_avg": 0.07692307692307693,
+      "note": "直接 POST Ollama /v1/chat/completions；有意绕过 provider.ChatOnce（限流/熔断/账目），不代表完整生产调用路径。"
+    }
+  ]
+}

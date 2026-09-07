@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:14b",
+  "chunk_id": "ch01-006",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "a7eeee463d284d035bce121eb12280b2956c83c3de9a1f14ac9c41a00644ce77",
+  "request_runes": 1275,
+  "http_status": 200,
+  "latency_ms": 17388,
+  "response": {
+    "id": "chatcmpl-0",
+    "object": "chat.completion",
+    "created": 1788789295,
+    "model": "qwen2.5:14b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"趙\",\"occurrence\":1},{\"ref\":\"m3\",\"surface\":\"隴西天水人\",\"occurrence\":2},{\"ref\":\"m4\",\"surface\":\"未莊人\",\"occurrence\":3}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"同乡邻里\",\"evidence\":[{\"quote\":\"倘他姓趙，則據現在好稱郡望的老例，可以照郡名百家姓上的注解，說是『隴西天水人也』\",\"occurrence\":0}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m4\",\"type\":\"同乡邻里\",\"evidence\":[{\"quote\":\"不能說是未莊人，卽使說是『未莊人也』，也仍然有乖史法的\",\"occurrence\":1}]}],\"alias_proposals\":[]}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 760,
+      "completion_tokens": 199,
+      "total_tokens": 959
+    }
+  }
+}

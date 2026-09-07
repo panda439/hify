@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch01-003",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "5356809460b5ca7538131dbc112253041e6fb3013c58dd66584d4e5a108d7633",
+  "request_runes": 1371,
+  "http_status": 200,
+  "latency_ms": 8059,
+  "response": {
+    "id": "chatcmpl-22",
+    "object": "chat.completion",
+    "created": 1788789596,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"趙太爺\",\"occurrence\":0},{\"ref\":\"m3\",\"surface\":\"某\",\"occurrence\":1},{\"ref\":\"m4\",\"surface\":\"某地人也\",\"occurrence\":1}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"阿Q，你這渾小子！你說我是你的本家麽？\",\"occurrence\":0}]}],\"alias_proposals\":[{\"left\":\"m3\",\"right\":\"m1\",\"quote\":\"某，字某，某地人也\",\"occurrence\":0},{\"left\":\"m4\",\"right\":\"m1\",\"quote\":\"某，字某，某地人也\",\"occurrence\":0}]}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 857,
+      "completion_tokens": 174,
+      "total_tokens": 1031
+    }
+  }
+}

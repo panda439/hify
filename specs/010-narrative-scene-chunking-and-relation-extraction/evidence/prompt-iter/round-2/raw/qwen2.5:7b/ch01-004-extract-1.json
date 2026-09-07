@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch01-004",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "e424f317e9cf7b47abebc8f56e5a807eae441e4ecf508adc9e0309dd0798852b",
+  "request_runes": 1205,
+  "http_status": 200,
+  "latency_ms": 2902,
+  "response": {
+    "id": "chatcmpl-434",
+    "object": "chat.completion",
+    "created": 1788790206,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"地保\",\"occurrence\":1},{\"ref\":\"m3\",\"surface\":\"赵太爷\",\"occurrence\":2}],\"relations\":[],\"alias_proposals\":[],\"evidence\":[]}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 680,
+      "completion_tokens": 63,
+      "total_tokens": 743
+    }
+  }
+}

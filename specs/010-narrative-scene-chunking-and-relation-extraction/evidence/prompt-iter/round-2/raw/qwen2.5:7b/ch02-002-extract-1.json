@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch02-002",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "5880c3891369f6900f2c41c8f53b9d15eb8d3f91bbe72e4bc19e3677674511cc",
+  "request_runes": 1353,
+  "http_status": 200,
+  "latency_ms": 10228,
+  "response": {
+    "id": "chatcmpl-356",
+    "object": "chat.completion",
+    "created": 1788790234,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"未莊的居民\",\"occurrence\":1},{\"ref\":\"m3\",\"surface\":\"文童\",\"occurrence\":2},{\"ref\":\"m4\",\"surface\":\"赵太爷\",\"occurrence\":3},{\"ref\":\"m5\",\"surface\":\"钱太爷\",\"occurrence\":4},{\"ref\":\"m6\",\"surface\":\"文童的爹爹\",\"occurrence\":5},{\"ref\":\"m7\",\"surface\":\"长凳\",\"occurrence\":6},{\"ref\":\"m8\",\"surface\":\"条凳\",\"occurrence\":7},{\"ref\":\"m9\",\"surface\":\"油煎大头鱼\",\"occurrence\":8},{\"ref\":\"m10\",\"surface\":\"葱叶\",\"occurrence\":9},{\"ref\":\"m11\",\"surface\":\"葱丝\",\"occurrence\":10}],\"relations\":[],\"alias_proposals\":[{\"left\":\"m4\",\"right\":\"m5\",\"quote\":\"赵太爷、钱太爷大受居民的尊敬，除有钱之外，就因爲都是文童的爹爹\",\"occurrence\":3}]}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 819,
+      "completion_tokens": 236,
+      "total_tokens": 1055
+    }
+  }
+}
