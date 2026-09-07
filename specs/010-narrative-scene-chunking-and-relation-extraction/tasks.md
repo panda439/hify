@@ -67,12 +67,21 @@ T027 只完成一半：第一阶段成功响应的复用、归一独立重试、
 
 ## Phase 5：操作接口与聊天
 
-- [ ] T029 Service→dto/handler/wire实现extraction状态、enable/disable/pause/resume/restart接口，真实HTTP校验写权限、路径归属、400/409、幂等键重放与body冲突。
-- [ ] T030 实现追加预算/重试轮次记录、disabled再enable不自动启动、restart原子替换run；同时resume只能一个worker，历史账目不重置。
+- [x] T029 Service→dto/handler/wire实现extraction状态、enable/disable/pause/resume/restart接口，真实HTTP校验写权限、路径归属、400/409、幂等键重放与body冲突。
+- [x] T030 实现追加预算/重试轮次记录、disabled再enable不自动启动、restart原子替换run；同时resume只能一个worker，历史账目不重置。
+补录说明（2026-09-07 第七轮）：T029/T030 已实现并用真实 HTTP + MySQL/PG 验证：
+六个接口、幂等键（同键重放不重复追加额度、同键异体 409）、路径 kb 不作为
+授权依据、enable 不自动恢复暂停的作业、restart 取代旧 run 且保留旧账目。
+与契约的两处偏差已记在 review-fixes 第七轮：没有 state='pending' 的作业意图行
+（该状态不在 000017 的 CHECK 里），改成"开关先落库、事实 ready 时自动建作业"；
+resume 目前只在服务端保证"同时只有一个 worker"靠租约，不额外加队列去重。
+
 - [ ] T031 实现QueryRelations：Agent范围服务端下推，空KB不是全库、DocumentIDs空仅在KB内放宽；当前doc/version/job验证、名称多候选澄清、同实体别名回复、无记录与故障区分。
 - [ ] T032 先写selection/budget测试，再实现按源顺序多类型/跨章选证据、候选200/引用12、LIMIT+1截断提示；仅用一份既有RAG预算，不伪造相似度；验证极小ContextWindow与无证据可容纳。
 - [ ] T033 对话领域选项→Service→dto/handler接入：普通StreamMessage零选项不变；关系分支停query rewrite/tool循环，固定无结果/歧义/故障文本，有证据才受限生成。
 - [ ] T034 引用来源PG批量核验+入模前MySQL复检，实际引用与message_citations一致；删除/新run并发变化停止本轮，刷新后消息/覆盖/截断提示可重放。
+<!-- T035 只做了抽取那一半：上传开关、状态/暂停/续跑/重开面板已接入并通过
+     tsc + vite build，但**没有在浏览器里点过**；聊天页的关系选项依赖 T031～T034，未做。 -->
 - [ ] T035 前端knowledge.ts/conversations.ts及两个页面接入：上传开关、状态/暂停/续跑、同一聊天页关系选项/书目/两人输入/歧义选择；提示不出现epoch/hash等内部术语。
 - [ ] T036 真实HTTP/UI冒烟：普通对话、禁用/未开始/部分/完成/故障/歧义、两章关系变化、范围外文档、跨书同名、默认关闭回归；确认操作和提示均符合契约。
 

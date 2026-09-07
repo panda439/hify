@@ -359,7 +359,30 @@ cron 保留注册（本身空跑，让恢复路径与 Phase 3 其余部分一起
 - item 之间**串行**，没有并发：并行要让三重预算闸门、连续失败计数、租约
   有效性全变成并发安全的判断，而它们判断错了都只表现为数字不对。
 - T022（模型/源版本固定、删除守卫、数据库故障注入）、T023（清理与归档）未做。
-- Phase 5 全部未做：没有 enable/disable/pause/resume/restart 接口，
-  停成 paused 的作业目前**没有界面可以让用户恢复**——只能改数据库。
-  这是本轮留下的最明显的缺口。
 - 未 commit 之外的动作：没有 push，没有跑 smoke。
+
+### 第七轮续：T029/T030 与前端抽取面板
+
+上一段写的"停成 paused 的作业没有界面能恢复"已经补上：六个接口
+（GET / enable / disable / pause / resume / restart）加文档列表里的抽取面板。
+
+**与契约的两处偏差，明确记下来**：
+
+1. 契约说初次 enable 且作业还不存在时，要在 documents 事务里建一条
+   `state=pending、initialization_complete=false` 的作业意图。**没有这么做**：
+   `pending` 不在 000017 对 `relation_extraction_jobs.state` 的 CHECK 取值里，
+   为它单开一个状态会让"作业存在"这件事有两种含义。改成：enable 只把开关
+   落库（意图持久化），文档已经 ready 就立刻建作业，还没 ready 就等
+   ProcessDocument 走到 ready 时自动建。可观察行为与契约一致，
+   少了一行占位记录。
+2. resume 的"同时只有一个 worker"靠**租约**保证，没有额外的队列去重。
+   队列里出现两条同 job 的任务是正常的，第二条在 claimExtractionJob 那里
+   拿不到租约就安静退出。
+
+**幂等的实现要点**：判重是先读后写，所以整个控制操作在一个事务里，
+先 `SELECT ... FOR UPDATE` 锁住 job 行。不加锁的话两个同键请求都读到
+"这个键没用过"，于是同一笔额度被追加两次，而两个响应都显示成功。
+用变异测试确认过：去掉同键判重那一段，`TestPauseThenResumeIsIdempotentPerKey` 会红。
+
+**前端的边界**：`tsc --noEmit` 和 `vite build` 都过，但**没有在浏览器里点过**
+——本机没有跑起后端服务，登录不了。面板的交互正确性目前只有类型保证。
