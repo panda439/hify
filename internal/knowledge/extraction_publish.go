@@ -70,7 +70,12 @@ type relationDraft struct {
 // ⚠️ 全空是**合法的成功结果**：一个块里没有关系是正常的。
 type extractionOutcome struct {
 	Characters []characterDraft
-	Relations  []relationDraft
+	// Existing 是归一阶段决定链接到的**既有**人物：组号 -> character_id。
+	// ⚠️ 与 Characters 分开而不是塞一个"已存在"标志：这些 ID 不是这次
+	// 创建的，误当成新人物插一遍会撞主键（好的情况），或者在幂等重放里
+	// 悄悄多出一个同名人物（坏的情况）。
+	Existing  map[string]string
+	Relations []relationDraft
 }
 
 type publishInput struct {
@@ -91,7 +96,12 @@ func (r *Repository) publishItemOutcome(ctx context.Context, in publishInput) er
 		// ⚠️ 顺序遍历 Characters 而不是 range 一个 map：ID 是新生成的，
 		// 但**生成顺序**决定了 first_source_order 相同时的排序结果，
 		// map 迭代顺序会让同一份响应两次产出不同的记录顺序（宪法第 V 条）。
-		ids := make(map[string]string, len(in.Outcome.Characters))
+		ids := make(map[string]string, len(in.Outcome.Characters)+len(in.Outcome.Existing))
+		for group, characterID := range in.Outcome.Existing {
+			// 只读的映射，不建人物。map 迭代顺序在这里无所谓：
+			// 下面写库的顺序由 Characters / Relations 的切片顺序决定。
+			ids[group] = characterID
+		}
 		for _, c := range in.Outcome.Characters {
 			id := platform.NewID()
 			ids[c.LocalRef] = id

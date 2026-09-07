@@ -209,7 +209,7 @@ func parseExtractionResponse(raw []byte) (extractResponse, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return extractResponse{}, fmt.Errorf("%w: empty output", errExtractionResponseInvalid)
 	}
-	if err := checkStrictJSONObject(raw); err != nil {
+	if err := checkStrictJSONObject(raw, errExtractionResponseInvalid); err != nil {
 		return extractResponse{}, err
 	}
 
@@ -232,54 +232,54 @@ func parseExtractionResponse(raw []byte) (extractResponse, error) {
 // 尾随第二个对象通常是模型把结果输出了两遍，而我们只用了第一遍——两次抽取
 // 结果不一致这件事就此消失。截断的输出（finish_reason=length）也在这里被
 // io.ErrUnexpectedEOF 抓住。
-func checkStrictJSONObject(raw []byte) error {
+func checkStrictJSONObject(raw []byte, sentinel error) error {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	tok, err := dec.Token()
 	if err != nil {
-		return fmt.Errorf("%w: %v", errExtractionResponseInvalid, err)
+		return fmt.Errorf("%w: %v", sentinel, err)
 	}
 	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
-		return fmt.Errorf("%w: top level is not an object", errExtractionResponseInvalid)
+		return fmt.Errorf("%w: top level is not an object", sentinel)
 	}
-	if err := walkStrictObject(dec); err != nil {
+	if err := walkStrictObject(dec, sentinel); err != nil {
 		return err
 	}
 	// 顶层对象读完了还有东西 —— 尾随的第二个 JSON 值。
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
-		return fmt.Errorf("%w: trailing content after the JSON object", errExtractionResponseInvalid)
+		return fmt.Errorf("%w: trailing content after the JSON object", sentinel)
 	}
 	return nil
 }
 
 // walkStrictObject 递归检查一个已经消费掉 '{' 的对象。
-func walkStrictObject(dec *json.Decoder) error {
+func walkStrictObject(dec *json.Decoder, sentinel error) error {
 	seen := map[string]struct{}{}
 	for {
 		tok, err := dec.Token()
 		if err != nil {
-			return fmt.Errorf("%w: %v", errExtractionResponseInvalid, err)
+			return fmt.Errorf("%w: %v", sentinel, err)
 		}
 		if delim, ok := tok.(json.Delim); ok && delim == '}' {
 			return nil
 		}
 		key, ok := tok.(string)
 		if !ok {
-			return fmt.Errorf("%w: object key is not a string", errExtractionResponseInvalid)
+			return fmt.Errorf("%w: object key is not a string", sentinel)
 		}
 		if _, dup := seen[key]; dup {
-			return fmt.Errorf("%w: duplicate key %q", errExtractionResponseInvalid, key)
+			return fmt.Errorf("%w: duplicate key %q", sentinel, key)
 		}
 		seen[key] = struct{}{}
-		if err := walkStrictValue(dec); err != nil {
+		if err := walkStrictValue(dec, sentinel); err != nil {
 			return err
 		}
 	}
 }
 
-func walkStrictValue(dec *json.Decoder) error {
+func walkStrictValue(dec *json.Decoder, sentinel error) error {
 	tok, err := dec.Token()
 	if err != nil {
-		return fmt.Errorf("%w: %v", errExtractionResponseInvalid, err)
+		return fmt.Errorf("%w: %v", sentinel, err)
 	}
 	delim, ok := tok.(json.Delim)
 	if !ok {
@@ -287,22 +287,22 @@ func walkStrictValue(dec *json.Decoder) error {
 	}
 	switch delim {
 	case '{':
-		return walkStrictObject(dec)
+		return walkStrictObject(dec, sentinel)
 	case '[':
 		for {
 			// More 之后仍可能读到 ']'，交给下一轮的 walkStrictValue 之前先看一眼。
 			if !dec.More() {
 				if _, err := dec.Token(); err != nil { // 消费 ']'
-					return fmt.Errorf("%w: %v", errExtractionResponseInvalid, err)
+					return fmt.Errorf("%w: %v", sentinel, err)
 				}
 				return nil
 			}
-			if err := walkStrictValue(dec); err != nil {
+			if err := walkStrictValue(dec, sentinel); err != nil {
 				return err
 			}
 		}
 	default:
-		return fmt.Errorf("%w: unexpected %v", errExtractionResponseInvalid, delim)
+		return fmt.Errorf("%w: unexpected %v", sentinel, delim)
 	}
 }
 
