@@ -114,7 +114,20 @@ type aliasInput struct {
 // ⭐ 既没有别名提案、又没有候选人物的块**不需要**第二次调用（契约 §2 末段）。
 // 这不是优化：让模型在没有任何可合并对象的情况下"确认一遍"，除了花钱之外
 // 只会引入它自己发明的合并。
+//
+// ⭐ 2026-09-07 补上 len(Mentions) > 0 这一条，依据是全书实跑的实测：
+// 一块**没有任何人物**的纯写景段落，只要候选池非空（跑到后面必然非空）
+// 就会触发归一调用。模型没有任何东西可判，随便返回一条决策，
+// resolveAliasDecisions 报 "1 decisions for 0 mentions"，于是——
+//
+// ⚠️ **一个合法的空结果被判成了 item 失败**。三重代价：白花一次约 28s 的
+// 调用；覆盖率的分子少一块；而且这个失败会计进"连续失败"，把作业推向
+// 提前停止。62 块的全书跑里 12 个失败有 3 个是这么来的，
+// 作业在第 18 块就停了，剩下 44 块从未被处理。
 func needsAliasPhase(in aliasInput) bool {
+	if len(in.Mentions) == 0 {
+		return false
+	}
 	return len(in.Proposals) > 0 || len(in.Candidates) > 0
 }
 

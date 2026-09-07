@@ -1,0 +1,76 @@
+{
+  "ID": "01a07c79-b760-7999-9fa7-9a141a580276",
+  "ItemID": "01a07c78-86b1-7101-a6e2-a76efe461bb3",
+  "ChunkID": "01a07c78-864a-7c54-b91c-ac3a6660dfd9",
+  "Phase": "alias",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a07c78-bc03-7c3c-88a8-83f51351bde5",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q"
+          },
+          {
+            "source_ref": "01a07c78-bc03-7c3c-88a8-83f51351bde5#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a07c78-bc03-7c3c-88a8-83f51351bde5",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺"
+          },
+          {
+            "source_ref": "01a07c78-bc03-7c3c-88a8-83f51351bde5#0",
+            "quote": "趙太爺"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "link",
+        "character_id": "01a07c78-bc03-7c3c-88a8-83f51351bde5",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺的兒子"
+          },
+          {
+            "source_ref": "01a07c78-bc03-7c3c-88a8-83f51351bde5#0",
+            "quote": "趙太爺"
+          }
+        ],
+        "reason_code": "context_identity"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 884,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 357,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 32082,
+    "Valid": true
+  }
+}

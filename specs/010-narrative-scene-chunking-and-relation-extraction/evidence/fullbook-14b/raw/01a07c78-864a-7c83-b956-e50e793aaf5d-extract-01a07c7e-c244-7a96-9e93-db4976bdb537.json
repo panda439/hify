@@ -1,0 +1,60 @@
+{
+  "ID": "01a07c7e-c244-7a96-9e93-db4976bdb537",
+  "ItemID": "01a07c78-86b7-769b-9d62-ed823809ec54",
+  "ChunkID": "01a07c78-864a-7c83-b956-e50e793aaf5d",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "閒人"
+      },
+      {
+        "ref": "m3",
+        "surface": "樁家"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "但雖然是蟲豸，閒人也並不放，仍舊在就近什麽地方給他碰了五六個響頭，這纔心滿意足的得勝的走了"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m3",
+        "type": "同伙",
+        "evidence": [
+          {
+            "quote": "樁家揭開盒子蓋，也是汗流滿面的唱。『天門啦～～角回啦！人和穿堂空在那裏啦～～！阿Q的銅錢拿過來～～！』"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 966,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 181,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 17782,
+    "Valid": true
+  }
+}

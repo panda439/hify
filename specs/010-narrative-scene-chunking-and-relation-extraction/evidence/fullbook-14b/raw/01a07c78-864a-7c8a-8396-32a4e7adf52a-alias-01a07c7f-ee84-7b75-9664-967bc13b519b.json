@@ -1,0 +1,67 @@
+{
+  "ID": "01a07c7f-ee84-7b75-9664-967bc13b519b",
+  "ItemID": "01a07c78-86b8-737a-9700-a0436fdd7b7f",
+  "ChunkID": "01a07c78-864a-7c8a-8396-32a4e7adf52a",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a07c78-bc03-7c3c-88a8-83f51351bde5",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "但眞所謂『塞翁失馬安知非福』罷，阿Q不幸而贏了一回，他倒幾乎失敗了。"
+          },
+          {
+            "source_ref": "01a07c78-bc03-7c3c-88a8-83f51351bde5#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a07c7f-a9c5-7a2d-a052-e99af20825cf",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "他不知道誰和誰爲什麽打起架來了。"
+          },
+          {
+            "source_ref": "01a07c7f-a9c5-7a2d-a052-e99af20825cf#0",
+            "quote": "樁家揭開盒子蓋，也是汗流滿面的唱。"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "ambiguous",
+        "character_id": "",
+        "new_group": "group1",
+        "supports": [],
+        "reason_code": "insufficient"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1437,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 313,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 36109,
+    "Valid": true
+  }
+}

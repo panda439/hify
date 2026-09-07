@@ -1,0 +1,79 @@
+{
+  "ID": "01a07c7b-464d-7ad1-970d-aa04ffdf53d3",
+  "ItemID": "01a07c78-86b2-7d1f-ae86-8a5d6084d153",
+  "ChunkID": "01a07c78-864a-7c5f-a06e-5320007e69d6",
+  "Phase": "extract",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "阿Quei"
+      },
+      {
+        "ref": "m3",
+        "surface": "趙太爺"
+      },
+      {
+        "ref": "m4",
+        "surface": "茂才先生"
+      },
+      {
+        "ref": "m5",
+        "surface": "陳獨秀"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "同伙",
+        "evidence": [
+          {
+            "quote": "他活着的時候，人都叫他阿Quei"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m3",
+        "object_ref": "m4",
+        "type": "亲属",
+        "evidence": [
+          {
+            "quote": "趙太爺的兒子茂才先生"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": [
+      {
+        "left": "阿Q",
+        "right": "阿Quei",
+        "quote": "他活着的時候，人都叫他阿Quei"
+      },
+      {
+        "left": "阿Quei",
+        "right": "阿Q",
+        "quote": "這近于盲從新青年，自己也很抱歉，但茂才公尚且不知，我還有什麽好辦法呢"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 941,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 197,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 15569,
+    "Valid": true
+  }
+}

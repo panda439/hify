@@ -302,6 +302,31 @@ func TestEveryMentionNeedsExactlyOneDecision(t *testing.T) {
 	}
 }
 
+// TestChunkWithoutMentionsSkipsTheSecondCall：没有人物的块不发归一调用。
+//
+// ⭐ 这条来自全书实跑：纯写景的段落抽不到任何 mention，但候选池早就非空了，
+// 于是照样发一次归一调用——模型没东西可判，随便返回一条，校验报
+// "1 decisions for 0 mentions"，一个**合法的空结果**就变成了 item 失败。
+// ⚠️ 代价不止是白花一次调用：这个假失败会计进"连续失败"，把整个作业
+// 推向提前停止。实跑里作业在第 18 块就停了，44 块从未被处理。
+func TestChunkWithoutMentionsSkipsTheSecondCall(t *testing.T) {
+	in := aliasFixture(t)
+	in.Mentions = nil
+	in.Proposals = nil
+	in.Candidates = []aliasCandidate{{
+		CharacterID: "char-1", DisplayName: "阿Q", FirstSourceOrder: 3,
+		Evidence: []aliasCandidateEvidence{{Ref: "e1", Quote: "人都叫他阿Q"}},
+	}}
+	if needsAliasPhase(in) {
+		t.Fatal("块里一个人物都没有，却还要为它发一次归一调用")
+	}
+	// 空块仍然是合法的成功结果：没有身份要建，也不该报错。
+	assign := independentIdentities(in)
+	if len(assign.Characters) != 0 {
+		t.Errorf("空块建出了 %d 个人物", len(assign.Characters))
+	}
+}
+
 // TestNoCandidatesNoProposalsSkipsTheSecondCall：零调用路径。
 func TestNoCandidatesNoProposalsSkipsTheSecondCall(t *testing.T) {
 	in := aliasFixture(t)

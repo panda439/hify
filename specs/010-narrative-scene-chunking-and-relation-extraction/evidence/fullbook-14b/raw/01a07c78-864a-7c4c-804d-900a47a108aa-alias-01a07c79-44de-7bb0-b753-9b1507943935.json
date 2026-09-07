@@ -1,0 +1,42 @@
+{
+  "ID": "01a07c79-44de-7bb0-b753-9b1507943935",
+  "ItemID": "01a07c78-86b0-7459-96d8-53b669811f34",
+  "ChunkID": "01a07c78-864a-7c4c-804d-900a47a108aa",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "阿Q",
+        "action": "link",
+        "character_id": "01a07c78-bc03-7c3c-88a8-83f51351bde5",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "倘用『外傳』，『內傳』在那里呢？倘用『內傳』，阿Q又决不是神仙。"
+          },
+          {
+            "source_ref": "01a07c78-bc03-7c3c-88a8-83f51351bde5#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 905,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 147,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 12142,
+    "Valid": true
+  }
+}

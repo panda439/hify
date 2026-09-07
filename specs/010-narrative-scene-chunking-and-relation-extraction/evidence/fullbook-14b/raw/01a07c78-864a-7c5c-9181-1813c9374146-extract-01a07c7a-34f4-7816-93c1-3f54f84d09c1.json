@@ -1,0 +1,60 @@
+{
+  "ID": "01a07c7a-34f4-7816-93c1-3f54f84d09c1",
+  "ItemID": "01a07c78-86b2-709c-b8a0-6c72353f03de",
+  "ChunkID": "01a07c78-864a-7c5c-9181-1813c9374146",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "地保"
+      },
+      {
+        "ref": "m3",
+        "surface": "趙太爺"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "阿Q並沒有抗辯他確鑿姓趙，只用手摸着左頰，和地保退出去了"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m3",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 661,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 140,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 12177,
+    "Valid": true
+  }
+}

@@ -70,8 +70,10 @@ func newExtractionRunner(repo *Repository, model singleAttemptModel) *extraction
 
 // runJobResult 是一次运行的结局，供日志与运维观察。
 type runJobResult struct {
-	ItemsSucceeded int
-	ItemsFailed    int
+	ItemsSucceeded     int
+	ItemsFailed        int
+	AmbiguousPositions int
+	AmbiguousEvidence  int
 	// StoppedEarly 说明这一轮没有把作业跑完：租约丢了、预算耗尽、
 	// 连续失败过多，或者 ctx 被取消。⚠️ 它与"作业失败"不是一回事，
 	// 前三种里有两种是可以从上次的位置接着跑的。
@@ -177,7 +179,10 @@ func (r *extractionRunner) runJob(ctx context.Context, jobID string) (runJobResu
 				res.ItemsFailed++
 				consecutiveFailures++
 			} else {
-				err = r.runItem(ctx, job, epoch, item, chunk)
+				itemResult, itemErr := r.runItem(ctx, job, epoch, item, chunk)
+				res.AmbiguousPositions += itemResult.AmbiguousPositions
+				res.AmbiguousEvidence += itemResult.AmbiguousEvidence
+				err = itemErr
 				switch {
 				case err == nil:
 					res.ItemsSucceeded++
@@ -245,17 +250,22 @@ func (r *extractionRunner) runJob(ctx context.Context, jobID string) (runJobResu
 }
 
 // runItem 处理一个片段：抽取 → （必要时）归一 → 同一事务发布。
-func (r *extractionRunner) runItem(ctx context.Context, job RelationExtractionJob, epoch int, item gen.ListOpenExtractionItemsRow, chunk extractionChunkView) error {
+type runItemResult struct {
+	AmbiguousPositions int
+	AmbiguousEvidence  int
+}
+
+func (r *extractionRunner) runItem(ctx context.Context, job RelationExtractionJob, epoch int, item gen.ListOpenExtractionItemsRow, chunk extractionChunkView) (runItemResult, error) {
 	if _, err := r.repo.queries.MarkItemRunning(ctx, gen.MarkItemRunningParams{
 		ID: item.ID, JobID: job.ID,
 	}); err != nil {
-		return fmt.Errorf("knowledge: mark item running: %w", err)
+		return runItemResult{}, fmt.Errorf("knowledge: mark item running: %w", err)
 	}
 
 	instruction := buildExtractInstruction()
 	rendered, err := fitExtractionInput(instruction, chunk.Content)
 	if err != nil {
-		return err // 输入超限：这个 item 失败，绝不截正文。
+		return runItemResult{}, err // 输入超限：这个 item 失败，绝不截正文。
 	}
 
 	extractRaw, err := r.runPhaseWithValidation(ctx, job, epoch, item.ID, phaseExtract, rendered,
@@ -264,15 +274,15 @@ func (r *extractionRunner) runItem(ctx context.Context, job RelationExtractionJo
 			return perr
 		})
 	if err != nil {
-		return err
+		return runItemResult{}, err
 	}
 	resp, err := parseExtractionResponse(extractRaw)
 	if err != nil {
-		return err
+		return runItemResult{}, err
 	}
 	resolved, err := resolveExtraction(chunk, resp)
 	if err != nil {
-		return err
+		return runItemResult{}, err
 	}
 
 	in := aliasInput{Chunk: chunk, Mentions: resolved.Mentions, Proposals: resolved.AliasProposals}
@@ -282,7 +292,7 @@ func (r *extractionRunner) runItem(ctx context.Context, job RelationExtractionJo
 	}
 	pool, err := r.loadCandidates(ctx, job.ID)
 	if err != nil {
-		return err
+		return runItemResult{}, err
 	}
 	in.Candidates, in.CandidateTruncated = selectAliasCandidates(pool, surfaces)
 
@@ -296,7 +306,7 @@ func (r *extractionRunner) runItem(ctx context.Context, job RelationExtractionJo
 		candidates := renderAliasCandidates(in.Candidates)
 		renderedAlias, dropped, err := fitAliasInput(instruction, chunk.Content, candidates)
 		if err != nil {
-			return err
+			return runItemResult{}, err
 		}
 		in.CandidateTruncated += dropped
 		if dropped > 0 {
@@ -316,26 +326,27 @@ func (r *extractionRunner) runItem(ctx context.Context, job RelationExtractionJo
 				return perr
 			})
 		if err != nil {
-			return err
+			return runItemResult{}, err
 		}
 		parsed, err := parseAliasResponse(aliasRaw)
 		if err != nil {
-			return err
+			return runItemResult{}, err
 		}
 		assign, err = resolveAliasDecisions(in, parsed)
 		if err != nil {
-			return err
+			return runItemResult{}, err
 		}
 	}
 
 	outcome, err := buildExtractionOutcome(chunk, resolved.Relations, assign)
 	if err != nil {
-		return err
+		return runItemResult{}, err
 	}
-	return r.repo.publishItemOutcome(ctx, publishInput{
+	err = r.repo.publishItemOutcome(ctx, publishInput{
 		JobID: job.ID, ItemID: item.ID, Epoch: epoch, Outcome: outcome,
 		ExtractResponse: extractRaw, AliasResponse: aliasRaw,
 	})
+	return runItemResult{AmbiguousPositions: resolved.AmbiguousPositions, AmbiguousEvidence: resolved.AmbiguousEvidence}, err
 }
 
 // runPhaseWithValidation 跑一个阶段，把**校验失败也当成这次尝试失败**。

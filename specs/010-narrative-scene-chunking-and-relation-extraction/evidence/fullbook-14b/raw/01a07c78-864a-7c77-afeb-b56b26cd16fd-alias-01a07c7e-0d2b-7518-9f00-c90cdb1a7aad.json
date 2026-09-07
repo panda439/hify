@@ -1,0 +1,59 @@
+{
+  "ID": "01a07c7e-0d2b-7518-9f00-c90cdb1a7aad",
+  "ItemID": "01a07c78-86b5-7e6b-8834-8a51fce85e56",
+  "ChunkID": "01a07c78-864a-7c77-afeb-b56b26cd16fd",
+  "Phase": "alias",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a07c78-bc03-7c3c-88a8-83f51351bde5",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q『先前闊』，見識高，而且『眞能做』，本來幾乎是一個『完人』了，但可惜他​體質上還有一些缺點，最惱人的是在他頭皮上，頗有幾處不知于何時的癩瘡疤。"
+          },
+          {
+            "source_ref": "01a07c78-bc03-7c3c-88a8-83f51351bde5#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group1",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "閒人們便愈喜歡玩笑他，一見面，他們便假作喫驚的說："
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "他們並不怕。"
+          }
+        ],
+        "reason_code": "insufficient"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1146,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 257,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 26138,
+    "Valid": true
+  }
+}

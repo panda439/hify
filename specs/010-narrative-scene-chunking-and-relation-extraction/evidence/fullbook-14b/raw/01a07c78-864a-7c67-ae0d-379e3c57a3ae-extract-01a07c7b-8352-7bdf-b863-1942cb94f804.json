@@ -1,0 +1,46 @@
+{
+  "ID": "01a07c7b-8352-7bdf-b863-1942cb94f804",
+  "ItemID": "01a07c78-86b3-7991-b97b-2cf267d7c161",
+  "ChunkID": "01a07c78-864a-7c67-ae0d-379e3c57a3ae",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "未莊的人们"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "同乡邻里",
+        "evidence": [
+          {
+            "quote": "未莊的人們之於阿Q，只要他幫忙，只拿他玩笑，從來沒有留心他的『行狀』的"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 908,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 90,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 10109,
+    "Valid": true
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "ID": "01a07c87-1fb0-76e1-812c-3c7d86d8e15f",
+  "ItemID": "01a07c78-86bc-72ce-ab42-41289a87dcab",
+  "ChunkID": "01a07c78-864a-7ca6-af14-4effcefb8ce8",
+  "Phase": "extract",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "錢太爺的大兒子"
+      },
+      {
+        "ref": "m3",
+        "surface": "假洋鬼子"
+      },
+      {
+        "ref": "m4",
+        "surface": "禿兒"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "這也是阿Q最厭惡的一個人，就是錢太爺的大兒子"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m3",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "阿Q尤其『深惡而痛絕之』的，是他的一條假辮子"
+          },
+          {
+            "quote": "這『假洋鬼子』近來了"
+          },
+          {
+            "quote": "『禿兒。驢……』阿Q歷來本只在肚子裏罵，沒有出過聲，這回因爲正氣忿，因爲要報讎，便不由的輕輕的說出來了"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m3",
+        "object_ref": "m4",
+        "type": "alias_proposals",
+        "evidence": [
+          {
+            "quote": "不料這禿兒卻拿着一枝黃漆的棍子——就是阿Q所謂哭喪棒——大踏步走了過來"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": [
+      {
+        "left": "假洋鬼子",
+        "right": "禿兒",
+        "quote": "不料這禿兒卻拿着一枝黃漆的棍子——就是阿Q所謂哭喪棒——大踏步走了過來"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 940,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 307,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 24337,
+    "Valid": true
+  }
+}

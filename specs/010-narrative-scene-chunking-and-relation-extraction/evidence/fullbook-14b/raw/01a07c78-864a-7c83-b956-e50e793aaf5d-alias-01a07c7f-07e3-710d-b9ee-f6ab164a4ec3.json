@@ -1,0 +1,76 @@
+{
+  "ID": "01a07c7f-07e3-710d-b9ee-f6ab164a4ec3",
+  "ItemID": "01a07c78-86b7-769b-9d62-ed823809ec54",
+  "ChunkID": "01a07c78-864a-7c83-b956-e50e793aaf5d",
+  "Phase": "alias",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a07c78-bc03-7c3c-88a8-83f51351bde5",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "但雖然是蟲豸，閒人也並不放，仍舊在就近什麽地方給他碰了五六個響頭，這纔心滿意足的得勝的走了，他以爲阿Q這回可遭了瘟。"
+          },
+          {
+            "source_ref": "01a07c78-bc03-7c3c-88a8-83f51351bde5#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a07c7e-736b-7ef8-a295-320e7b0415a1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "但雖然是蟲豸，閒人也並不放，仍舊在就近什麽地方給他碰了五六個響頭，這纔心滿意足的得勝的走了，他以爲阿Q這回可遭了瘟。"
+          },
+          {
+            "source_ref": "01a07c7e-736b-7ef8-a295-320e7b0415a1#0",
+            "quote": "閒人們便愈喜歡玩笑他，一見面，他們便假作喫驚的說："
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group1",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "樁家揭開盒子蓋，也是汗流滿面的唱。"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q的銅錢拿過來～～！"
+          }
+        ],
+        "reason_code": "insufficient"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1351,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 427,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 41396,
+    "Valid": true
+  }
+}

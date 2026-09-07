@@ -1,0 +1,71 @@
+{
+  "ID": "01a07c7d-89ac-7d5d-afa2-2adb42c366d6",
+  "ItemID": "01a07c78-86b5-7305-a910-210ddac381eb",
+  "ChunkID": "01a07c78-864a-7c6f-8fbb-e573065efecb",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a07c78-bc03-7c3c-88a8-83f51351bde5",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q"
+          },
+          {
+            "source_ref": "01a07c78-bc03-7c3c-88a8-83f51351bde5#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a07c7a-bfb6-7883-8787-d59be55dd161",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺"
+          },
+          {
+            "source_ref": "01a07c7a-bfb6-7883-8787-d59be55dd161#0",
+            "quote": "卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "ambiguous",
+        "character_id": "",
+        "new_group": "group1"
+      },
+      {
+        "mention_ref": "m4",
+        "action": "ambiguous",
+        "character_id": "",
+        "new_group": "group2"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1046,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 289,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 22935,
+    "Valid": true
+  }
+}

@@ -1,0 +1,110 @@
+{
+  "ID": "01a07c83-1cef-78ed-83ee-05fe9ecdedc5",
+  "ItemID": "01a07c78-86b9-7b4e-bfb3-97b673128720",
+  "ChunkID": "01a07c78-864a-7c96-8403-3fcccc0c9b95",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a07c78-bc03-7c3c-88a8-83f51351bde5",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "說也奇怪，從此之後，果然大家也彷彿格外尊敬他。"
+          },
+          {
+            "source_ref": "01a07c78-bc03-7c3c-88a8-83f51351bde5#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a07c7a-bfb6-7883-8787-d59be55dd161",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的"
+          },
+          {
+            "source_ref": "01a07c7a-bfb6-7883-8787-d59be55dd161#0",
+            "quote": "卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "link",
+        "character_id": "01a07c7a-bfb6-7883-8787-d59be55dd161",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺的父親"
+          },
+          {
+            "source_ref": "01a07c7a-bfb6-7883-8787-d59be55dd161#0",
+            "quote": "卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m4",
+        "action": "link",
+        "character_id": "01a07c7a-bfb6-7883-8787-d59be55dd161",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺"
+          },
+          {
+            "source_ref": "01a07c7a-bfb6-7883-8787-d59be55dd161#0",
+            "quote": "卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m5",
+        "action": "link",
+        "character_id": "01a07c7a-bfb6-7883-8787-d59be55dd161",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺"
+          },
+          {
+            "source_ref": "01a07c7a-bfb6-7883-8787-d59be55dd161#0",
+            "quote": "卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的"
+          }
+        ],
+        "reason_code": "context_identity"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1358,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 678,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 54462,
+    "Valid": true
+  }
+}

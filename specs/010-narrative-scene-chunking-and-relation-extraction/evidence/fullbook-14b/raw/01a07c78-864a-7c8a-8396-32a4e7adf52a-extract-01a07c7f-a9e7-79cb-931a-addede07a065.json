@@ -1,0 +1,60 @@
+{
+  "ID": "01a07c7f-a9e7-79cb-931a-addede07a065",
+  "ItemID": "01a07c78-86b8-737a-9700-a0436fdd7b7f",
+  "ChunkID": "01a07c78-864a-7c8a-8396-32a4e7adf52a",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "樁家"
+      },
+      {
+        "ref": "m3",
+        "surface": "兒子"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "他不知道誰和誰爲什麽打起架來了。罵聲、打聲、脚步聲，昏頭昏腦的一大陣，他纔爬起來，賭攤不見了，人們也不見了，身上有幾處很似乎有些痛，似乎也挨了幾拳幾腳似的，幾個人詫異的對他看。"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m3",
+        "type": "亲属",
+        "evidence": [
+          {
+            "quote": "說是算被兒子拿去了罷，總還是忽忽不樂；"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 911,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 184,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 17520,
+    "Valid": true
+  }
+}

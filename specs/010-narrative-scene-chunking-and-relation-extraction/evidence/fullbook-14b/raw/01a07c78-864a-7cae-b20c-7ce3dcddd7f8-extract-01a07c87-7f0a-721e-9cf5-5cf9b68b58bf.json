@@ -1,0 +1,80 @@
+{
+  "ID": "01a07c87-7f0a-721e-9cf5-5cf9b68b58bf",
+  "ItemID": "01a07c78-86bd-71b9-ab6b-1c7821c221ea",
+  "ChunkID": "01a07c78-864a-7cae-b20c-7ce3dcddd7f8",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "孩子"
+      },
+      {
+        "ref": "m3",
+        "surface": "小尼姑"
+      },
+      {
+        "ref": "m4",
+        "surface": "和尙"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "『我說他！』阿Q指着近旁的一個孩子，分辯說。"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m3",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "他迎上去，大聲的吐一口唾沫：『咳，開！』"
+          },
+          {
+            "quote": "阿Q走近伊身旁，突然伸出手去摩着伊新剃的頭皮，獃笑着，說：『禿兒！快回去，和尙等着你……』"
+          },
+          {
+            "quote": "『你怎麽動手動腳……』尼姑滿臉通紅的說，一面趕快走。"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m3",
+        "object_ref": "m4",
+        "type": "同伙",
+        "evidence": [
+          {
+            "quote": "『禿兒！快回去，和尙等着你……』"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 938,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 249,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 23009,
+    "Valid": true
+  }
+}

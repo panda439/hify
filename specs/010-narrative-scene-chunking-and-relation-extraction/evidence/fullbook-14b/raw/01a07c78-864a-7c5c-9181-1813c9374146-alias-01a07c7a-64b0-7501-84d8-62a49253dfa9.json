@@ -1,0 +1,72 @@
+{
+  "ID": "01a07c7a-64b0-7501-84d8-62a49253dfa9",
+  "ItemID": "01a07c78-86b2-709c-b8a0-6c72353f03de",
+  "ChunkID": "01a07c78-864a-7c5c-9181-1813c9374146",
+  "Phase": "alias",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a07c78-bc03-7c3c-88a8-83f51351bde5",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q並沒有抗辯他確鑿姓趙，只用手摸着左頰，和地保退出去了"
+          },
+          {
+            "source_ref": "01a07c78-bc03-7c3c-88a8-83f51351bde5#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group1",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "和地保退出去了"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "外面又被地保訓斥了一番，謝了地保二百文酒錢"
+          }
+        ],
+        "reason_code": "insufficient"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group2",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的"
+          }
+        ],
+        "reason_code": "insufficient"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 662,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 270,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 23253,
+    "Valid": true
+  }
+}

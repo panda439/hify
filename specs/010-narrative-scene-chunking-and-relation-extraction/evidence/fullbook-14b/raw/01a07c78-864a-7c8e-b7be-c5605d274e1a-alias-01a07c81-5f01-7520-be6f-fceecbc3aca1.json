@@ -1,0 +1,59 @@
+{
+  "ID": "01a07c81-5f01-7520-be6f-fceecbc3aca1",
+  "ItemID": "01a07c78-86b9-703a-b29f-ee75875ee682",
+  "ChunkID": "01a07c78-864a-7c8e-b7be-c5605d274e1a",
+  "Phase": "alias",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a07c78-bc03-7c3c-88a8-83f51351bde5",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "然而阿Q雖然常優勝，卻直待蒙趙太爺打他嘴巴之後，這纔出了名。"
+          },
+          {
+            "source_ref": "01a07c78-bc03-7c3c-88a8-83f51351bde5#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a07c7a-bfb6-7883-8787-d59be55dd161",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "然而阿Q雖然常優勝，卻直待蒙趙太爺打他嘴巴之後，這纔出了名。"
+          },
+          {
+            "source_ref": "01a07c7a-bfb6-7883-8787-d59be55dd161#0",
+            "quote": "卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的"
+          }
+        ],
+        "reason_code": "context_identity"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1322,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 298,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 33851,
+    "Valid": true
+  }
+}

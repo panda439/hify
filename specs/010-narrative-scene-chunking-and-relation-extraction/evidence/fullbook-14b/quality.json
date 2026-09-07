@@ -1,0 +1,27 @@
+{
+  "ambiguous_evidence": 0,
+  "ambiguous_positions": 8,
+  "legal_rate": 0.4,
+  "other_errors": [
+    {
+      "code": "alias_invalid",
+      "message": "alias phase: knowledge: alias response invalid: 1 decisions for 0 mentions"
+    },
+    {
+      "code": "extract_invalid",
+      "message": "extract phase: knowledge: extraction response invalid: alias proposal 0 left \"阿Q\" is not a mention"
+    },
+    {
+      "code": "quote_unverifiable",
+      "message": "mention \"m2\": knowledge: quote not found in chunk: \"未莊的人们\""
+    },
+    {
+      "code": "http_error",
+      "message": "HTTP request failed during a dispatched Ollama call"
+    }
+  ],
+  "other_error_codes": {
+    "http_error": 1
+  },
+  "verifiable_quote_rate": null
+}
