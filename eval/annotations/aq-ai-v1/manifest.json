@@ -6,43 +6,43 @@
   "frozen_for_acceptance": false,
   "source_files": [
     {
-      "file": "/tmp/claude-501/-Users-lishurong-go-src-hify--claude-worktrees-strange-driscoll-87a634/cc7d0edb-34ad-4c87-8323-11c5f0c39726/scratchpad/novels/aq_annotation/ch01.txt",
+      "file": "eval/corpus/aq-010/ch01.txt",
       "sha256": "7fa63184f6d39e615317ca0695f0b34a18a32ea7ade9f6bd25609debc473260e"
     },
     {
-      "file": "/tmp/claude-501/-Users-lishurong-go-src-hify--claude-worktrees-strange-driscoll-87a634/cc7d0edb-34ad-4c87-8323-11c5f0c39726/scratchpad/novels/aq_annotation/ch02.txt",
+      "file": "eval/corpus/aq-010/ch02.txt",
       "sha256": "88c9c5508d902eda49188a7dbb589d5bb1b2100be862eff64b900ec4de2d966a"
     },
     {
-      "file": "/tmp/claude-501/-Users-lishurong-go-src-hify--claude-worktrees-strange-driscoll-87a634/cc7d0edb-34ad-4c87-8323-11c5f0c39726/scratchpad/novels/aq_annotation/ch03.txt",
+      "file": "eval/corpus/aq-010/ch03.txt",
       "sha256": "bf02190c0aa4e7df57fa66d03603416ce39ef990a4c5fdbd9b81af7e830be231"
     },
     {
-      "file": "/tmp/claude-501/-Users-lishurong-go-src-hify--claude-worktrees-strange-driscoll-87a634/cc7d0edb-34ad-4c87-8323-11c5f0c39726/scratchpad/novels/aq_annotation/ch04.txt",
+      "file": "eval/corpus/aq-010/ch04.txt",
       "sha256": "10caba51ddebeb09aa88d98764cce22504d0573ffea8ed3a7e4f680ed461fd3b"
     },
     {
-      "file": "/tmp/claude-501/-Users-lishurong-go-src-hify--claude-worktrees-strange-driscoll-87a634/cc7d0edb-34ad-4c87-8323-11c5f0c39726/scratchpad/novels/aq_annotation/ch05.txt",
+      "file": "eval/corpus/aq-010/ch05.txt",
       "sha256": "b2739c9c5c97ba6d75b984e8ed0dbba7d22055903e23689a686dc912c3e7113e"
     },
     {
-      "file": "/tmp/claude-501/-Users-lishurong-go-src-hify--claude-worktrees-strange-driscoll-87a634/cc7d0edb-34ad-4c87-8323-11c5f0c39726/scratchpad/novels/aq_annotation/ch06.txt",
+      "file": "eval/corpus/aq-010/ch06.txt",
       "sha256": "62054f3195e78a58c87de30bd85f91b70529f195f382e0677c6717bb323e68dc"
     },
     {
-      "file": "/tmp/claude-501/-Users-lishurong-go-src-hify--claude-worktrees-strange-driscoll-87a634/cc7d0edb-34ad-4c87-8323-11c5f0c39726/scratchpad/novels/aq_annotation/ch07.txt",
+      "file": "eval/corpus/aq-010/ch07.txt",
       "sha256": "7f2c455c2bfb5ddca1e34060a4adcd943de05e0eb4d6d7dd4be3cd6f792c322a"
     },
     {
-      "file": "/tmp/claude-501/-Users-lishurong-go-src-hify--claude-worktrees-strange-driscoll-87a634/cc7d0edb-34ad-4c87-8323-11c5f0c39726/scratchpad/novels/aq_annotation/ch08.txt",
+      "file": "eval/corpus/aq-010/ch08.txt",
       "sha256": "9bce28249c8a18d5161d796e3027b9afb0637a734e9e978a8c6438e4a92a30a3"
     },
     {
-      "file": "/tmp/claude-501/-Users-lishurong-go-src-hify--claude-worktrees-strange-driscoll-87a634/cc7d0edb-34ad-4c87-8323-11c5f0c39726/scratchpad/novels/aq_annotation/ch09.txt",
+      "file": "eval/corpus/aq-010/ch09.txt",
       "sha256": "a5ebf54d0cf0c3ee2936c86ec399cace1b1e0b75926ba355147f390d707e85b1"
     }
   ],
-  "local_source_directory": "/Users/lishurong/go/src/hify/.claude/worktrees/strange-driscoll-87a634/eval/corpus/aq-010",
+  "local_source_directory": "eval/corpus/aq-010",
   "source_paragraphs": 322,
   "included_paragraphs": 314,
   "excluded_paragraphs": 8,
