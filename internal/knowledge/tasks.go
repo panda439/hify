@@ -17,6 +17,15 @@ const TaskTypeProcessDocument = "knowledge:process_document"
 // auth.TaskTypeCleanupRefreshTokens.
 const TaskTypeReconcileDocuments = "knowledge:reconcile_documents"
 
+// TaskTypeReconcileRelationExtractions 与 TaskTypeReconcileDocuments 平行，
+// 但**分成两个周期任务**而不是合并：
+//   - 文档处理的恢复只碰 documents/chunks，
+//   - 抽取的恢复要碰作业、租约和账目；
+//
+// 合并之后任何一半出错都会让另一半这一轮不跑，而账目那一半停摆的表现是
+// 孤儿预留永远停在 reserved——"可能花掉的钱"永远不上账，且毫无症状。
+const TaskTypeReconcileRelationExtractions = "knowledge:reconcile_relation_extractions"
+
 type processDocumentPayload struct {
 	DocumentID string `json:"document_id"`
 	// Version is which processing attempt this task instance is
@@ -57,6 +66,30 @@ func NewReconcileTaskHandler(svc Service) asynq.HandlerFunc {
 			return err
 		}
 		slog.Info("knowledge: reconciled stuck documents", "reclaimed", n)
+		return nil
+	}
+}
+
+// NewRelationExtractionReconcileHandler 是抽取恢复扫描的 asynq 适配器。
+//
+// ⚠️ 它只负责把需要接手的作业**记出来**并把孤儿预留改判；真正的接手是
+// 另一条路径。恢复扫描必须是个短任务：在里面同步跑几百次模型调用会让
+// 下一轮扫描迟迟不来，而所有作业的租约还在滴答。
+//
+// 🚧 "记出来"目前就是全部——重新入队还没接上，见
+// reconcileRelationExtractions 的说明。
+func NewRelationExtractionReconcileHandler(svc Service) asynq.HandlerFunc {
+	return func(ctx context.Context, _ *asynq.Task) error {
+		res, err := svc.ReconcileRelationExtractions(ctx)
+		if err != nil {
+			return err
+		}
+		if res.JobsNeedingRecovery > 0 || res.ReservationsResolved > 0 {
+			slog.Info("knowledge: reconciled relation extractions",
+				"jobs_needing_recovery", res.JobsNeedingRecovery,
+				"jobs_requeued", 0, // 🚧 入队未接上，恒为 0——见 ReconcileResult
+				"reservations_resolved", res.ReservationsResolved)
+		}
 		return nil
 	}
 }

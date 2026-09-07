@@ -288,3 +288,21 @@ FROM relation_extraction_attempts
 WHERE item_id = ? AND phase = ? AND state = 'completed' AND raw_response IS NOT NULL
 ORDER BY attempt_number DESC
 LIMIT 1;
+
+-- name: ListRecoverableExtractionJobs :many
+-- 恢复扫描：需要有人接手的作业。
+--
+-- ⭐ state 白名单里**故意没有** paused 和 budget_exhausted：
+-- 那两个是**用户或预算做出的决定**，不是故障。自动把它们捡回来跑，
+-- 等于系统擅自推翻了一次显式的停止——而用户会看到一个自己明明暂停过的
+-- 作业又开始花钱。
+--
+-- 条件是"没人持有，或者持有者的租约已经过期"。id 收尾做游标分页，
+-- 避免一次扫描把成千上万行拉回来。
+SELECT id, document_id, document_version, epoch, state, initialization_complete
+FROM relation_extraction_jobs
+WHERE state IN ('initializing', 'running')
+  AND (lease_until IS NULL OR lease_until < ?)
+  AND id > ?
+ORDER BY id
+LIMIT ?;

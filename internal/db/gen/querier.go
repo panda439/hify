@@ -238,6 +238,16 @@ type Querier interface {
 	// the first page of a conversation's history in the UI — always bounded by
 	// conversation_id per CLAUDE.md's large-table rule (never an unfiltered scan).
 	ListRecentMessagesByConversation(ctx context.Context, arg ListRecentMessagesByConversationParams) ([]Message, error)
+	// 恢复扫描：需要有人接手的作业。
+	//
+	// ⭐ state 白名单里**故意没有** paused 和 budget_exhausted：
+	// 那两个是**用户或预算做出的决定**，不是故障。自动把它们捡回来跑，
+	// 等于系统擅自推翻了一次显式的停止——而用户会看到一个自己明明暂停过的
+	// 作业又开始花钱。
+	//
+	// 条件是"没人持有，或者持有者的租约已经过期"。id 收尾做游标分页，
+	// 避免一次扫描把成千上万行拉回来。
+	ListRecoverableExtractionJobs(ctx context.Context, arg ListRecoverableExtractionJobsParams) ([]ListRecoverableExtractionJobsRow, error)
 	// reconciliation 扫描用：pending 状态停留超过阈值，大概率是入队失败（见
 	// UploadDocument 的注释）导致没有任何任务在处理它。pending 从没有 worker
 	// 持有过租约，"入队丢了"这个问题只能靠 updated_at 阈值判断。

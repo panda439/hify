@@ -32,6 +32,12 @@ type Service interface {
 	// 一个字都不用改，而"零值 = 旧行为"由 UploadOptions 的定义保证。
 	UploadDocument(ctx context.Context, kbID, userID, role, fileName, fileType string, content []byte) (Document, error)
 	UploadDocumentWithOptions(ctx context.Context, kbID, userID, role, fileName, fileType string, content []byte, opts UploadOptions) (Document, error)
+
+	// ReconcileRelationExtractions 是抽取作业的恢复扫描（010）。
+	// ⚠️ 它**不会**恢复用户暂停或预算耗尽的作业——那两个是显式决定，
+	// 不是故障；自动重启它们等于系统擅自推翻用户的选择，而用户会看到
+	// 一个自己明明暂停过的作业又开始花钱。
+	ReconcileRelationExtractions(ctx context.Context) (ReconcileResult, error)
 	ListDocuments(ctx context.Context, kbID string, limit, offset int) ([]Document, int, error)
 	GetDocument(ctx context.Context, id string) (Document, error)
 
@@ -1430,4 +1436,8 @@ func (s *service) DocumentCoverages(ctx context.Context, documentIDs []string) (
 		return nil, nil
 	}
 	return s.repo.documentCoverages(ctx, documentIDs)
+}
+
+func (s *service) ReconcileRelationExtractions(ctx context.Context) (ReconcileResult, error) {
+	return s.repo.reconcileRelationExtractions(ctx)
 }
