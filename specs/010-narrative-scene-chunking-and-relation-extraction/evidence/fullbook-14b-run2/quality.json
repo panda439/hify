@@ -1,0 +1,6 @@
+{
+  "summary_available": false,
+  "degraded_items": null,
+  "alias_calls_saved": null,
+  "reason": "The temporary integration database was cleaned when the test was interrupted; no complete SQL distribution can be claimed."
+}

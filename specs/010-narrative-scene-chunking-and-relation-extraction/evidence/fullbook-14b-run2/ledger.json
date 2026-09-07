@@ -1,0 +1,30 @@
+{
+  "run": "T042-run2-after-degradation-fix",
+  "model": "qwen2.5:14b",
+  "note": "测试在 60 分钟墙钟上限处被中断（exit 130），产物写入前进程已退出。下面的数字是 Claude 在测试库被下次 go test 重建之前，直接从 MySQL 查出来固化的。原始响应未能导出——这是本轮的一个缺口，见 README。",
+  "state_at_interrupt": "running",
+  "total_items": 62,
+  "succeeded_items": 26,
+  "failed_items": 17,
+  "pending_items": 18,
+  "running_items": 1,
+  "degraded_items": 12,
+  "reserved_calls": 117,
+  "confirmed_dispatches": 100,
+  "unknown_attempts": 16,
+  "active_seconds": 3595,
+  "wall_clock_limit_minutes": 60,
+  "cost_kind": "not_applicable",
+  "cost_amount": null,
+  "attempts_by_phase_state": {
+    "extract_completed": {"count": 35, "avg_ms": 19823},
+    "extract_failed": {"count": 27, "avg_ms": 20361},
+    "alias_completed": {"count": 12, "avg_ms": 43060},
+    "alias_failed": {"count": 26, "avg_ms": 33662},
+    "alias_unknown_timeout": {"count": 16, "avg_ms": 60001},
+    "alias_reserved_unsettled": {"count": 1, "avg_ms": null}
+  },
+  "item_failure_reasons": {"extract_invalid": 9, "quote_unverifiable": 8},
+  "results": {"characters": 69, "relations": 72, "evidence": 89},
+  "relation_types": {"冲突": 38, "权势压迫": 9, "亲属": 8, "雇佣": 6, "同伙": 5, "同乡邻里": 5, "欺凌": 1}
+}
