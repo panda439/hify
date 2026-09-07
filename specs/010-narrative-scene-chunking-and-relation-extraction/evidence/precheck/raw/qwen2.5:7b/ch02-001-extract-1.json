@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch02-001",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "c7fe1ea9e03a90708a5a310589fab97e012f0f7995417dc6c0dbbd34a7e40ed1",
+  "request_runes": 1051,
+  "http_status": 200,
+  "latency_ms": 10450,
+  "response": {
+    "id": "chatcmpl-574",
+    "object": "chat.completion",
+    "created": 1788787620,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "```json\n{\n  \"mentions\": [\n    {\"ref\": \"m1\", \"surface\": \"阿Q\", \"occurrence\": 0},\n    {\"ref\": \"m2\", \"surface\": \"未莊的人們\", \"occurrence\": 1},\n    {\"ref\": \"m3\", \"surface\": \"行狀\", \"occurrence\": 2},\n    {\"ref\": \"m4\", \"surface\": \"未莊的人們\", \"occurrence\": 3},\n    {\"ref\": \"m5\", \"surface\": \"阿Q\", \"occurrence\": 4},\n    {\"ref\": \"m6\", \"surface\": \"老頭子\", \"occurrence\": 5}\n  ],\n  \"relations\": [\n    {\"subject_ref\": \"m1\", \"object_ref\": \"m4\", \"type\": \"同乡邻里\", \"evidence\": [{\"quote\": \"未莊的人們之於阿Q，只要他幫忙，只拿他玩笑，從來沒有留心他的『行狀』的。\", \"occurrence\": 0}]}\n  ],\n  \"alias_proposals\": []\n}\n```"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 669,
+      "completion_tokens": 238,
+      "total_tokens": 907
+    }
+  }
+}

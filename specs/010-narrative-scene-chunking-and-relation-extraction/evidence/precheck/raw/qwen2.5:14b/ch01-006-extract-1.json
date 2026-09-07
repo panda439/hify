@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:14b",
+  "chunk_id": "ch01-006",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "50e4bb70c6c089fa9cc23418cda2c59808d08e6a84fd8e504f4cc0a5b3cd501f",
+  "request_runes": 958,
+  "http_status": 200,
+  "latency_ms": 18577,
+  "response": {
+    "id": "chatcmpl-729",
+    "object": "chat.completion",
+    "created": 1788787237,
+    "model": "qwen2.5:14b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"趙\",\"occurrence\":0},{\"ref\":\"m3\",\"surface\":\"未莊人\",\"occurrence\":0}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"同乡邻里\",\"evidence\":[{\"quote\":\"他雖然多住未莊，然而也常常宿在別處，不能說是未莊人，卽使說是『未莊人也』，也仍然有乖史法的。\",\"occurrence\":0}]},{\"subject_ref\":\"m2\",\"object_ref\":\"m1\",\"type\":\"同乡邻里\",\"evidence\":[{\"quote\":\"倘他姓趙，則據現在好稱郡望的老例，可以照郡名百家姓上的注解，說是『隴西天水人也』，但可惜這姓是不甚可靠的，因此籍貫也就有些決不定。\",\"occurrence\":0}]}],\"alias_proposals\":[]}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 590,
+      "completion_tokens": 214,
+      "total_tokens": 804
+    }
+  }
+}

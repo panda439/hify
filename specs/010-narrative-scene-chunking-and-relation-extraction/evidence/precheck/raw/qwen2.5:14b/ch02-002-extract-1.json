@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:14b",
+  "chunk_id": "ch02-002",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "a81023d11c97e79dc8b985c2837ba5ae5efe6552f85130c6b566f231acbfdec8",
+  "request_runes": 967,
+  "http_status": 200,
+  "latency_ms": 49144,
+  "response": {
+    "id": "chatcmpl-649",
+    "object": "chat.completion",
+    "created": 1788787318,
+    "model": "qwen2.5:14b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"文童\",\"occurrence\":1},{\"ref\":\"m3\",\"surface\":\"趙太爺\",\"occurrence\":2},{\"ref\":\"m4\",\"surface\":\"錢太爺\",\"occurrence\":3},{\"ref\":\"m5\",\"surface\":\"文童\",\"occurrence\":4},{\"ref\":\"m6\",\"surface\":\"長凳\",\"occurrence\":5},{\"ref\":\"m7\",\"surface\":\"條凳\",\"occurrence\":6},{\"ref\":\"m8\",\"surface\":\"葱葉\",\"occurrence\":7},{\"ref\":\"m9\",\"surface\":\"葱絲\",\"occurrence\":8}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"所有未莊的居民，全不在他眼睛裏，甚而至于對于兩位『文童』也有以爲不值一笑的神情。\",\"occurrence\":0}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"夫文童者，將來恐怕要變秀才者也；趙太爺、錢太爺大受居民的尊敬，除有錢之外，就因爲都是文童的爹爹，而阿Q在情神上獨不表格外的崇奉，他想：我的兒子會闊得多啦！\",\"occurrence\":1}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m4\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"夫文童者，將來恐怕要變秀才者也；趙太爺、錢太爺大受居民的尊敬，除有錢之外，就因爲都是文童的爹爹，而阿Q在情神上獨不表格外的崇奉，他想：我的兒子會闊得多啦！\",\"occurrence\":2}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"加以進了幾回城，阿Q自然更自負，然而他又很鄙薄城裏人，譬如用三尺長三寸寬的木板做成的凳子，未莊叫『長凳』，他也叫『長凳』，城裏人卻叫『條凳』，他想：這是錯的，可笑！油煎大頭魚，未莊都加上半寸長的葱葉，城裏卻加上切細的葱絲，他想：這也是錯的，可笑！\",\"occurrence\":3}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"然而未莊人眞是不見世面的可笑的鄉下人呵，他們沒有見過城裏的煎魚！\",\"occurrence\":4}]}],\"alias_proposals\":[]}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 609,
+      "completion_tokens": 602,
+      "total_tokens": 1211
+    }
+  }
+}

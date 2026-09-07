@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch02-005",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "b4637a85fbed6b31bff68c230d90f8133c80eb3402f69a1044e3cb065a316ea8",
+  "request_runes": 1163,
+  "http_status": 200,
+  "latency_ms": 11213,
+  "response": {
+    "id": "chatcmpl-386",
+    "object": "chat.completion",
+    "created": 1788787673,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "```json\n{\n  \"mentions\": [\n    {\"ref\": \"m1\", \"surface\": \"阿Q\", \"occurrence\": 0},\n    {\"ref\": \"m2\", \"surface\": \"閒人\", \"occurrence\": 0},\n    {\"ref\": \"m3\", \"surface\": \"蟲豸\", \"occurrence\": 0},\n    {\"ref\": \"m4\", \"surface\": \"阿Q\", \"occurrence\": 1},\n    {\"ref\": \"m5\", \"surface\": \"酒店\", \"occurrence\": 0},\n    {\"ref\": \"m6\", \"surface\": \"土穀祠\", \"occurrence\": 0},\n    {\"ref\": \"m7\", \"surface\": \"樁家\", \"occurrence\": 0}\n  ],\n  \"relations\": [\n    {\"subject_ref\": \"m1\", \"object_ref\": \"m2\", \"type\": \"欺凌\", \"evidence\": [{\"quote\": \"閒人也並不放，仍舊在就近什麽地方給他碰了五六個響頭\", \"occurrence\": 0}]}\n  ],\n  \"alias_proposals\": []\n}\n```"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 775,
+      "completion_tokens": 245,
+      "total_tokens": 1020
+    }
+  }
+}

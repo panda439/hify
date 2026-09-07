@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch02-004",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "9446e0b426d39037079e54e2db7e1142e985074759605b46ef8ca1d20818d7cb",
+  "request_runes": 1081,
+  "http_status": 200,
+  "latency_ms": 12119,
+  "response": {
+    "id": "chatcmpl-234",
+    "object": "chat.completion",
+    "created": 1788787661,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "```json\n{\n  \"mentions\": [\n    {\"ref\": \"m1\", \"surface\": \"你\", \"occurrence\": 0},\n    {\"ref\": \"m2\", \"surface\": \"阿Q\", \"occurrence\": 0},\n    {\"ref\": \"m3\", \"surface\": \"犯忌\", \"occurrence\": 0},\n    {\"ref\": \"m4\", \"surface\": \"閒人\", \"occurrence\": 0},\n    {\"ref\": \"m5\", \"surface\": \"兒子\", \"occurrence\": 0},\n    {\"ref\": \"m6\", \"surface\": \"人\", \"occurrence\": 0},\n    {\"ref\": \"m7\", \"surface\": \"畜生\", \"occurrence\": 0},\n    {\"ref\": \"m8\", \"surface\": \"蟲豸\", \"occurrence\": 0}\n  ],\n  \"relations\": [\n    {\"subject_ref\": \"m2\", \"object_ref\": \"m4\", \"type\": \"冲突\", \"evidence\": [{\"quote\": \"阿Q在形式上打敗了，被人揪住黃辮子，在壁下碰了四五個響頭，閒人這纔心滿意足的得勝的走了\", \"occurrence\": 0}]}\n  ],\n  \"alias_proposals\": []\n}\n```"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 697,
+      "completion_tokens": 281,
+      "total_tokens": 978
+    }
+  }
+}

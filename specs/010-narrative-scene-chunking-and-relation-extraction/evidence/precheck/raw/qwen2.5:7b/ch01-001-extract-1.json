@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch01-001",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "e6e4c055bf00cc5c30566e7c0cc71afc0081674556b711df042417a646b7a929",
+  "request_runes": 813,
+  "http_status": 200,
+  "latency_ms": 9520,
+  "response": {
+    "id": "chatcmpl-390",
+    "object": "chat.completion",
+    "created": 1788787543,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "```json\n{\n  \"mentions\": [\n    {\"ref\": \"m1\", \"surface\": \"阿Q\", \"occurrence\": 0},\n    {\"ref\": \"m2\", \"surface\": \"我\", \"occurrence\": 0}\n  ],\n  \"relations\": [\n    {\"subject_ref\": \"m2\", \"object_ref\": \"m1\", \"type\": \"追求\", \"evidence\": [{\"quote\": \"我要給阿Q做正傳\", \"occurrence\": 0}]}\n  ],\n  \"alias_proposals\": []\n}\n```"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 463,
+      "completion_tokens": 118,
+      "total_tokens": 581
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch01-005",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "701ad9e10e57005136e7e2813a77c686467faf769901a8c025cf21a14aba23f3",
+  "request_runes": 1178,
+  "http_status": 200,
+  "latency_ms": 14850,
+  "response": {
+    "id": "chatcmpl-366",
+    "object": "chat.completion",
+    "created": 1788787600,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "```json\n{\n  \"mentions\": [\n    {\"ref\": \"m1\", \"surface\": \"阿Q\", \"occurrence\": 0},\n    {\"ref\": \"m2\", \"surface\": \"阿Quei\", \"occurrence\": 1},\n    {\"ref\": \"m3\", \"surface\": \"阿桂\", \"occurrence\": 2},\n    {\"ref\": \"m4\", \"surface\": \"阿貴\", \"occurrence\": 3},\n    {\"ref\": \"m5\", \"surface\": \"阿富\", \"occurrence\": 4},\n    {\"ref\": \"m6\", \"surface\": \"茂才先生\", \"occurrence\": 5},\n    {\"ref\": \"m7\", \"surface\": \"趙太爺的兒子\", \"occurrence\": 6},\n    {\"ref\": \"m8\", \"surface\": \"陳獨秀\", \"occurrence\": 7},\n    {\"ref\": \"m9\", \"surface\": \"新青年\", \"occurrence\": 8},\n    {\"ref\": \"m10\", \"surface\": \"同鄉\", \"occurrence\": 9}\n  ],\n  \"relations\": [\n    {\"subject_ref\": \"m1\", \"object_ref\": \"m2\", \"type\": \"同伙\", \"evidence\": [{\"quote\": \"他活着的時候，人都叫他阿Quei\", \"occurrence\": 1}]}\n  ],\n  \"alias_proposals\": [\n    {\"left\": \"m1\", \"right\": \"m2\", \"quote\": \"他活着的時候，人都叫他阿Quei\", \"occurrence\": 1}\n  ]\n}\n```"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 750,
+      "completion_tokens": 344,
+      "total_tokens": 1094
+    }
+  }
+}

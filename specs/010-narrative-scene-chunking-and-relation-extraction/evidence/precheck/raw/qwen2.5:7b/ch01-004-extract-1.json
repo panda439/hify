@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch01-004",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "59cc41524e4172d4f79d439c48d3ce09962e2ffc3b21fd4a7d85390a20995fc4",
+  "request_runes": 819,
+  "http_status": 200,
+  "latency_ms": 5947,
+  "response": {
+    "id": "chatcmpl-194",
+    "object": "chat.completion",
+    "created": 1788787585,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "```json\n{\n  \"mentions\": [\n    {\"ref\": \"m1\", \"surface\": \"阿Q\", \"occurrence\": 0},\n    {\"ref\": \"m2\", \"surface\": \"地保\", \"occurrence\": 1},\n    {\"ref\": \"m3\", \"surface\": \"趙太爺\", \"occurrence\": 1}\n  ],\n  \"relations\": [\n    {\"subject_ref\": \"m1\", \"object_ref\": \"m2\", \"type\": \"雇佣\", \"evidence\": [{\"quote\": \"外面又被地保訓斥了一番\", \"occurrence\": 0}]}\n  ],\n  \"alias_proposals\": []\n}\n```"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 470,
+      "completion_tokens": 143,
+      "total_tokens": 613
+    }
+  }
+}

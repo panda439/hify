@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch01-002",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "8c64edb7b3bf84714eb01bc724a0a552793e4defdd84d6bb952e5df568fe593b",
+  "request_runes": 1117,
+  "http_status": 200,
+  "latency_ms": 23696,
+  "response": {
+    "id": "chatcmpl-243",
+    "object": "chat.completion",
+    "created": 1788787566,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "```json\n{\n  \"mentions\": [\n    {\"ref\": \"m1\", \"surface\": \"文章的名目\", \"occurrence\": 0},\n    {\"ref\": \"m2\", \"surface\": \"列傳\", \"occurrence\": 1},\n    {\"ref\": \"m3\", \"surface\": \"自傳\", \"occurrence\": 2},\n    {\"ref\": \"m4\", \"surface\": \"外傳\", \"occurrence\": 3},\n    {\"ref\": \"m5\", \"surface\": \"內傳\", \"occurrence\": 4},\n    {\"ref\": \"m6\", \"surface\": \"別傳\", \"occurrence\": 5},\n    {\"ref\": \"m7\", \"surface\": \"家傳\", \"occurrence\": 6},\n    {\"ref\": \"m8\", \"surface\": \"小傳\", \"occurrence\": 7},\n    {\"ref\": \"m9\", \"surface\": \"正傳\", \"occurrence\": 8}\n  ],\n  \"relations\": [\n    {\"subject_ref\": \"m2\", \"object_ref\": \"m1\", \"type\": \"同伙\", \"evidence\": [{\"quote\": \"這原是應該極注意的。\", \"occurrence\": 0}]},\n    {\"subject_ref\": \"m3\", \"object_ref\": \"m1\", \"type\": \"同伙\", \"evidence\": [{\"quote\": \"這原是應該極注意的。\", \"occurrence\": 0}]},\n    {\"subject_ref\": \"m4\", \"object_ref\": \"m1\", \"type\": \"同伙\", \"evidence\": [{\"quote\": \"這原是應該極注意的。\", \"occurrence\": 0}]},\n    {\"subject_ref\": \"m5\", \"object_ref\": \"m1\", \"type\": \"同伙\", \"evidence\": [{\"quote\": \"這原是應該極注意的。\", \"occurrence\": 0}]},\n    {\"subject_ref\": \"m6\", \"object_ref\": \"m1\", \"type\": \"同伙\", \"evidence\": [{\"quote\": \"這原是應該極注意的。\", \"occurrence\": 0}]},\n    {\"subject_ref\": \"m7\", \"object_ref\": \"m1\", \"type\": \"同伙\", \"evidence\": [{\"quote\": \"這原是應該極注意的。\", \"occurrence\": 0}]},\n    {\"subject_ref\": \"m8\", \"object_ref\": \"m1\", \"type\": \"同伙\", \"evidence\": [{\"quote\": \"這原是應該極注意的。\", \"occurrence\": 0}]}\n  ],\n  \"alias_proposals\": []\n}\n```"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 743,
+      "completion_tokens": 571,
+      "total_tokens": 1314
+    }
+  }
+}

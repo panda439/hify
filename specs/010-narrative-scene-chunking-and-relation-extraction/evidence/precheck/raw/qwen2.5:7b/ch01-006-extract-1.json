@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:7b",
+  "chunk_id": "ch01-006",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "50e4bb70c6c089fa9cc23418cda2c59808d08e6a84fd8e504f4cc0a5b3cd501f",
+  "request_runes": 958,
+  "http_status": 200,
+  "latency_ms": 9942,
+  "response": {
+    "id": "chatcmpl-417",
+    "object": "chat.completion",
+    "created": 1788787610,
+    "model": "qwen2.5:7b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "```json\n{\n  \"mentions\": [\n    {\"ref\": \"m1\", \"surface\": \"阿Q\", \"occurrence\": 0},\n    {\"ref\": \"m2\", \"surface\": \"阿\", \"occurrence\": 1},\n    {\"ref\": \"m3\", \"surface\": \"未莊\", \"occurrence\": 0},\n    {\"ref\": \"m4\", \"surface\": \"陇西天水\", \"occurrence\": 0},\n    {\"ref\": \"m5\", \"surface\": \"胡适之\", \"occurrence\": 0}\n  ],\n  \"relations\": [\n    {\"subject_ref\": \"m1\", \"object_ref\": \"m3\", \"type\": \"同乡邻里\", \"evidence\": [{\"quote\": \"他雖然多住未莊\", \"occurrence\": 0}]}\n  ],\n  \"alias_proposals\": [\n    {\"left\": \"m1\", \"right\": \"m2\", \"quote\": \"我所聊以自慰的，是還有一個『阿』字非常正確\", \"occurrence\": 1}\n  ]\n}\n```"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 590,
+      "completion_tokens": 235,
+      "total_tokens": 825
+    }
+  }
+}

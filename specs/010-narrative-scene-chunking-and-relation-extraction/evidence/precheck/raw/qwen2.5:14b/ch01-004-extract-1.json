@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:14b",
+  "chunk_id": "ch01-004",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "59cc41524e4172d4f79d439c48d3ce09962e2ffc3b21fd4a7d85390a20995fc4",
+  "request_runes": 819,
+  "http_status": 200,
+  "latency_ms": 16100,
+  "response": {
+    "id": "chatcmpl-873",
+    "object": "chat.completion",
+    "created": 1788787159,
+    "model": "qwen2.5:14b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"地保\",\"occurrence\":0},{\"ref\":\"m3\",\"surface\":\"趙太爺\",\"occurrence\":0}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"阿Q並沒有抗辯他確鑿姓趙，只用手摸着左頰，和地保退出去了；外面又被地保訓斥了一番，謝了地保二百文酒錢。\",\"occurrence\":0}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"自己去招打；他大約未必姓趙，卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的。\",\"occurrence\":1}]}],\"alias_proposals\":[]}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 470,
+      "completion_tokens": 196,
+      "total_tokens": 666
+    }
+  }
+}
