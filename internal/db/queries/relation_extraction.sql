@@ -361,3 +361,58 @@ UPDATE relation_extraction_jobs
 SET state = ?, stop_reason = ?, finished_at = ?, lease_until = NULL,
     updated_at = CURRENT_TIMESTAMP(3)
 WHERE id = ? AND epoch = ? AND state IN ('initializing', 'running');
+
+-- name: LockRelationExtractionJob :one
+-- 控制操作（pause/resume/追加额度）的入口：把 job 行锁住再读。
+--
+-- ⭐ FOR UPDATE 不是"保险起见"。幂等键的判重是**先读后写**：两个请求带着
+-- 同一个键同时进来，不加锁的话两边都读到"这个键还没用过"，于是同一笔额度
+-- 被追加两次——用户点了两下"追加 500 次调用"，账上多了 1000 次，
+-- 而两个响应都显示成功。
+SELECT state, stop_reason, call_limit, active_ms_limit, approved_item_limit,
+       retry_rounds, reserved_calls, active_ms_used, total_items,
+       succeeded_items, failed_items,
+       CAST(budget_operations AS CHAR) AS budget_operations
+FROM relation_extraction_jobs
+WHERE id = ? FOR UPDATE;
+
+-- name: ApplyExtractionOperation :execrows
+-- 一次控制操作的落库：状态、额度、操作账一起写。
+-- ⚠️ 必须和 LockRelationExtractionJob 在同一个事务里，否则那把锁没有意义。
+UPDATE relation_extraction_jobs
+SET state = ?, stop_reason = ?,
+    call_limit = ?, active_ms_limit = ?, approved_item_limit = ?,
+    retry_rounds = ?, budget_operations = ?,
+    updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ?;
+
+-- name: SupersedeRelationExtractionJob :execrows
+-- restart：把旧 run 标记为被取代。
+--
+-- ⭐ 旧账目**保留**（不清零、不删除）：那些钱真的花过，从文档总成本里
+-- 抹掉它们会让"这本书一共花了多少"这个数字系统性偏小。
+-- superseded 的作业不再被恢复扫描捡起，它的关系也不再被查询。
+UPDATE relation_extraction_jobs
+SET state = 'superseded', stop_reason = ?, finished_at = ?, lease_until = NULL,
+    updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ? AND state <> 'superseded';
+
+-- name: SetDocumentRelationExtractionEnabled :execrows
+-- enable/disable 只改**意图**这一个开关，不碰 active_relation_job_id：
+-- ⚠️ 关掉再打开时，已经跑出来的结果还在原来那个 run 上，指针一旦被抹掉
+-- 就再也找不回来了，而用户看到的是"我只是关了一下，结果全没了"。
+UPDATE documents
+SET is_relation_extraction_enabled = ?, updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ?;
+
+-- name: CountJobUsageUnknownAttempts :one
+-- usage 未知的尝试数。⚠️ 单独报，不并进调用总数：它是"这些调用的 token
+-- 用量我们没测到"，直接影响成本数字的可信度，合并之后这件事就看不见了。
+SELECT COUNT(*) FROM relation_extraction_attempts
+WHERE job_id = ? AND state IN ('completed', 'unknown') AND usage_known = 0;
+
+-- name: GetJobWallClock :one
+-- 墙钟时长：从开跑到结束（还没结束就到现在）。
+-- ⚠️ 与 active_ms 分开报：两者的差是排队和等待的时间，把它们混成一个
+-- "耗时"会让"模型很慢"和"作业一直没人接手"变得无法区分。
+SELECT started_at, finished_at FROM relation_extraction_jobs WHERE id = ?;

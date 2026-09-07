@@ -15,6 +15,9 @@ type Querier interface {
 	// 调用方据此停手。把预算检查放在**同一条 UPDATE 的 WHERE 里**而不是先读后写，
 	// 是因为后者在两个 worker 之间必然超发——而超发的表现是账单超了，不报错。
 	AddJobCallReservation(ctx context.Context, arg AddJobCallReservationParams) (int64, error)
+	// 一次控制操作的落库：状态、额度、操作账一起写。
+	// ⚠️ 必须和 LockRelationExtractionJob 在同一个事务里，否则那把锁没有意义。
+	ApplyExtractionOperation(ctx context.Context, arg ApplyExtractionOperationParams) (int64, error)
 	// ⚠️ 尝试次数落在**数据库**里，不在内存。放内存的表现是：worker 崩溃重启后
 	// 计数归零，于是一个永远会失败的 item 被无限重试下去，把预算烧光——
 	// 而每一轮看起来都正常。这是自动恢复最容易引入的一种死循环。
@@ -73,6 +76,9 @@ type Querier interface {
 	CountConversationsByUser(ctx context.Context, userID string) (int64, error)
 	CountDocumentsByKnowledgeBase(ctx context.Context, knowledgeBaseID string) (int64, error)
 	CountJobAttemptsByState(ctx context.Context, jobID string) ([]CountJobAttemptsByStateRow, error)
+	// usage 未知的尝试数。⚠️ 单独报，不并进调用总数：它是"这些调用的 token
+	// 用量我们没测到"，直接影响成本数字的可信度，合并之后这件事就看不见了。
+	CountJobUsageUnknownAttempts(ctx context.Context, jobID string) (int64, error)
 	CountKnowledgeBases(ctx context.Context) (int64, error)
 	CountMCPServers(ctx context.Context) (int64, error)
 	CountProviders(ctx context.Context) (int64, error)
@@ -148,6 +154,10 @@ type Querier interface {
 	// 原始响应单独取：它最大 64 KiB，不该出现在任何列表或统计查询里。
 	GetExtractionAttemptRawResponse(ctx context.Context, id string) (sql.NullString, error)
 	GetItemAttemptCounts(ctx context.Context, id string) (GetItemAttemptCountsRow, error)
+	// 墙钟时长：从开跑到结束（还没结束就到现在）。
+	// ⚠️ 与 active_ms 分开报：两者的差是排队和等待的时间，把它们混成一个
+	// "耗时"会让"模型很慢"和"作业一直没人接手"变得无法区分。
+	GetJobWallClock(ctx context.Context, id string) (GetJobWallClockRow, error)
 	GetKnowledgeBaseByID(ctx context.Context, id string) (KnowledgeBase, error)
 	GetMCPServerByID(ctx context.Context, id string) (McpServer, error)
 	GetMCPToolByID(ctx context.Context, id string) (McpTool, error)
@@ -285,6 +295,13 @@ type Querier interface {
 	// output, unlike the shared workflow definition itself).
 	ListWorkflowRunsByCreator(ctx context.Context, arg ListWorkflowRunsByCreatorParams) ([]WorkflowRun, error)
 	ListWorkflows(ctx context.Context, arg ListWorkflowsParams) ([]Workflow, error)
+	// 控制操作（pause/resume/追加额度）的入口：把 job 行锁住再读。
+	//
+	// ⭐ FOR UPDATE 不是"保险起见"。幂等键的判重是**先读后写**：两个请求带着
+	// 同一个键同时进来，不加锁的话两边都读到"这个键还没用过"，于是同一笔额度
+	// 被追加两次——用户点了两下"追加 500 次调用"，账上多了 1000 次，
+	// 而两个响应都显示成功。
+	LockRelationExtractionJob(ctx context.Context, id string) (LockRelationExtractionJobRow, error)
 	MarkAttemptUnknown(ctx context.Context, arg MarkAttemptUnknownParams) (int64, error)
 	// processing -> failed。发布阶段（publishing）的失败不走这条路——按设计
 	// 文档留在 publishing，交给 reconciliation 用幂等发布恢复，不转 failed。
@@ -383,6 +400,10 @@ type Querier interface {
 	ReserveExtractionAttempt(ctx context.Context, arg ReserveExtractionAttemptParams) error
 	RevokeAllUserRefreshTokens(ctx context.Context, userID string) error
 	RevokeRefreshToken(ctx context.Context, id string) error
+	// enable/disable 只改**意图**这一个开关，不碰 active_relation_job_id：
+	// ⚠️ 关掉再打开时，已经跑出来的结果还在原来那个 run 上，指针一旦被抹掉
+	// 就再也找不回来了，而用户看到的是"我只是关了一下，结果全没了"。
+	SetDocumentRelationExtractionEnabled(ctx context.Context, arg SetDocumentRelationExtractionEnabledParams) (int64, error)
 	// 把文档的 active_relation_job_id 指向新 run，并落下所选模型。
 	// ⚠️ 守卫 status='ready' AND version=?：文档在这中间改了版本，
 	// 这次开启就该失败，而不是把作业挂到一批已经不是真相的 chunk 上。
@@ -399,6 +420,12 @@ type Querier interface {
 	// ⚠️ paused 传 NULL 的 finished_at：暂停的作业没有结束时间，
 	// 写一个会让"暂停多久了"和"跑了多久"这两个数字永久混在一起。
 	StopRelationExtractionJob(ctx context.Context, arg StopRelationExtractionJobParams) (int64, error)
+	// restart：把旧 run 标记为被取代。
+	//
+	// ⭐ 旧账目**保留**（不清零、不删除）：那些钱真的花过，从文档总成本里
+	// 抹掉它们会让"这本书一共花了多少"这个数字系统性偏小。
+	// superseded 的作业不再被恢复扫描捡起，它的关系也不再被查询。
+	SupersedeRelationExtractionJob(ctx context.Context, arg SupersedeRelationExtractionJobParams) (int64, error)
 	TouchConversation(ctx context.Context, arg TouchConversationParams) error
 	UpdateAgent(ctx context.Context, arg UpdateAgentParams) error
 	// embedding_model_id/chunk_size/chunk_overlap are deliberately not

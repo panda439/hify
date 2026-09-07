@@ -792,6 +792,8 @@ func toDomainDocument(row gen.Document) Document {
 		// 同上：五条文档查询共用同一份列清单，因此也共用这一处映射。
 		IsNarrative:                 row.IsNarrative,
 		IsRelationExtractionEnabled: row.IsRelationExtractionEnabled,
+		ActiveRelationJobID:         row.ActiveRelationJobID.String,
+		RelationModelID:             row.RelationModelID.String,
 		CreatedBy:                   row.CreatedBy,
 		CreatedAt:                   row.CreatedAt,
 		UpdatedAt:                   row.UpdatedAt,

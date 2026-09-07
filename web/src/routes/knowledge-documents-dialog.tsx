@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ApiError } from "@/lib/api";
+import { ExtractionPanel } from "@/routes/knowledge-extraction-panel";
 import {
   useDeleteDocument,
   useDocuments,
@@ -131,8 +132,12 @@ export function KnowledgeDocumentsDialog({
   const deleteDocument = useDeleteDocument(kbId);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  // ⚠️ 默认 false：不勾就是这个开关出现之前的行为。
+  // ⚠️ 默认 false：不勾就是这两个开关出现之前的行为。
   const [narrative, setNarrative] = useState(false);
+  const [extractRelations, setExtractRelations] = useState(false);
+  // 展开哪一份文档的抽取面板。⚠️ 一次只展开一个，而且**只在展开时才查**：
+  // 文档列表接口不带抽取状态，逐份查会把列表变成 N+1。
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const documents = data?.items ?? [];
 
@@ -141,11 +146,13 @@ export function KnowledgeDocumentsDialog({
     e.target.value = ""; // allow re-selecting the same file later
     if (!file) return;
     try {
-      await uploadDocument.mutateAsync({ file, options: { narrative } });
+      await uploadDocument.mutateAsync({ file, options: { narrative, extractRelations } });
       toast.success(
-        narrative
-          ? `${file.name} 已上传，将按场景切分`
-          : `${file.name} 已上传，正在处理`,
+        extractRelations
+          ? `${file.name} 已上传，将按场景切分并抽取人物关系`
+          : narrative
+            ? `${file.name} 已上传，将按场景切分`
+            : `${file.name} 已上传，正在处理`,
       );
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "上传失败");
@@ -178,7 +185,8 @@ export function KnowledgeDocumentsDialog({
             <p className="text-sm text-muted-foreground">还没有上传任何文档</p>
           )}
           {documents.map((d) => (
-            <div key={d.id} className="flex items-center justify-between gap-2 rounded-md border p-2">
+            <div key={d.id} className="rounded-md border p-2">
+              <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-sm font-medium">{d.file_name}</span>
@@ -204,14 +212,29 @@ export function KnowledgeDocumentsDialog({
                   )}
                 </p>
               </div>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => handleDelete(d.id)}
-                disabled={deletingId === d.id}
-              >
-                <Trash2 />
-              </Button>
+              <div className="flex items-center gap-1">
+                {/* 只有叙事文档才可能有关系抽取——普通文档连开关都不该出现，
+                    否则用户会去点一个永远不会有结果的按钮。 */}
+                {d.is_narrative && d.status === "ready" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setExpandedId(expandedId === d.id ? null : d.id)}
+                  >
+                    {expandedId === d.id ? "收起" : "关系抽取"}
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => handleDelete(d.id)}
+                  disabled={deletingId === d.id}
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+              </div>
+              {expandedId === d.id && <ExtractionPanel kbId={kbId} docId={d.id} />}
             </div>
           ))}
         </div>
@@ -229,7 +252,10 @@ export function KnowledgeDocumentsDialog({
               type="checkbox"
               className="mt-0.5"
               checked={narrative}
-              onChange={(e) => setNarrative(e.target.checked)}
+              onChange={(e) => {
+                setNarrative(e.target.checked);
+                if (!e.target.checked) setExtractRelations(false);
+              }}
               disabled={uploadDocument.isPending}
             />
             <span>
@@ -237,6 +263,25 @@ export function KnowledgeDocumentsDialog({
               <span className="block text-xs text-muted-foreground">
                 优先按章节和场景分隔线切分，超长内容仍按长度拆分。支持 txt / md / 可解析 PDF，
                 上传后不可更改。
+              </span>
+            </span>
+          </label>
+          {/* ⚠️ 抽取依赖叙事：关掉叙事时这个开关必须一起复位，
+              否则用户会带着一个被禁用但仍然勾着的开关去上传，
+              而后端会拒绝——错误来得比它该来的时候晚。 */}
+          <label className="mt-2 flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={extractRelations}
+              disabled={!narrative || uploadDocument.isPending}
+              onChange={(e) => setExtractRelations(e.target.checked)}
+            />
+            <span className={narrative ? "" : "text-muted-foreground"}>
+              同时抽取人物关系（需要先勾选按场景切分）
+              <span className="block text-xs text-muted-foreground">
+                文档处理完成后自动开始，逐段调用本地模型，耗时较长；
+                可以随时在文档列表里暂停或继续。
               </span>
             </span>
           </label>

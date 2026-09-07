@@ -139,6 +139,9 @@ export function useDocuments(kbId: string | null) {
 // 后端也是按「字段缺失 = 关闭」解析的，两边同一口径。
 export interface UploadOptions {
   narrative?: boolean;
+  // ⚠️ 抽取必须先开叙事：后端会拒绝 extract_relations=true 而 narrative=false，
+  // 界面上也要把这个依赖表现出来，不能让用户勾了之后才被后端拒绝。
+  extractRelations?: boolean;
 }
 
 export function useUploadDocument(kbId: string) {
@@ -151,6 +154,7 @@ export function useUploadDocument(kbId: string) {
       // 无脑 append String(false) 也能工作，但会让"没传"和"传了 false"
       // 在抓包和日志里长得不一样，排查时多一层噪音。
       if (options?.narrative) form.append("narrative_mode", "true");
+      if (options?.extractRelations) form.append("extract_relations", "true");
       return api.postForm<KnowledgeDocument>(`/knowledge-bases/${kbId}/documents`, form);
     },
     onSuccess: () => {
@@ -259,4 +263,82 @@ export function useDocumentsByKnowledgeBase(kbIds: string[]) {
     // 单独暴露这个标志，避免调用方在加载过程中闪一下错误的"已删除"提示。
     canDetectMissing: !isLoading && kbIds.length > 0,
   };
+}
+
+// --- 010：关系抽取的状态与控制 ---
+
+// ⚠️ 三个可空字段是"未知"，**不是 0**。后端明确发 null：一个显示 0/0 的
+// 进度条看起来像"跑完了，什么都没有"，而事实是"还不知道有多少"。
+// cost_amount 同理——本地模型没有金钱计费，显示 ¥0 会被读成免费。
+export interface ExtractionStatus {
+  enabled: boolean;
+  job_id?: string;
+  document_version?: number;
+  state?: "initializing" | "running" | "paused" | "succeeded" | "failed" | "superseded";
+  stop_reason?: string;
+  run_number?: number;
+  model_id?: string;
+  total_items: number | null;
+  succeeded_items: number;
+  failed_items: number;
+  has_partial_evidence: boolean;
+  confirmed_calls: number;
+  possible_calls: number;
+  unknown_usage_attempts: number;
+  active_ms: number;
+  wall_ms: number | null;
+  cost_kind: string;
+  cost_amount: number | null;
+  remaining_calls: number;
+  remaining_chunks: number | null;
+  remaining_active_ms: number;
+  retry_rounds: number;
+}
+
+function extractionKey(kbId: string, docId: string) {
+  return ["knowledge-bases", kbId, "documents", docId, "extraction"];
+}
+
+// 只在面板展开时才查（enabled 控制），并且**按文档单查**：
+// 列表接口不带抽取状态是有意的——每份文档一次查询会把文档列表变成 N+1。
+export function useExtractionStatus(kbId: string, docId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: extractionKey(kbId, docId),
+    queryFn: () =>
+      api.get<ExtractionStatus>(`/knowledge-bases/${kbId}/documents/${docId}/extraction`),
+    enabled,
+    // 跑着的时候盯紧一点，停下来就不再轮询。
+    refetchInterval: (query) => {
+      const state = query.state.data?.state;
+      return state === "running" || state === "initializing" ? 2000 : false;
+    },
+  });
+}
+
+export type ExtractionAction = "enable" | "disable" | "pause" | "resume" | "restart";
+
+export interface ExtractionActionBody {
+  additional_calls?: number;
+  additional_chunks?: number;
+  additional_active_seconds?: number;
+  additional_retry_rounds?: number;
+  model_id?: string;
+}
+
+// ⭐ 幂等键在**发起这次动作时**生成一次，重试用同一个键。
+// 追加额度是累加的：没有键的话，一次网络重试就多加一份额度，
+// 而两次响应都显示成功。
+export function useExtractionAction(kbId: string, docId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ action, body }: { action: ExtractionAction; body?: ExtractionActionBody }) =>
+      api.post<ExtractionStatus>(
+        `/knowledge-bases/${kbId}/documents/${docId}/extraction/${action}`,
+        { idempotency_key: crypto.randomUUID(), ...body },
+      ),
+    onSuccess: (status) => {
+      qc.setQueryData(extractionKey(kbId, docId), status);
+      qc.invalidateQueries({ queryKey: documentsQueryKey(kbId) });
+    },
+  });
 }

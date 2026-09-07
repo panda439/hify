@@ -46,6 +46,16 @@ type Service interface {
 
 	// RunRelationExtraction 接手并尽量跑完一个作业，asynq worker 的入口。
 	RunRelationExtraction(ctx context.Context, jobID string) error
+
+	// --- 抽取的控制操作（010 T029/T030）---
+	//
+	// ⚠️ 五个写操作都要幂等键：它们不是"设置成某个状态"，而是"做一次动作"，
+	// 而 resume 的追加额度是累加的——重试一次就多加一份。
+	GetExtractionStatus(ctx context.Context, kbID, documentID, userID, role string) (ExtractionStatus, error)
+	SetExtractionEnabled(ctx context.Context, in ExtractionEnableInput) (ExtractionStatus, error)
+	PauseExtraction(ctx context.Context, in ExtractionControlInput) (ExtractionStatus, error)
+	ResumeExtraction(ctx context.Context, in ExtractionResumeInput) (ExtractionStatus, error)
+	RestartExtraction(ctx context.Context, in ExtractionRestartInput) (ExtractionStatus, error)
 	ListDocuments(ctx context.Context, kbID string, limit, offset int) ([]Document, int, error)
 	GetDocument(ctx context.Context, id string) (Document, error)
 
@@ -1574,4 +1584,234 @@ func validateNarrativePieces(pieces []chunkPiece) error {
 		}
 	}
 	return nil
+}
+
+// --- 抽取的控制操作（010 T029/T030）---
+
+// extractionDocument 是五个控制操作共用的入口检查：读文档、核对它确实属于
+// 路径上的知识库、核对调用者有写权限。
+//
+// ⭐ 三件事一个都不能少。少了归属核对，知道文档 ID 的人只要在路径上换一个
+// 自己有权限的知识库，就能操作别人的文档——而两边的 ID 都是合法的，
+// 任何一层单独看都没有问题。
+func (s *service) extractionDocument(ctx context.Context, in ExtractionControlInput, write bool) (Document, error) {
+	doc, err := s.repo.getDocument(ctx, in.DocumentID)
+	if err != nil {
+		return Document{}, err
+	}
+	if doc.KnowledgeBaseID != in.KnowledgeBaseID {
+		// ⚠️ 报 404 而不是 403：这份文档不在这个知识库下面，对调用者来说
+		// 它就是不存在。用 403 会顺带确认"这个文档 ID 是真的"。
+		return Document{}, ErrDocumentNotFound
+	}
+	kb, err := s.repo.getKnowledgeBase(ctx, doc.KnowledgeBaseID)
+	if err != nil {
+		return Document{}, err
+	}
+	if write && kb.CreatedBy != in.UserID && in.Role != user.RoleAdmin {
+		return Document{}, ErrForbidden
+	}
+	return doc, nil
+}
+
+func (s *service) GetExtractionStatus(ctx context.Context, kbID, documentID, userID, role string) (ExtractionStatus, error) {
+	doc, err := s.extractionDocument(ctx,
+		ExtractionControlInput{KnowledgeBaseID: kbID, DocumentID: documentID, UserID: userID, Role: role}, false)
+	if err != nil {
+		return ExtractionStatus{}, err
+	}
+	return s.repo.extractionStatus(ctx, doc)
+}
+
+// SetExtractionEnabled 打开或关闭抽取意图。
+//
+// ⭐ enable 只写"意图"这一个开关，作业由事实驱动：文档已经 ready 就立刻开
+// 一次，还没 ready 就等 ProcessDocument 走到 ready 时自动开。
+// ⚠️ enable **不会**自动恢复一个被暂停的作业：用户暂停过就必须显式 resume，
+// 否则"我明明停了它"和"它又开始花钱"会同时成立。
+func (s *service) SetExtractionEnabled(ctx context.Context, in ExtractionEnableInput) (ExtractionStatus, error) {
+	if err := validateOperationKey(in.IdempotencyKey); err != nil {
+		return ExtractionStatus{}, err
+	}
+	doc, err := s.extractionDocument(ctx, in.ExtractionControlInput, true)
+	if err != nil {
+		return ExtractionStatus{}, err
+	}
+	if in.Enabled {
+		if !doc.IsNarrative {
+			return ExtractionStatus{}, ErrRelationExtractionRequiresNarrative
+		}
+		if s.relationModelID == "" && in.ModelID == "" {
+			return ExtractionStatus{}, ErrRelationExtractionModelNotConfigured
+		}
+	}
+
+	op := extractionOperation{
+		Op: opEnable, Key: in.IdempotencyKey,
+		RequestBody: fmt.Appendf(nil, "enable=%v;model=%s", in.Enabled, in.ModelID),
+	}
+	if !in.Enabled {
+		op.Op = opDisable
+	}
+	// 开关先落库：作业可能还不存在（文档没 ready），而意图必须先持久化，
+	// 否则一次"我开了但当时还没处理完"的操作会彻底消失。
+	if err := s.repo.setRelationExtractionEnabled(ctx, doc.ID, in.Enabled); err != nil {
+		return ExtractionStatus{}, err
+	}
+	if doc.ActiveRelationJobID != "" {
+		if _, err := s.repo.applyExtractionOperation(ctx, doc.ActiveRelationJobID, op); err != nil {
+			return ExtractionStatus{}, err
+		}
+	} else if in.Enabled && doc.Status == StatusReady {
+		if _, err := s.StartRelationExtraction(ctx, doc.ID, doc.Version); err != nil {
+			return ExtractionStatus{}, err
+		}
+	}
+	return s.extractionStatusByID(ctx, doc.ID)
+}
+
+func (s *service) PauseExtraction(ctx context.Context, in ExtractionControlInput) (ExtractionStatus, error) {
+	if err := validateOperationKey(in.IdempotencyKey); err != nil {
+		return ExtractionStatus{}, err
+	}
+	doc, err := s.extractionDocument(ctx, in, true)
+	if err != nil {
+		return ExtractionStatus{}, err
+	}
+	if doc.ActiveRelationJobID == "" {
+		return ExtractionStatus{}, ErrExtractionNotStarted
+	}
+	// ⚠️ 暂停不去打断正在跑的 worker，也不需要：它下一次续租会因为 state
+	// 不再是 running 而拿到 0 行，于是自己停手（见 leaseKeeper）。
+	// 主动杀 worker 反而会让"已经发出去的那次调用"的结算丢掉。
+	if _, err := s.repo.applyExtractionOperation(ctx, doc.ActiveRelationJobID, extractionOperation{
+		Op: opPause, Key: in.IdempotencyKey, RequestBody: []byte("pause"),
+	}); err != nil {
+		return ExtractionStatus{}, err
+	}
+	return s.extractionStatusByID(ctx, doc.ID)
+}
+
+// ResumeExtraction 追加额度并继续未完成的项。
+//
+// ⚠️ 同一个 run、同一份配置：模型和 prompt 不允许在这里改（要改走 restart）。
+// 允许改的话，一个作业的前一半和后一半会是两个模型跑出来的，而账目和指标
+// 都挂在同一个 run 上，事后无法拆开。
+func (s *service) ResumeExtraction(ctx context.Context, in ExtractionResumeInput) (ExtractionStatus, error) {
+	if err := validateOperationKey(in.IdempotencyKey); err != nil {
+		return ExtractionStatus{}, err
+	}
+	doc, err := s.extractionDocument(ctx, in.ExtractionControlInput, true)
+	if err != nil {
+		return ExtractionStatus{}, err
+	}
+	if doc.ActiveRelationJobID == "" {
+		return ExtractionStatus{}, ErrExtractionNotStarted
+	}
+	if !doc.IsRelationExtractionEnabled {
+		// 关掉的抽取要先 enable 才能续跑（契约 §2）。
+		return ExtractionStatus{}, ErrExtractionNotResumable
+	}
+	out, err := s.repo.applyExtractionOperation(ctx, doc.ActiveRelationJobID, extractionOperation{
+		Op: opResume, Key: in.IdempotencyKey,
+		RequestBody: fmt.Appendf(nil, "resume;calls=%d;chunks=%d;sec=%d;rounds=%d",
+			in.AdditionalCalls, in.AdditionalChunks, in.AdditionalActiveSec, in.AdditionalRounds),
+		AddCalls: in.AdditionalCalls, AddItems: in.AdditionalChunks,
+		AddActiveMs: int64(in.AdditionalActiveSec) * 1000, AddRounds: in.AdditionalRounds,
+	})
+	if err != nil {
+		return ExtractionStatus{}, err
+	}
+	// ⭐ 只有**真的**改了状态才入队。重放同一个键却又入队一次，
+	// 等于用户点两下就多跑一个 worker。
+	if out.ShouldRun && !out.Replayed {
+		if err := s.enqueueRunRelationExtraction(ctx, doc.ActiveRelationJobID); err != nil {
+			return ExtractionStatus{}, fmt.Errorf("knowledge: enqueue resumed extraction: %w", err)
+		}
+	}
+	return s.extractionStatusByID(ctx, doc.ID)
+}
+
+// RestartExtraction 用新配置开一个新 run，旧 run 标成 superseded。
+//
+// ⭐ 旧账目**保留**：那些钱真的花过，从文档总成本里抹掉会让"这本书一共花了
+// 多少"系统性偏小。旧 run 的关系不再被查询，但记录还在。
+func (s *service) RestartExtraction(ctx context.Context, in ExtractionRestartInput) (ExtractionStatus, error) {
+	if err := validateOperationKey(in.IdempotencyKey); err != nil {
+		return ExtractionStatus{}, err
+	}
+	doc, err := s.extractionDocument(ctx, in.ExtractionControlInput, true)
+	if err != nil {
+		return ExtractionStatus{}, err
+	}
+	if doc.Status != StatusReady {
+		// ⚠️ 只有 ready 的文档能重开：非 ready 时片段不是最终真相，
+		// 作业会挂在一批马上就要被取代的片段上。
+		return ExtractionStatus{}, ErrExtractionNotResumable
+	}
+	if !doc.IsNarrative {
+		return ExtractionStatus{}, ErrRelationExtractionRequiresNarrative
+	}
+	modelID := in.ModelID
+	if modelID == "" {
+		modelID = s.relationModelID
+	}
+	if modelID == "" {
+		return ExtractionStatus{}, ErrRelationExtractionModelNotConfigured
+	}
+
+	// 幂等重放：同一个键第二次进来，返回上一次那个 run，不再开一个。
+	if jobID, ok, err := s.repo.findJobByOperationKey(ctx, doc.ID, in.IdempotencyKey); err != nil {
+		return ExtractionStatus{}, err
+	} else if ok {
+		slog.Info("knowledge: restart replayed", "document_id", doc.ID, "job_id", jobID)
+		return s.extractionStatusByID(ctx, doc.ID)
+	}
+
+	spec, err := newAutoExtractionJobSpec(doc, doc.Version, modelID)
+	if err != nil {
+		return ExtractionStatus{}, err
+	}
+	spec.RunNumber = 0 // 由下面按现有 run 决定
+	spec.OperationKey = operationKeyBytes(in.IdempotencyKey)
+	spec.RequestHash = operationKeyBytes(in.IdempotencyKey + "|" + modelID)
+
+	if doc.ActiveRelationJobID != "" {
+		prev, err := s.repo.extractionStatus(ctx, doc)
+		if err != nil {
+			return ExtractionStatus{}, err
+		}
+		spec.RunNumber = prev.RunNumber
+		// ⚠️ 先取代旧 run 再建新 run：反过来的话，中间那一刻文档指针已经
+		// 指向新 run，而旧 worker 仍然认为自己是当前作业，会继续发布。
+		if err := s.repo.supersedeExtractionJob(ctx, doc.ActiveRelationJobID); err != nil {
+			return ExtractionStatus{}, err
+		}
+	}
+	spec.RunNumber++
+
+	if !doc.IsRelationExtractionEnabled {
+		// restart 隐含"我要它跑"，所以顺手把意图打开——否则新 run 建好了
+		// 却因为开关是关的而查不到结果。
+		if err := s.repo.setRelationExtractionEnabled(ctx, doc.ID, true); err != nil {
+			return ExtractionStatus{}, err
+		}
+	}
+	job, err := s.repo.initializeExtractionJob(ctx, spec)
+	if err != nil {
+		return ExtractionStatus{}, err
+	}
+	if err := s.enqueueRunRelationExtraction(ctx, job.ID); err != nil {
+		slog.Error("knowledge: restarted job created but not enqueued; the reconcile scan will pick it up",
+			"err", err, "job_id", job.ID)
+	}
+	return s.extractionStatusByID(ctx, doc.ID)
+}
+
+func (s *service) extractionStatusByID(ctx context.Context, documentID string) (ExtractionStatus, error) {
+	doc, err := s.repo.getDocument(ctx, documentID)
+	if err != nil {
+		return ExtractionStatus{}, err
+	}
+	return s.repo.extractionStatus(ctx, doc)
 }

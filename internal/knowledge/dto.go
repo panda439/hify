@@ -194,3 +194,83 @@ func toRetrieveResponse(chunks []RetrievedChunk, filterApplied bool) retrieveRes
 	}
 	return out
 }
+
+// --- 抽取状态与控制操作（010 T029/T030）---
+
+// extractionStatusResponse 是 GET .../extraction 的响应。
+//
+// ⚠️ 指针字段是"未知"，序列化成 null，**不是 0**。契约点名了这件事：
+// 一个显示 0/0 的进度条看起来像"跑完了，什么都没有"，而事实是"还不知道
+// 有多少"。cost_amount 同理——本地模型没有金钱计费，0 会被读成免费。
+type extractionStatusResponse struct {
+	Enabled         bool   `json:"enabled"`
+	JobID           string `json:"job_id,omitempty"`
+	DocumentVersion int64  `json:"document_version,omitempty"`
+	State           string `json:"state,omitempty"`
+	StopReason      string `json:"stop_reason,omitempty"`
+	RunNumber       int    `json:"run_number,omitempty"`
+	ModelID         string `json:"model_id,omitempty"`
+
+	TotalItems     *int `json:"total_items"`
+	SucceededItems int  `json:"succeeded_items"`
+	FailedItems    int  `json:"failed_items"`
+	// HasPartialEvidence：有成功也有失败，关系是不完整的。
+	// 不完整和空的区别必须让用户看见。
+	HasPartialEvidence bool `json:"has_partial_evidence"`
+
+	ConfirmedCalls       int      `json:"confirmed_calls"`
+	PossibleCalls        int      `json:"possible_calls"`
+	UnknownUsageAttempts int      `json:"unknown_usage_attempts"`
+	ActiveMs             int64    `json:"active_ms"`
+	WallMs               *int64   `json:"wall_ms"`
+	CostKind             string   `json:"cost_kind"`
+	CostAmount           *float64 `json:"cost_amount"`
+
+	RemainingCalls    int   `json:"remaining_calls"`
+	RemainingChunks   *int  `json:"remaining_chunks"`
+	RemainingActiveMs int64 `json:"remaining_active_ms"`
+	RetryRounds       int   `json:"retry_rounds"`
+}
+
+func toExtractionStatusResponse(st ExtractionStatus) extractionStatusResponse {
+	return extractionStatusResponse{
+		Enabled: st.Enabled, JobID: st.JobID, DocumentVersion: st.DocumentVersion,
+		State: st.State, StopReason: st.StopReason, RunNumber: st.RunNumber, ModelID: st.ModelID,
+		TotalItems: st.TotalItems, SucceededItems: st.SucceededItems, FailedItems: st.FailedItems,
+		HasPartialEvidence:   st.HasPartialEvidence,
+		ConfirmedCalls:       st.ConfirmedCalls,
+		PossibleCalls:        st.PossibleCalls,
+		UnknownUsageAttempts: st.UnknownUsageAttempts,
+		ActiveMs:             st.ActiveMs, WallMs: st.WallMs,
+		CostKind: st.CostKind, CostAmount: st.CostAmount,
+		RemainingCalls: st.RemainingCalls, RemainingChunks: st.RemainingItems,
+		RemainingActiveMs: st.RemainingActiveMs, RetryRounds: st.RetryRounds,
+	}
+}
+
+// extractionControlRequest 是四个 POST 的公共请求体。
+// ⚠️ idempotency_key 必填：这些操作是"做一次动作"，不是"设置成某个状态"，
+// 而 resume 的追加额度是累加的——少了键，一次网络重试就多加一份额度。
+type extractionControlRequest struct {
+	IdempotencyKey string `json:"idempotency_key" binding:"required,max=128"`
+}
+
+type extractionEnableRequest struct {
+	IdempotencyKey string `json:"idempotency_key" binding:"required,max=128"`
+	ModelID        string `json:"model_id"`
+}
+
+type extractionResumeRequest struct {
+	IdempotencyKey string `json:"idempotency_key" binding:"required,max=128"`
+	// 四个追加项都是**增量**，不是新的上限值。
+	// 传上限值的话，两个并发请求会互相覆盖，而两边都显示成功。
+	AdditionalCalls     int `json:"additional_calls" binding:"min=0"`
+	AdditionalChunks    int `json:"additional_chunks" binding:"min=0"`
+	AdditionalActiveSec int `json:"additional_active_seconds" binding:"min=0"`
+	AdditionalRounds    int `json:"additional_retry_rounds" binding:"min=0"`
+}
+
+type extractionRestartRequest struct {
+	IdempotencyKey string `json:"idempotency_key" binding:"required,max=128"`
+	ModelID        string `json:"model_id"`
+}

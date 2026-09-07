@@ -79,4 +79,12 @@ func RegisterRoutes(v1 *gin.RouterGroup, h *Handler, jwtSecret string) {
 	kbs.GET("/:id/documents/:docId", httperr.Wrap(h.GetDocument))
 	kbs.DELETE("/:id/documents/:docId", httperr.Wrap(h.DeleteDocument))
 	kbs.POST("/:id/documents/:docId/retry", httperr.Wrap(h.RetryDocument))
+	// 010：关系抽取的状态与控制。⚠️ 五个写操作都要幂等键，
+	// 因为 resume 的追加额度是累加的——一次网络重试就多加一份。
+	kbs.GET("/:id/documents/:docId/extraction", httperr.Wrap(h.GetExtraction))
+	kbs.POST("/:id/documents/:docId/extraction/enable", httperr.Wrap(h.EnableExtraction))
+	kbs.POST("/:id/documents/:docId/extraction/disable", httperr.Wrap(h.DisableExtraction))
+	kbs.POST("/:id/documents/:docId/extraction/pause", httperr.Wrap(h.PauseExtraction))
+	kbs.POST("/:id/documents/:docId/extraction/resume", httperr.Wrap(h.ResumeExtraction))
+	kbs.POST("/:id/documents/:docId/extraction/restart", httperr.Wrap(h.RestartExtraction))
 }

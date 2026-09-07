@@ -330,3 +330,112 @@ func uploadBoolean(c *gin.Context, names ...string) (bool, error) {
 	}
 	return result, nil
 }
+
+// --- 抽取状态与控制操作（010 T029/T030）---
+//
+// ⚠️ 五个 handler 都把**路径上的 kb** 传进 Service，由 Service 核对它与
+// 文档的实际归属一致（见 service.extractionDocument）。handler 自己不做
+// 授权判断，也不拿路径 kb 当授权依据。
+
+// GetExtraction 读一份文档的抽取状态。
+func (h *Handler) GetExtraction(c *gin.Context) error {
+	st, err := h.service.GetExtractionStatus(c.Request.Context(),
+		c.Param("id"), c.Param("docId"),
+		middleware.UserIDFrom(c), middleware.RoleFrom(c))
+	if err != nil {
+		return err
+	}
+	c.JSON(http.StatusOK, toExtractionStatusResponse(st))
+	return nil
+}
+
+func (h *Handler) controlInput(c *gin.Context, key string) ExtractionControlInput {
+	return ExtractionControlInput{
+		KnowledgeBaseID: c.Param("id"), DocumentID: c.Param("docId"),
+		UserID: middleware.UserIDFrom(c), Role: middleware.RoleFrom(c),
+		IdempotencyKey: key,
+	}
+}
+
+// EnableExtraction 打开抽取意图。
+// ⚠️ 202 而不是 200：作业可能还没开始跑（文档没 ready，或者需要 resume）。
+func (h *Handler) EnableExtraction(c *gin.Context) error {
+	var req extractionEnableRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		return ErrInvalidRequest
+	}
+	st, err := h.service.SetExtractionEnabled(c.Request.Context(), ExtractionEnableInput{
+		ExtractionControlInput: h.controlInput(c, req.IdempotencyKey),
+		Enabled:                true, ModelID: req.ModelID,
+	})
+	if err != nil {
+		return err
+	}
+	c.JSON(http.StatusAccepted, toExtractionStatusResponse(st))
+	return nil
+}
+
+// DisableExtraction 关闭抽取：立即停止查询，已有的成功结果保留。
+func (h *Handler) DisableExtraction(c *gin.Context) error {
+	var req extractionControlRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		return ErrInvalidRequest
+	}
+	st, err := h.service.SetExtractionEnabled(c.Request.Context(), ExtractionEnableInput{
+		ExtractionControlInput: h.controlInput(c, req.IdempotencyKey),
+		Enabled:                false,
+	})
+	if err != nil {
+		return err
+	}
+	c.JSON(http.StatusOK, toExtractionStatusResponse(st))
+	return nil
+}
+
+func (h *Handler) PauseExtraction(c *gin.Context) error {
+	var req extractionControlRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		return ErrInvalidRequest
+	}
+	st, err := h.service.PauseExtraction(c.Request.Context(), h.controlInput(c, req.IdempotencyKey))
+	if err != nil {
+		return err
+	}
+	c.JSON(http.StatusOK, toExtractionStatusResponse(st))
+	return nil
+}
+
+func (h *Handler) ResumeExtraction(c *gin.Context) error {
+	var req extractionResumeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		return ErrInvalidRequest
+	}
+	st, err := h.service.ResumeExtraction(c.Request.Context(), ExtractionResumeInput{
+		ExtractionControlInput: h.controlInput(c, req.IdempotencyKey),
+		AdditionalCalls:        req.AdditionalCalls,
+		AdditionalChunks:       req.AdditionalChunks,
+		AdditionalActiveSec:    req.AdditionalActiveSec,
+		AdditionalRounds:       req.AdditionalRounds,
+	})
+	if err != nil {
+		return err
+	}
+	c.JSON(http.StatusAccepted, toExtractionStatusResponse(st))
+	return nil
+}
+
+func (h *Handler) RestartExtraction(c *gin.Context) error {
+	var req extractionRestartRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		return ErrInvalidRequest
+	}
+	st, err := h.service.RestartExtraction(c.Request.Context(), ExtractionRestartInput{
+		ExtractionControlInput: h.controlInput(c, req.IdempotencyKey),
+		ModelID:                req.ModelID,
+	})
+	if err != nil {
+		return err
+	}
+	c.JSON(http.StatusAccepted, toExtractionStatusResponse(st))
+	return nil
+}

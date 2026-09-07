@@ -282,6 +282,11 @@ type Document struct {
 	// 存量文档全为 false，行为与本功能上线前完全一致。
 	IsNarrative                 bool
 	IsRelationExtractionEnabled bool
+	// ActiveRelationJobID 是当前那一次抽取 run。空字符串 = 还没开始过。
+	// ⚠️ 它指向的 run 可能已经结束、暂停或失败——"当前"说的是"最新的那次"，
+	// 不是"正在跑的那次"。状态要看作业自己的 state。
+	ActiveRelationJobID string
+	RelationModelID     string
 
 	// UnextractedPages 是这次处理中**没能提取到文本**的页码（1-indexed、升序、
 	// 去重）。典型来源是夹在电子文档中间的扫描页——一份 50 页合同后 5 页是扫描
