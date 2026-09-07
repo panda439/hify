@@ -85,3 +85,234 @@
 设计取舍：放弃旧“4表/PG零改动”限制，不引入新基础设施；选择显式关系模式而非LLM自动路由。
 未运行数据库/模型/HTTP测试，所有tasks保持未勾选；人工真值仍待确认，初标身份保持AI。
 实施如需更改契约或增加范围，先更新同一套Spec Kit文档，再继续验证。
+
+
+## 第四轮：Phase 1 / 2 独立审核（2026-09-06）
+
+**结论：Phase 2 不通过当前 plan 验收；Phase 1 证据未核齐，不能直接判完成。**
+
+### 审核范围与方法
+
+- 开始时HEAD为 `7d29e1e`，已进入Phase 3，并存在未提交的extraction_publish与SQL改动；本轮不修改/验收这些内容。
+- 隔离导出 `d09c709`（US1上传收口1d74b02之后的.gitkeep修复），避免编译正在修改的Phase 3文件、也不触碰共享数据库。
+- 核对 `d09c709..7d29e1e`：narrative.go / narrative_metadata.go / chunk.go / narrative_upload_test.go没有后续差异。
+- 在隔离副本运行narrative_test.go的28个测试及5个上传/分派纯测试，`go test -race -count=1`：**33个通过**。
+- 另加8个按既定plan编写的契约测试：**8个失败**。仅放隔离目录，不修改工作目录业务代码或原测试。
+- 本轮未运行数据库集成、双门禁、浏览器/真实服务HTTP；httptest是handler测试，不当完整HTTP冒烟。
+
+### 必改项（按优先级）
+
+#### R4-01 [P1] 来源区间不是精确映射，校验器却接受
+
+位置：`internal/knowledge/narrative_metadata.go:126–161`、`chunk.go:807–816`。
+输入 `第一章　甲\n甲。\n\n\n\n乙。`，chunk把四个换行合成两个，metadata却把整个chunk映射为
+一段连续原文范围。复现输出 `validator=<nil>`，但chunk片段与源区间内容不相等。
+引用位于合并点之后时，按rune偏移映射会指错；忽略空白比较不能修复坐标，
+也违反plan§3/data-model§4的精确区间与generated_separator约定。
+
+修复：沿分块/拼接保存逐段来源，新增字符单独标generated_separator；可定位segment的长度及逐字文本须匹配。
+测试不得用strings.Fields移除全部空白后冒充精确来源验收。对应T010/T011/FR-007/025。
+
+#### R4-02 [P1] overlap原文被丢掉来源，后续跨块证据无法定位
+
+位置：`internal/knowledge/narrative_metadata.go:151–154`及`chunk.go:841–845`。
+构造30字符上限、5字符overlap，实际前缀 `甲甲甲甲。\n` 被整体标IsOverlapCopy且DocumentStart/End为空，
+连真实复制文字与生成换行都未区分。plan要求复制文字映射回同一原文位置，以便证据去重；
+当前实现是“不可引用”，不是“已去重”，会丢掉依赖前块尾部的关系依据。
+现有TestOverlapCopyCarriesNoDocumentInterval正好锁住了这个错误契约。
+
+修复：真实复制段保留原文区间，仅生成分隔符无来源；跨overlap引用按源区间去重。
+对应T011/FR-002/007/025。
+
+#### R4-03 [P1] Markdown叙事模式既不识别标题包装，又把代码块当故事结构
+
+位置：`internal/knowledge/narrative.go:183–205`、`chunk.go:220`叙事优先分派。
+`# 第一章 初见 ... # 第二章 别离`只产1块、章节nil；fenced code内的`第二章`和`***`
+却把一个场景切成3块。原因是开启模式直接给通用纯文本正则，没有Markdown行状态。
+这会漏掉真实章节、制造假章节并删除代码中的分隔线，不只是标题显示问题。
+
+修复：识别Markdown标题包装，fenced code内禁用章节和分隔符解析，并保留原文映射；
+加两个独立反例。对应T009/T011，plan§3第1～2条。
+
+#### R4-04 [P2] 已约定分隔符未实现，无结构文本反而被标为有分隔线
+
+位置：`internal/knowledge/narrative.go:44–45,160–164,chunkNarrative/sceneKey`；metadata.go:145–148。
+单个`※`与两个连续空行均只产1块；没有任何结构的普通句子却得到`scene_key=ch0-s1`、
+`boundary_kind=divider`。此外scenesWithin直接丢弃分隔行，偏离plan“分隔线附前场景”的正文保存约定。
+既有TestNoContentLost先把分隔线从期待值删除，不能验证plan中的无遗漏。
+
+修复：实现约定的边界类型；未知结构chapter/scene语义ID留空，boundary=none，来源位置照常保留。
+结构标记来自实际识别结果，不能由“有scene_key”反推。对应T009/T010/T011。
+
+#### R4-05 [P1] US1宣称收口，但PDF叙事支持未交付
+
+位置：`internal/knowledge/service.go:341–342`、前端knowledge-documents-dialog.tsx仅支持txt/md文案。
+`validateUploadOptions(FileTypePDF, UploadOptions{Narrative:true})`明确返回“不支持”。
+拒绝比静默回退诚实，但plan、spec和T009/T011/T013已经包含可解析PDF跨页叙事。
+提交说明把PDF说成独立后续工作，不能替代用户接受的范围调整。
+
+修复：按当前plan接入PDF段落流和实际页码映射并验收；若要延期，先由用户接受缩范围再同步spec/plan/tasks，
+此之前不得标完整Phase 2通过。抽取开关暂不展示属于阶段性安排，本轮不要求未完Phase 3假装已可用。
+
+#### R4-06 [P2] 上传API与既定契约不一致，明确请求可能静默关闭
+
+位置：`internal/knowledge/handler.go:159–165`。
+契约是`narrative_mode`/`extract_relations`，实现只读`is_narrative`/`is_relation_extraction_enabled`；
+按契约上传`narrative_mode=true`得到200但Narrative=false。
+无效布尔如`ture`也被静默当false，违背契约400；当前前后端同用实现字段，不能证明外部契约成立。
+
+修复：统一字段并严格解析，缺省=false、合法true/false、有值非法=400；
+若保留实现字段须显式兼容或同步经确认的契约，不能吞掉契约字段。对应T012。
+默认关闭DTO还新增两个非omitempty字段；需补真实旧JSON快照或明确响应兼容调整，不能称响应逐字节未变。
+
+### Phase 1 与验收证据缺口
+
+- tasks T001～T013当前全部未勾选，也仍留着设计阶段“全部未勾选”的说明；不能靠它判断进度。
+- 提交说明自报全量race/vet/双门禁一致，但当前spec/docs没有关联的010改动前原始输出与稳定产物。
+  已有docs/eval-phase1-baseline-report.md是此前RAG裁判基线，不是010 Phase1。
+- 语料manifest/AI稿已落库；T003要求的重新获取/生成脚本、上游版本及T005冻结故障夹具未在本轮找到对应交付。
+  如保存在别处，补路径/hash后再验，不因此断言从未做过。
+- 现有TestDefaultOffChunkingIsUnchanged主要查metadata=nil和一个MD标题；没有逐一与改动前内容/顺序快照比较。
+  TestNarrativeDocumentProcessesEndToEnd从repo.createDocument起步、使用Fake Provider，不能替代上传API/真实运行服务冒烟。
+
+### 复现证据与复审门槛
+
+隔离目录：`/var/folders/5x/14kbs_jx5yb7xz11hhhdqg4h0000gn/T/hify-010-phase12-review-l_n4xjll`。
+`review-existing-tests.log`：33相关测试race通过；`review-contract-tests.log`：8个契约失败；
+`internal/knowledge/zz_review_phase12_test.go`保存全部复现输入。
+运行：`go test ./internal/knowledge -count=1 -run '^TestReview' -v`（在隔离副本中）。
+
+复审先修R4-01～06、把反例纳入正式测试，再补010 Phase1基线/来源/故障夹具归档；
+顺序跑数据库发布与PDF集成、真实上传HTTP、默认关闭快照及双门禁。
+修订原先锁住偏差的测试，不能通过放宽spec来迎合测试。已确认偏差修复前，Phase2状态保持未验收。
+
+
+### 第四轮续查：默认关闭的新旧版本对照
+
+按用户“继续”要求，在两个独立导出副本比较 `1f37c1d`（010业务实现前）与 `d09c709`。
+
+- 90份固定/固定种子构造文本 × 7种ChunkSize × 7种overlap × txt/md/PDF，**13,230组输入全部一致**。
+- 比较字段为输出块的Content/PageNumber/PageEnd/SectionTitle及顺序，不仅检查新字段是否nil。
+- 覆盖空文本、中英文混合、CRLF、段落、句末标点、无标点长句、MD标题/表格/围栏和PDF文本页。
+- 证据：隔离Phase2目录中的 `review-default-comparison.log`、`review-default-run.log`；
+  `internal/knowledge/review-default-snapshot.jsonl`为完整快照，
+  `internal/knowledge/zz_default_snapshot_test.go`为构造对照输入。
+- **结论限定**：上述样本未发现默认关闭分块回归；不能替代完整解析器/真实HTTP/数据库/门禁验收。
+  当前六项叙事契约问题仍然成立。默认关闭HTTP JSON新增字段也不在这次纯分块比较内。
+- 补充核对：testutil使用按包命名的独立测试数据库，不直接用开发库；同一包的并行测试进程仍可能互相重建测试库。
+  本轮没有运行这些数据库测试，避免干扰当前Phase3工作，也没有将skip记作通过。
+
+
+## 第五轮：按用户授权直接修复（2026-09-06）
+
+**当前结论：R4-01～06 已修复并通过复验。Phase 2 的分块/上传机制可用；不等于真实检索效果或整项 010 验收。**
+Phase 1 缺失的可复现材料已补录；无法倒推出的历史记录和上游 revision 如实保留限制。
+完整源码 hash、测试原始输出与复跑方法见 [修复证据](evidence/phase12-fixes/README.md)。
+
+| 项目 | 已落地修复与回归 |
+|---|---|
+| R4-01 来源不精确 | 分块、trim、join 逐 rune 传递来源；合成分隔符显式标识；可定位段长度必须一致。纯函数及落库测试均逐字比较，包含空白 |
+| R4-02 overlap 丢来源 | 真实复制字保留原始区间；合成连接字单独标记；字符级硬切 overlap 也有来源。重复段不做首个 substring 猜测 |
+| R4-03 Markdown | ATX 标题包装、反引号/波浪号围栏状态；围栏内禁止章节/分隔线/空行场景识别；添加短围栏不能关闭长围栏反例 |
+| R4-04 边界失真 | 单个/连续 ※、原文两个连续空行；分隔线留在前场景；未知结构 scene_key=nil/boundary=none；章节退化标 chapter_fallback；scene_key=hash+源起点。补两/序及句末闭引号 |
+| R4-05 PDF 缺失 | 接入已有去噪与跨页段落重组，逐来源段保留实际页码；PDF 不以布局空行推断场景；UI 支持范围及超长仍拆分的说明已改 |
+| R4-06 上传契约 | 规范 narrative_mode/extract_relations；兼容旧别名但拒绝冲突、非法布尔；缺省=false；关闭的响应新字段省略，前端改用规范字段 |
+
+额外发现：全量验证初次复制到了其他进程故意注入的游标变异，不将其计为正式代码缺陷。
+恢复正常实现后重跑；修正 extraction_reconcile_test 的重复 job-budget 夹具 ID，并给游标回归加 2 秒上下文超时，
+使将来的变异能及时失败而不是等待整个测试超时。其他 Phase 3 业务改动保留。
+
+### 验证和明确边界
+
+- 全量 race / go vet / check-deps 通过，测试计数与零 skip 见 evidence/phase12-fixes/manifest.json。
+- 默认关闭 13,230 组与 1f37c1d 一致；14 个检索门禁逐字段一致；上下文门禁除运行时间外一致。
+- txt/md/PDF 真实 TCP 上传、JWT、存储、入队、调用 worker 同一处理入口、PG 来源发布通过；embedding 用 Fake Provider。
+- 前端 tsc+Vite 在 Node 24.19.0 通过；未改变依赖，未宣称 Node 21 环境可用。
+- 语料重建脚本校验 9 章/322 ID，产出 314 正文及源 ID 映射；输入篡改拒绝、两次重建一致。
+- 构造模型/故障输入补冻到 eval/fixtures/narrative-010-v1，未把它们冒充真实模型结果或人工真值。
+- 修复前的旧叙事元数据需重新上传/处理才能修正；没有自动改写用户数据。
+- 未 commit/push；未做独立后台进程、真实模型或人工质量验收。Phase 1 上游不可变版本/发布许可仍待补证。
+
+
+## 第六轮：第五轮修复的复核与回归修补（2026-09-07）
+
+**结论：第五轮的 R4-01～06 方向正确、测试是往严上改的（逐字比较、overlap 保留真实区间），
+但引入了 2 个回归，另有 1 处命名与实现不符。已全部修复。**
+`go build` / `go vet ./...` / `go test ./... -race -count=1` / `make check-deps` / 前端 `tsc` + `vite build` 均通过。
+本轮未跑数据库集成之外的真实服务冒烟，未运行模型，不构成 010 的功能验收。
+
+### R6-01 [P1] 带空格的场景分隔线不再被识别（第五轮引入）
+
+位置：`internal/knowledge/narrative.go` `sceneDividerPattern`。
+为了让单个 `※` 也算分隔线，第五轮把 `※` 从通用字符类里挪出来单开 `※+` 分支，
+通用类里就没有 `※` 了，于是 `※ ※ ※`——中文小说里最常见的分隔写法——不再匹配：
+两个场景被合成一个，没有任何错误。原有用例只覆盖裸 `\n※\n`，抓不到。
+
+修复：`※` 同时保留在 `※+` 分支和通用字符类里。
+顺带修了一个**更早就存在**的同类缺口：空白从 `\s` 改成 `[\s\p{Zs}]`——
+Go 的 RE2 里 `\s` 不含全角空格 U+3000，而中文排版的 `※　※　※` 用的正是全角空格。
+回归：`TestSpacedAsteriskDividerForms`（8 种正例 + 5 种反例 + 端到端场景数）。
+
+### R6-02 [P1] 引号感知的断句被 `BoundaryKind` 当成了开关（第五轮引入）
+
+位置：`internal/knowledge/narrative.go` `chunkNarrativeWithOptions`。
+`keepClosingQuotes`（句末 `”`/`」` 跟着它闭合的那句走）被接到了
+`scene.BoundaryKind != boundaryNone` 上。结果同一段对白，只是加不加章节标题，
+断句结果完全不同——没识别出结构的文本每一块都从一个孤零零的 `”` 开头。
+影响范围包括无章节的节选、全书无章节的作品，以及**所有认不出章回的 PDF**
+（`chunkNarrativePDF` 传 `blankScenes=false`，无章节必然是 `boundaryNone`）。
+引号属于哪一句是行文的性质，与这份文档碰巧有没有标题无关。
+
+修复：叙事模式下恒为 `true`。
+回归：`TestClosingQuoteHandlingDoesNotDependOnStructure`（有无标题逐块比对 + 块首闭引号断言）。
+
+### R6-03 [P1] 恢复扫描从不重新入队，字段名与日志却说它入队了
+
+位置：`internal/knowledge/extraction_reconcile.go`、`tasks.go`、`cmd/hify/main.go`。
+`ReconcileResult.JobsRequeued`、`jobs_requeued` 日志和"只把作业重新丢进队列"的注释
+都声称作业已被重新入队，但实现里 `visit` 只有一句 `slog.Info`，
+全仓库不存在抽取的 asynq task type。第二轮的 P1 缺口
+（"ready 后崩溃 → 作业永远不开始"）**没有关掉**。
+
+修复（**只改名与说明，不假装补上功能**）：
+`JobsRequeued` → `JobsNeedingRecovery`；日志显式带 `jobs_requeued=0` 并注明未接入；
+逐条日志从 Info 降到 Debug（扫描不夺租约，同一条作业每轮都会被扫到，
+分钟级周期打 Info 会把日志刷成噪音）；`reconcileRelationExtractions`、
+`NewRelationExtractionReconcileHandler` 和 main.go 的 cron 注册处都标了 🚧 未完成及后续落点。
+cron 保留注册（本身空跑，让恢复路径与 Phase 3 其余部分一起上线并被观察）。
+**抽取的入队与整条恢复链路仍未交付**，`validateUploadOptions` 的
+`ErrRelationExtractionUnavailable` 也仍在，抽取现在一条作业都建不出来。
+
+### R6-04 [P2] `validateNarrativeMetadata` 只有测试在调
+
+位置：`internal/knowledge/service.go` `ProcessDocument`。
+第五轮的来源修复很依赖这个校验器，但线上没有任何东西挡着一份坐标错位的元数据被发布。
+这类错误没有运行时症状：块照样嵌入、照样召回，只是引用指向原文的错误位置且看上去合理。
+
+修复：新增 `validateNarrativePieces`，在分块之后、**花嵌入的钱之前**逐块自检，
+不过就走 `failDocument`（用户看得见、可重试）。刻意用非 apperr 的内部哨兵
+`errNarrativeMetadataInvalid`，走 `userFacingFailureMessage` 兜底给用户通用提示，
+细节进 `slog.Error`。回归：`TestNarrativePiecesPassTheValidator`（真实输出通过 + 篡改区间必须被拒）。
+
+### R6-05 [P2] `is_narrative` 无人消费
+
+`web/src/routes/knowledge-documents-dialog.tsx` 文档列表加「场景分块」标记。
+这个开关上传时写定、之后不可改，而它决定了引用能不能定位到原文位置——
+界面上完全看不出来是不对的。
+
+### 复核后判定「不是缺陷」的一项
+
+`boundary_kind` 是**整段 body 一个值**而不是逐场景一个值。初看像是失真
+（一章中间有分隔线时，该章第一个场景也被标 `divider`），复核后认为当前实现是对的：
+分隔线把 body 切成若干段，所以有分隔线的 body 里每个场景都至少有一端紧贴真实分隔线。
+反过来逐场景按"谁起的头"标，才会把这一章的第一个场景标成 `chapter_fallback`，
+而那个值的含义是"没做到场景识别、只退到章的粒度"——与事实相反。
+已在 `scenesWithinOptions` 就地写下理由，避免以后被当成 bug"修掉"。
+
+### 本轮边界
+
+- 未 commit / push；未运行真实模型、真实浏览器或人工质量验收。
+- 未重新审计第五轮的 evidence 产物，`evidence/phase12-fixes/` 保持原状——
+  其中的测试计数与快照是修复前的运行结果，不覆盖本轮改动。
+- tasks.md 的勾选状态未改：R6-01/02 说明 T009/T011 的用例仍有盲区，
+  但本轮没有重跑第五轮那套完整证据，不据此改判进度。

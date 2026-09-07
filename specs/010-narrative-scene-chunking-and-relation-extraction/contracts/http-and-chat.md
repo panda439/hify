@@ -14,7 +14,9 @@ handler检查路径kb与文档实际归属一致；不把传入的kbId直接当�
 现有 Service.UploadDocument保留作为零选项包装，新方法
 `UploadDocumentWithOptions(ctx, kbID,userID,role,fileName,fileType,content,UploadOptions)`。
 UploadOptions是knowledge领域类型；旧调用方和旧Fake无需修改业务行为，新方法按需补Fake契约。
-文档旧字段与值不变；开启叙事时可额外返回 `narrative` 对象（omitempty），不额外逐文档查询job。
+文档旧字段与值不变；Phase 2 以可选 `is_narrative` / `is_relation_extraction_enabled` 回显已开启标志（false 时省略），不额外逐文档查询job。
+上传兼容早期实现同名 `is_*` 字段；与规范字段同时出现须值一致，重复值冲突或非法值均返回400。
+Phase 2 抽取尚不可用时显式拒绝 extract_relations=true，不静默接受；relation_model_id 在后续抽取启用入口接入。
 抽取详细状态通过下面专门接口读取，避免列表N+1。
 
 ## 2. 抽取操作

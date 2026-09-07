@@ -1,0 +1,2 @@
+./scripts/check-deps.sh
+check-deps: OK - no cross-layer or same-layer violations

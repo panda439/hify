@@ -104,7 +104,10 @@ evidence_key 以规范文档源区间+quote hash计算；不同 overlap chunk �
 新增 `narrative_metadata JSONB NULL`，不修改向量或检索得分。关闭模式 NULL。
 结构为 schema_version、normalized_document_hash、boundary_kind、scene_key NULL、chapter_number NULL、
 chapter_title NULL、source_order、segments 数组；每段含 chunk_start/end、document_start/end、page NULL、
-is_generated_separator。均为 0 起半开 rune 区间；page 为实际 1 起页码。
+is_generated_separator、is_overlap_copy。复制字符保留同一源区间，只有生成字符没有源区间。均为 0 起半开 rune 区间；page 为实际 1 起页码。
+
+boundary_kind 新写入 none/divider/chapter_fallback；chapter 仅兼容早期值。scene_key 为规范文本 hash + 场景源起点。
+PDF 坐标基于去噪后重组的段落流，新增段间/页间字符标 generated_separator；每个真实来源段记录实际页码。
 
 metadata 验证由纯函数负责：范围非负、start<end、chunk区间有序且覆盖正文、复制源段长度一致；
 生成分隔字符显式标志，不计作可引用证据。scene未知时 key 空；章节未知时序号空。

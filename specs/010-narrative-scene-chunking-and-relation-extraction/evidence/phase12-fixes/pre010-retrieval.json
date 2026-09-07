@@ -1,0 +1,296 @@
+{
+  "ran_at": "2026-09-05T20:38:52Z",
+  "cases": [
+    {
+      "name": "vector_semantic_hit",
+      "hits": [
+        {
+          "rank": 1,
+          "chunk_id": "gv-hit",
+          "document_id": "doc-gate-vector",
+          "knowledge_base_id": "kb-gate-vector"
+        }
+      ],
+      "outcome": {
+        "Name": "vector_semantic_hit",
+        "ExpectedConfigured": true,
+        "HitRank": 1,
+        "ResultCount": 1,
+        "DuplicateContentCount": 0
+      }
+    },
+    {
+      "name": "keyword_strong_hit",
+      "hits": [
+        {
+          "rank": 1,
+          "chunk_id": "gk-hit",
+          "document_id": "doc-gate-kw-hit",
+          "knowledge_base_id": "kb-gate-keyword"
+        },
+        {
+          "rank": 2,
+          "chunk_id": "gk-v1",
+          "document_id": "doc-gate-kw-decoy",
+          "knowledge_base_id": "kb-gate-keyword"
+        },
+        {
+          "rank": 3,
+          "chunk_id": "gk-v2",
+          "document_id": "doc-gate-kw-decoy",
+          "knowledge_base_id": "kb-gate-keyword"
+        }
+      ],
+      "outcome": {
+        "Name": "keyword_strong_hit",
+        "ExpectedConfigured": true,
+        "HitRank": 1,
+        "ResultCount": 3,
+        "DuplicateContentCount": 0
+      }
+    },
+    {
+      "name": "content_dedup_topk_fill",
+      "hits": [
+        {
+          "rank": 1,
+          "chunk_id": "gd-dup-high",
+          "document_id": "doc-gate-dedup",
+          "knowledge_base_id": "kb-gate-dedup"
+        },
+        {
+          "rank": 2,
+          "chunk_id": "gd-unique",
+          "document_id": "doc-gate-dedup",
+          "knowledge_base_id": "kb-gate-dedup"
+        }
+      ],
+      "outcome": {
+        "Name": "content_dedup_topk_fill",
+        "ExpectedConfigured": true,
+        "HitRank": 1,
+        "ResultCount": 2,
+        "DuplicateContentCount": 0
+      }
+    },
+    {
+      "name": "core_over_duplicate_neighbor",
+      "hits": [
+        {
+          "rank": 1,
+          "chunk_id": "gn-anchor",
+          "document_id": "doc-gate-nb-anchor",
+          "knowledge_base_id": "kb-gate-neighbor"
+        },
+        {
+          "rank": 2,
+          "chunk_id": "gn-core2",
+          "document_id": "doc-gate-nb-core2",
+          "knowledge_base_id": "kb-gate-neighbor"
+        }
+      ],
+      "outcome": {
+        "Name": "core_over_duplicate_neighbor",
+        "ExpectedConfigured": true,
+        "HitRank": 1,
+        "ResultCount": 2,
+        "DuplicateContentCount": 0
+      }
+    },
+    {
+      "name": "hybrid_dedup_same_chunk_both_paths",
+      "hits": [
+        {
+          "rank": 1,
+          "chunk_id": "gh-both",
+          "document_id": "doc-gate-hybrid-dedup",
+          "knowledge_base_id": "kb-gate-hybrid-dedup"
+        },
+        {
+          "rank": 2,
+          "chunk_id": "gh-other",
+          "document_id": "doc-gate-hybrid-dedup-other",
+          "knowledge_base_id": "kb-gate-hybrid-dedup"
+        }
+      ],
+      "outcome": {
+        "Name": "hybrid_dedup_same_chunk_both_paths",
+        "ExpectedConfigured": true,
+        "HitRank": 1,
+        "ResultCount": 2,
+        "DuplicateContentCount": 0
+      }
+    },
+    {
+      "name": "no_results_negative",
+      "hits": [],
+      "outcome": {
+        "Name": "no_results_negative",
+        "ExpectedConfigured": false,
+        "HitRank": 0,
+        "ResultCount": 0,
+        "DuplicateContentCount": 0
+      }
+    },
+    {
+      "name": "nonempty_kb_irrelevant_query",
+      "hits": [],
+      "outcome": {
+        "Name": "nonempty_kb_irrelevant_query",
+        "ExpectedConfigured": false,
+        "HitRank": 0,
+        "ResultCount": 0,
+        "DuplicateContentCount": 0
+      }
+    },
+    {
+      "name": "vector_below_admission",
+      "hits": [],
+      "outcome": {
+        "Name": "vector_below_admission",
+        "ExpectedConfigured": false,
+        "HitRank": 0,
+        "ResultCount": 0,
+        "DuplicateContentCount": 0
+      }
+    },
+    {
+      "name": "admitted_candidate_backfills_topk",
+      "hits": [
+        {
+          "rank": 1,
+          "chunk_id": "ga-kw-1st",
+          "document_id": "doc-ga-kw-1st",
+          "knowledge_base_id": "kb-gate-admission-backfill"
+        },
+        {
+          "rank": 2,
+          "chunk_id": "ga-kw-2nd",
+          "document_id": "doc-ga-kw-2nd",
+          "knowledge_base_id": "kb-gate-admission-backfill"
+        }
+      ],
+      "outcome": {
+        "Name": "admitted_candidate_backfills_topk",
+        "ExpectedConfigured": true,
+        "HitRank": 1,
+        "ResultCount": 2,
+        "DuplicateContentCount": 0
+      }
+    },
+    {
+      "name": "rewrite_before_elliptical_query_misses",
+      "hits": [],
+      "outcome": {
+        "Name": "rewrite_before_elliptical_query_misses",
+        "ExpectedConfigured": false,
+        "HitRank": 0,
+        "ResultCount": 0,
+        "DuplicateContentCount": 0
+      }
+    },
+    {
+      "name": "rewrite_after_standalone_query_hits",
+      "hits": [
+        {
+          "rank": 1,
+          "chunk_id": "grw-target",
+          "document_id": "doc-gate-rewrite",
+          "knowledge_base_id": "kb-gate-rewrite"
+        }
+      ],
+      "outcome": {
+        "Name": "rewrite_after_standalone_query_hits",
+        "ExpectedConfigured": true,
+        "HitRank": 1,
+        "ResultCount": 1,
+        "DuplicateContentCount": 0
+      }
+    },
+    {
+      "name": "rerank_promotes_out_of_topk_candidate",
+      "hits": [
+        {
+          "rank": 1,
+          "chunk_id": "grr-target",
+          "document_id": "doc-grr-target",
+          "knowledge_base_id": "kb-gate-rerank"
+        },
+        {
+          "rank": 2,
+          "chunk_id": "grr-noise-1",
+          "document_id": "doc-grr-1",
+          "knowledge_base_id": "kb-gate-rerank"
+        },
+        {
+          "rank": 3,
+          "chunk_id": "grr-noise-2",
+          "document_id": "doc-grr-2",
+          "knowledge_base_id": "kb-gate-rerank"
+        }
+      ],
+      "outcome": {
+        "Name": "rerank_promotes_out_of_topk_candidate",
+        "ExpectedConfigured": true,
+        "HitRank": 1,
+        "ResultCount": 3,
+        "DuplicateContentCount": 0
+      }
+    },
+    {
+      "name": "filter_scopes_to_document",
+      "hits": [
+        {
+          "rank": 1,
+          "chunk_id": "gfd-target",
+          "document_id": "doc-gate-filter-target",
+          "knowledge_base_id": "kb-gate-filter-doc"
+        }
+      ],
+      "outcome": {
+        "Name": "filter_scopes_to_document",
+        "ExpectedConfigured": true,
+        "HitRank": 1,
+        "ResultCount": 1,
+        "DuplicateContentCount": 0
+      }
+    },
+    {
+      "name": "filter_scopes_to_page_range",
+      "hits": [
+        {
+          "rank": 1,
+          "chunk_id": "gfp-target",
+          "document_id": "doc-gate-filter-paged",
+          "knowledge_base_id": "kb-gate-filter-page"
+        }
+      ],
+      "outcome": {
+        "Name": "filter_scopes_to_page_range",
+        "ExpectedConfigured": true,
+        "HitRank": 1,
+        "ResultCount": 1,
+        "DuplicateContentCount": 0
+      }
+    }
+  ],
+  "metrics": {
+    "HitAt1": {
+      "Evaluated": true,
+      "Value": 1
+    },
+    "HitAt3": {
+      "Evaluated": true,
+      "Value": 1
+    },
+    "MRR": {
+      "Evaluated": true,
+      "Value": 1
+    },
+    "ContentUniqueRate": {
+      "Evaluated": true,
+      "Value": 1
+    }
+  },
+  "pass": true
+}

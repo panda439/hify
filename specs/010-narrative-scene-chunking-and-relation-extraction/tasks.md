@@ -2,16 +2,19 @@
 
 **日期**：2026-09-06。按 [plan](plan.md)、[data-model](data-model.md)、
 [抽取契约](contracts/extraction.md)、[接口契约](contracts/http-and-chat.md) 实施。
-旧 T001～T037 拆分为下列任务；旧编号不再引用。**全部未勾选：本轮补设计，不冒充实现/测试已完成。**
+旧 T001～T037 拆分为下列任务；旧编号不再引用。**2026-09-06 复验更新：仅勾选本轮核实的项目；历史补跑不冒充实施前原始记录。**
+证据见 [review-fixes 第五轮](review-fixes.md) 和 [修复证据](evidence/phase12-fixes/README.md)。
 AI初标交付单独记录，人工冻结仍未完成。共库任务不并行。
 
 ## Phase 1：基线与实验输入
 
-- [ ] T001 核对 checkout/status、constitution/integration、实际Go工具链与配置；记录既有dirty文件。只读检查Ollama标签；不下载模型或自动运行整书。
-- [ ] T002 数据库测试需要独占时按仓库要求 app-down/db-up，顺序归档 eval-retrieval-gate、eval-context-gate，再 go test ./... -race -count=1；保存命令/commit/退出码/skip。失败如实记录，不覆盖已有报告。
+- [x] T001 核对 checkout/status、constitution/integration、实际Go工具链与配置；记录既有dirty文件。只读检查Ollama标签；不下载模型或自动运行整书。
+- [x] T002 数据库测试需要独占时按仓库要求 app-down/db-up，顺序归档 eval-retrieval-gate、eval-context-gate，再 go test ./... -race -count=1；保存命令/commit/退出码/skip。失败如实记录，不覆盖已有报告。
 - [ ] T003 固定语料manifest：9章原始SHA、322原ID/314保留/8排除、清洗规则及来源映射；补可重新获取与生成的脚本/来源版本。正文维持gitignore，不改AI引用；来源许可在发布前核验。
-- [ ] T004 给当前chunk实现建立SC-001基线夹具：短场景、长段/句、场景边界、缺章/节选、重复文字、overlap、PDF跨页；记录实际结果而非预设FAIL。验证默认500字符和明确的实验配置。
-- [ ] T005 先冻结模型输出/HTTP/状态故障测试夹具和schema版本；这些为构造开发数据，不从未来人工验收答案调prompt。真实语义评价仍由Phase 6承担。
+- [x] T004 给当前chunk实现建立SC-001基线夹具：短场景、长段/句、场景边界、缺章/节选、重复文字、overlap、PDF跨页；记录实际结果而非预设FAIL。验证默认500字符和明确的实验配置。
+- [x] T005 先冻结模型输出/HTTP/状态故障测试夹具和schema版本；这些为构造开发数据，不从未来人工验收答案调prompt。真实语义评价仍由Phase 6承担。
+
+补录说明：T002 为 1f37c1d 隔离补跑；T005 为本轮冻结，不能声称实施前已冻结。T003 已补快照重建脚本和映射，原网页不可变 revision/发布许可仍待补证。
 
 **Phase 1门槛**：运行证据与可定位输入齐备；不以“本地模型已安装”替代基线。现有AI稿不等于T003全完成。
 
@@ -20,11 +23,14 @@ AI初标交付单独记录，人工冻结仍未完成。共库任务不并行。
 - [ ] T006 先写迁移/约束测试，核对最新迁移号；实现MySQL000017及PG000006 up/down，按data-model创建7表、documents字段与PG metadata；检查引用列索引、状态CHECK、名字非唯一、幂等键唯一性。
 - [ ] T007 修改SQL源查询、make sqlc；确认生成差异仅对应本期，旧检索SELECT/谓词/排序不改。新增PG游标来源读取/批量校验、MySQL作业/事务CRUD。
 - [ ] T008 按model→errors→repository顺序映射领域类型与CRUD，业务状态/权限放Service；先写真实数据库约束/游标测试。新字段NULL/默认值保持旧文档响应。
-- [ ] T009 先写叙事纯函数失败测试，再实现narrative.go：标题数字变体、显式场景线、PDF非空行推断、未知标题、缺章、从11章开始。固定输入结果可重复。
-- [ ] T010 实现超限段落→句子→rune降级及同场景overlap；正文来源区间去重还原，不把首个substring命中当重复段的唯一位置；全部输出不超ChunkSize，块数≤2000。
-- [ ] T011 实现metadata的source_segments与scene_key；覆盖PDF真实页区间、生成分隔符、同章多场景、无结构既有分块映射。PG创建事务同存metadata，发布/重试/回收复用原版本语义。
+- [x] T009 先写叙事纯函数失败测试，再实现narrative.go：标题数字变体、显式场景线、PDF非空行推断、未知标题、缺章、从11章开始。固定输入结果可重复。
+- [x] T010 实现超限段落→句子→rune降级及同场景overlap；正文来源区间去重还原，不把首个substring命中当重复段的唯一位置；全部输出不超ChunkSize，块数≤2000。
+- [x] T011 实现metadata的source_segments与scene_key；覆盖PDF真实页区间、生成分隔符、同章多场景、无结构既有分块映射。PG创建事务同存metadata，发布/重试/回收复用原版本语义。
 - [ ] T012 Service新增零默认UploadOptions、dto/handler/wire接入multipart，前端文档上传增加叙事与独立抽取开关；Phase 2抽取关闭验证。构造函数/调用方/Fake接口同步，旧UploadDocument保留包装。
-- [ ] T013 验证txt/md/PDF默认关闭的内容/顺序/旧元数据/HTTP快照及双门禁不变；启用模式做上传→ready→原文位置真实HTTP冒烟。只报告分块机制，不预告检索质量提升。
+- [x] T013 验证txt/md/PDF默认关闭的内容/顺序/旧元数据/HTTP快照及双门禁不变；启用模式做上传→ready→原文位置真实HTTP冒烟。只报告分块机制，不预告检索质量提升。
+
+复验说明：T009～T011 和 T013 的分块、来源、三格式 HTTP→发布已验证（Fake embedding，处理调用 worker 同一入口）。
+T006～T008 未在本轮逐项重新审计迁移/生成代码，保持未勾选；T012 的叙事入口已完成，独立抽取 UI 开关待 Phase 3/5 可用后接入。
 
 **US1交付门槛**：不是只有narrative.go；上传选项、持久字段、来源与实际发布均验证后才可独立交付。
 

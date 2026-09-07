@@ -1,0 +1,34 @@
+HIFY_RETRIEVAL_GATE_REPORT_PATH=/private/var/folders/5x/14kbs_jx5yb7xz11hhhdqg4h0000gn/T/hify-010-before-review-_dqpkpi8/eval/runs/phase6-retrieval-gate-latest.json \
+		go test -v -race -count=1 -run TestRetrievalGatePhase6 ./internal/knowledge/
+=== RUN   TestRetrievalGatePhase6
+=== RUN   TestRetrievalGatePhase6/vector_semantic_hit
+=== RUN   TestRetrievalGatePhase6/keyword_strong_hit
+=== RUN   TestRetrievalGatePhase6/content_dedup_topk_fill
+=== RUN   TestRetrievalGatePhase6/core_over_duplicate_neighbor
+=== RUN   TestRetrievalGatePhase6/hybrid_dedup_same_chunk_both_paths
+=== RUN   TestRetrievalGatePhase6/no_results_negative
+=== RUN   TestRetrievalGatePhase6/nonempty_kb_irrelevant_query
+=== RUN   TestRetrievalGatePhase6/vector_below_admission
+=== RUN   TestRetrievalGatePhase6/admitted_candidate_backfills_topk
+=== RUN   TestRetrievalGatePhase6/rewrite_before_elliptical_query_misses
+=== RUN   TestRetrievalGatePhase6/rewrite_after_standalone_query_hits
+=== RUN   TestRetrievalGatePhase6/rerank_promotes_out_of_topk_candidate
+=== RUN   TestRetrievalGatePhase6/filter_scopes_to_document
+=== RUN   TestRetrievalGatePhase6/filter_scopes_to_page_range
+--- PASS: TestRetrievalGatePhase6 (1.26s)
+    --- PASS: TestRetrievalGatePhase6/vector_semantic_hit (0.05s)
+    --- PASS: TestRetrievalGatePhase6/keyword_strong_hit (0.02s)
+    --- PASS: TestRetrievalGatePhase6/content_dedup_topk_fill (0.02s)
+    --- PASS: TestRetrievalGatePhase6/core_over_duplicate_neighbor (0.01s)
+    --- PASS: TestRetrievalGatePhase6/hybrid_dedup_same_chunk_both_paths (0.01s)
+    --- PASS: TestRetrievalGatePhase6/no_results_negative (0.00s)
+    --- PASS: TestRetrievalGatePhase6/nonempty_kb_irrelevant_query (0.01s)
+    --- PASS: TestRetrievalGatePhase6/vector_below_admission (0.01s)
+    --- PASS: TestRetrievalGatePhase6/admitted_candidate_backfills_topk (0.06s)
+    --- PASS: TestRetrievalGatePhase6/rewrite_before_elliptical_query_misses (0.01s)
+    --- PASS: TestRetrievalGatePhase6/rewrite_after_standalone_query_hits (0.00s)
+    --- PASS: TestRetrievalGatePhase6/rerank_promotes_out_of_topk_candidate (0.03s)
+    --- PASS: TestRetrievalGatePhase6/filter_scopes_to_document (0.02s)
+    --- PASS: TestRetrievalGatePhase6/filter_scopes_to_page_range (0.02s)
+PASS
+ok  	hify/internal/knowledge	3.259s

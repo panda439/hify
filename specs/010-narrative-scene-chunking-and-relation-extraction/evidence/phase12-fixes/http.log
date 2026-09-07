@@ -1,0 +1,10 @@
+=== RUN   TestNarrativeHTTPUploadToPublishedSource
+=== RUN   TestNarrativeHTTPUploadToPublishedSource/story.txt
+=== RUN   TestNarrativeHTTPUploadToPublishedSource/story.md
+=== RUN   TestNarrativeHTTPUploadToPublishedSource/story.pdf
+--- PASS: TestNarrativeHTTPUploadToPublishedSource (1.44s)
+    --- PASS: TestNarrativeHTTPUploadToPublishedSource/story.txt (0.07s)
+    --- PASS: TestNarrativeHTTPUploadToPublishedSource/story.md (0.03s)
+    --- PASS: TestNarrativeHTTPUploadToPublishedSource/story.pdf (0.05s)
+PASS
+ok  	hify/internal/knowledge	3.241s

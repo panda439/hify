@@ -1,0 +1,39 @@
+{
+  "all": {
+    "pass": 868
+  },
+  "knowledge_final": {
+    "pass": 518
+  },
+  "pre010": {
+    "pass": 745
+  },
+  "baseline_commit": "1f37c1d",
+  "baseline_kind": "retrospective rerun, not historical original run",
+  "working_head": "5409f5812010b4d9002b77fb71edf4f7350ab130",
+  "default_off_cases": 13230,
+  "default_off_sha256": "2ec0b0722b2f2fb1f769ec3b145344c699acf4d4608249f9371680d4c156f3f4",
+  "source_files": {
+    "internal/knowledge/chunk.go": "a75c79034be02fa7fb7deb1706c790486aa4fd6e505dc84747ae340b02d54f12",
+    "internal/knowledge/layout.go": "c58c45157e0479943b80387c93ed3c5c1730f22c1ac10b0eace64a3e8dc374da",
+    "internal/knowledge/narrative.go": "ecedd60c5ce04be6b642815de3f0a03e42fb9f02ab951436e8e931effe4d8ae1",
+    "internal/knowledge/narrative_source.go": "8b67a5a9fbeef835c81f805c01214fa470073d7cfbfd5cd3d6d6b619d9ea1392",
+    "internal/knowledge/narrative_metadata.go": "0574e6f33af9e529bba4cfc0d349f73aba04017de56c85745c56f809caa05487",
+    "internal/knowledge/narrative_markdown.go": "c749382f96ca9f916defb7d7846f0678d2ca1d1b58142a2c674b94eb7a82b223",
+    "internal/knowledge/narrative_pdf.go": "dcf3503b7250b47e85528ebfbd4b26c6d36cfe5ea1688912a4f11c170ce3f3ab",
+    "internal/knowledge/handler.go": "d59ba88d1ed7aa72de96b2fabadbc9e0b36a375e81415181ee2c7111b5af2728",
+    "internal/knowledge/dto.go": "10d4a0df4e8de0a8a8fd90e3b4ad663b0d62ec88cac5eb77adbd08f7f2d3d358",
+    "internal/knowledge/errors.go": "214193aca41dea46d19d5028e424db874a2c404b58d882d8b4ea2de89f1c2948",
+    "internal/knowledge/service.go": "7c4fe9abf8220d389e46a7eb0e77730a4b4c481033c4ccf8bf2a0a9f69bd35d9",
+    "internal/knowledge/narrative_contract_test.go": "0c5836278cdc16a1634b94da64765ace3a87bd591faae0be18fedf5d9a1668c5",
+    "internal/knowledge/narrative_default_snapshot_test.go": "adcf99f160d64c49b23f360bb3a5f37958933105911e07ea4668b75a3c4743bd",
+    "internal/knowledge/narrative_http_test.go": "448ea4bc936af216282a5b5cf9ca8da137cd75015b9aaacf0e782ed50b81f087",
+    "internal/knowledge/narrative_test.go": "5b157df3cebad88293747baf3cbc9138db823425c7130cf30435f429aa794c71",
+    "internal/knowledge/narrative_upload_test.go": "eaec579e340fd44b867f41037ab60ab4aa21879b54e9fec62386766602885451",
+    "internal/knowledge/extraction_reconcile.go": "267b5119a30e2ae84ddfceabaa19baf6731d3c152e09fe371aa611b2a47d398d",
+    "internal/knowledge/extraction_reconcile_test.go": "431e15d97cce825c97122dae6a461b2a3ecd9150462aca92493f5924409fa815"
+  },
+  "all_final": {
+    "pass": 874
+  }
+}

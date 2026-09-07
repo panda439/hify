@@ -1,0 +1,10 @@
+HIFY_CONTEXT_GATE_REPORT_PATH=/private/var/folders/5x/14kbs_jx5yb7xz11hhhdqg4h0000gn/T/hify-010-fix-verification-s1rqhept/eval/runs/phase16-context-gate-latest.json \
+		go test -v -race -count=1 -run TestContextGate ./internal/conversation/
+=== RUN   TestContextGate
+2026/09/06 04:36:59 WARN conversation: RAG retrieval failed, continuing without it err="gate: retrieval unavailable" conversation_id=conv-gate-5
+    context_gate_test.go:174: context gate report written to /private/var/folders/5x/14kbs_jx5yb7xz11hhhdqg4h0000gn/T/hify-010-fix-verification-s1rqhept/eval/runs/phase16-context-gate-latest.json (6 cases)
+--- PASS: TestContextGate (1.22s)
+=== RUN   TestContextGateIsDeterministic
+--- PASS: TestContextGateIsDeterministic (0.18s)
+PASS
+ok  	hify/internal/conversation	3.032s

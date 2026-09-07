@@ -1,0 +1,28 @@
+=== RUN   TestReviewExactSourceMap
+    zz_review_phase12_test.go:5: source mismatch chunk="第一章\u3000甲\n甲。\n\n乙。" source="第一章\u3000甲\n甲。\n\n\n\n乙。"; validator=<nil>
+--- FAIL: TestReviewExactSourceMap (0.00s)
+=== RUN   TestReviewMarkdownChapter
+    zz_review_phase12_test.go:9: markdown chapters lost: pieces=1 chapter=<nil>
+--- FAIL: TestReviewMarkdownChapter (0.00s)
+=== RUN   TestReviewMarkdownFence
+    zz_review_phase12_test.go:14: code fence became chapters/scenes: pieces=3
+--- FAIL: TestReviewMarkdownFence (0.00s)
+=== RUN   TestReviewExplicitBoundaryForms
+    zz_review_phase12_test.go:16: boundary "\n※\n" ignored, pieces=1
+    zz_review_phase12_test.go:16: boundary "\n\n\n" ignored, pieces=1
+--- FAIL: TestReviewExplicitBoundaryForms (0.00s)
+=== RUN   TestReviewUnstructuredSceneUnknown
+    zz_review_phase12_test.go:17: invented scene: {SchemaVersion:1 BoundaryKind:divider NormalizedDocumentHash:264e13072b9d0c4cee2b8aee7f39c0979d5d74c42c40f70f771c1ba904252678 SceneKey:0x6bf24632d030 ChapterNumber:<nil> ChapterTitle:<nil> SourceOrder:0 Segments:[{ChunkStart:0 ChunkEnd:12 DocumentStart:0x6bf2461977c0 DocumentEnd:0x6bf2461977c8 Page:<nil> IsGeneratedSeparator:false IsOverlapCopy:false}]}
+--- FAIL: TestReviewUnstructuredSceneUnknown (0.00s)
+=== RUN   TestReviewOverlapRemainsLocatable
+    zz_review_phase12_test.go:18: real overlap text has no source interval: "甲甲甲甲。\n"
+--- FAIL: TestReviewOverlapRemainsLocatable (0.00s)
+=== RUN   TestReviewPDFSupported
+    zz_review_phase12_test.go:19: 按场景分块目前只支持 txt 和 md 文件
+--- FAIL: TestReviewPDFSupported (0.00s)
+=== RUN   TestReviewUploadContract
+    zz_review_phase12_test.go:20: documented field silently ignored: code=200 opts={Narrative:false RelationExtraction:false}
+--- FAIL: TestReviewUploadContract (0.00s)
+FAIL
+FAIL	hify/internal/knowledge	0.645s
+FAIL
