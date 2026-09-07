@@ -101,6 +101,10 @@ type publishInput struct {
 	Outcome         extractionOutcome
 	ExtractResponse []byte
 	AliasResponse   []byte
+	// AliasDegraded：归一失败，这一块退回"每个称呼各自独立成人物"发布。
+	// ⚠️ 必须跟着 item 一起落库，理由见 000018 迁移的注释：
+	// 只写日志的降级就是静默降级——指标已经变了，而报告读不出来。
+	AliasDegraded bool
 }
 
 // publishItemOutcome 在一个事务里写完全部结果。
@@ -193,6 +197,7 @@ func (r *Repository) publishItemOutcome(ctx context.Context, in publishInput) er
 		n, err := q.MarkItemSucceeded(ctx, gen.MarkItemSucceededParams{
 			ExtractResponse: jsonOrNull(in.ExtractResponse),
 			AliasResponse:   jsonOrNull(in.AliasResponse),
+			AliasDegraded:   in.AliasDegraded,
 			ID:              in.ItemID, JobID: in.JobID,
 		})
 		if err != nil {

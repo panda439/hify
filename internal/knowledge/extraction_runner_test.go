@@ -461,3 +461,81 @@ func TestIdentityEvidenceIsPersisted(t *testing.T) {
 		t.Error("一个带身份依据的人物都没有")
 	}
 }
+
+// TestAliasFailureDegradesInsteadOfFailingTheItem：归一失败退回独立身份，
+// item 照常成功，关系照常发布，**而且"没归一过"这件事落进了数据库**。
+//
+// ⭐ 依据是全书实跑：归一阶段 11 失败 / 5 成功，按旧行为这 11 块的关系全被
+// 丢掉——那些关系每一条都有真实原文支持，丢掉它们损失的是召回，
+// 换来的只是"人物没被合并"。
+//
+// ⚠️ 降级是有代价的（人物碎片化会压低召回率），所以它必须**可查**：
+// 只写日志的降级就是静默降级，指标已经变了而报告读不出来。
+func TestAliasFailureDegradesInsteadOfFailingTheItem(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	seedRunnerDocument(t, repo, "doc-degrade", 2)
+	job, err := repo.initializeExtractionJob(ctx, newExtractionJobSpec("job-degrade", "doc-degrade", 1, "m-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 抽取阶段正常，归一阶段永远返回不合法的响应。
+	model := &fakeModel{byPhase: func(_ int, prompt string) provider.ChatAttemptResult {
+		if strings.Contains(prompt, `{"decisions"`) {
+			return completedWith(`{"decisions":[{"mention_ref":"m9","action":"new","character_id":"",` +
+				`"new_group":"g1","supports":[{"source_ref":"chunk","quote":"阿Q"}],"reason_code":"insufficient"}]}`)
+		}
+		return completedWith(runnerExtractJSON)
+	}}
+
+	res, err := runnerFor(t, repo, model).runJob(ctx, job.ID)
+	if err != nil {
+		t.Fatalf("runJob: %v", err)
+	}
+	if res.ItemsSucceeded != 2 || res.ItemsFailed != 0 {
+		t.Fatalf("归一失败不该让 item 失败：%+v", res)
+	}
+	if !res.AliasDegraded {
+		t.Error("runJobResult 没有报出降级")
+	}
+	// 关系照常发布——它们本来就有原文支持。
+	if n := countRows(t, repo, `SELECT COUNT(*) FROM narrative_relations WHERE job_id=?`, job.ID); n == 0 {
+		t.Error("降级之后一条关系都没发布，那就白跑了")
+	}
+	// ⭐ 标记必须落库，不能只在日志里。
+	//
+	// ⚠️ 只有第二块会被标上：第一块跑的时候候选池还是空的，按 needsAliasPhase
+	// 的规则**根本不发归一调用**，也就无所谓降不降级。这个 1 不是漏标，
+	// 恰恰说明"没必要的调用不发"和"发了失败就降级"两条规则是配合着生效的。
+	n := countRows(t, repo,
+		`SELECT COUNT(*) FROM relation_extraction_items WHERE job_id=? AND alias_degraded=1`, job.ID)
+	if n != 1 {
+		t.Errorf("落库的降级标记 = %d，应当只有第二块被标上（第一块没发归一调用）", n)
+	}
+	// 没发归一调用的那一块不该被标成降级——降级说的是"归一做了但没做成"。
+	clean := countRows(t, repo,
+		`SELECT COUNT(*) FROM relation_extraction_items WHERE job_id=? AND alias_degraded=0 AND state='succeeded'`, job.ID)
+	if clean != 1 {
+		t.Errorf("未标降级且成功的块 = %d，应当是 1", clean)
+	}
+}
+
+// TestBudgetExhaustionDoesNotDegrade：预算耗尽**不能**当成归一失败降级掉。
+//
+// ⚠️ 两者看起来都是"归一没做成"，但意思相反：一个是模型这次没做好（可以退
+// 而求其次），一个是"这一轮不该再继续"。把后者也降级，等于在钱已经花完之后
+// 还在继续发布结果。
+func TestBudgetExhaustionDoesNotDegrade(t *testing.T) {
+	if aliasFailureIsDegradable(ErrExtractionCallBudgetExhausted) {
+		t.Error("预算耗尽被当成了可降级的归一失败")
+	}
+	if aliasFailureIsDegradable(ErrExtractionActiveTimeExhausted) {
+		t.Error("活跃时间耗尽被当成了可降级的归一失败")
+	}
+	if aliasFailureIsDegradable(ErrExtractionEpochLost) {
+		t.Error("epoch 失效被当成了可降级的归一失败")
+	}
+	if !aliasFailureIsDegradable(errAliasResponseInvalid) {
+		t.Error("归一响应不合法应当可以降级")
+	}
+}

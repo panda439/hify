@@ -302,6 +302,38 @@ func TestEveryMentionNeedsExactlyOneDecision(t *testing.T) {
 	}
 }
 
+// TestAliasPhaseNeedsACandidateThatMatchesThisChunk：候选非空还不够，
+// 得有一个候选的正名与本块某个称呼对得上才值得调用。
+//
+// ⭐ 依据是全书实跑：候选池一旦积累就永远非空，于是每一块都要发一次归一
+// 调用（约 28s、失败率还高），而其中大多数块的人物全是新的，模型除了把
+// 它们标成 new 之外无事可做。
+// ⚠️ 代价：一个"老Q"链接到候选"阿Q"、而第一阶段又没提出别名提案的情形
+// 会被跳过。那种链接本来就要两侧各有出处才成立，属于少数——这是拿一部分
+// 召回换掉大部分无谓开销。
+func TestAliasPhaseNeedsACandidateThatMatchesThisChunk(t *testing.T) {
+	in := aliasFixture(t)
+	in.Proposals = nil
+	// 候选里全是本块没出现过的人物 → 不值得调用。
+	in.Candidates = []aliasCandidate{{CharacterID: "c1", DisplayName: "王胡", FirstSourceOrder: 1}}
+	if needsAliasPhase(in) {
+		t.Error("候选与本块称呼毫无交集，却还要发一次归一调用")
+	}
+	// 有一个候选的正名与本块称呼对得上 → 值得调用。
+	in.Candidates = append(in.Candidates, aliasCandidate{
+		CharacterID: "c2", DisplayName: "阿Q", FirstSourceOrder: 2})
+	if !needsAliasPhase(in) {
+		t.Error("候选里有同名人物，应当归一")
+	}
+	// 有别名提案时，无论候选如何都要调用——那正是要判的东西。
+	in.Candidates = nil
+	in.Proposals = []resolvedAliasProposal{{Left: "m1", Right: "m2",
+		Evidence: evidenceDraft{Quote: "老Q，就是阿Q"}}}
+	if !needsAliasPhase(in) {
+		t.Error("有别名提案却跳过了归一")
+	}
+}
+
 // TestChunkWithoutMentionsSkipsTheSecondCall：没有人物的块不发归一调用。
 //
 // ⭐ 这条来自全书实跑：纯写景的段落抽不到任何 mention，但候选池早就非空了，

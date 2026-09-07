@@ -277,6 +277,8 @@ type RelationExtractionItem struct {
 	LastErrorCode       sql.NullString  `json:"last_error_code"`
 	CreatedAt           time.Time       `json:"created_at"`
 	UpdatedAt           time.Time       `json:"updated_at"`
+	// 归一失败后退回独立身份发布：1=这一块的人物未经归一
+	AliasDegraded bool `json:"alias_degraded"`
 }
 
 type RelationExtractionJob struct {

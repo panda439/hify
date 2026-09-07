@@ -74,6 +74,10 @@ type runJobResult struct {
 	ItemsFailed        int
 	AmbiguousPositions int
 	AmbiguousEvidence  int
+	// AliasDegraded：这一轮里有没有块因为归一失败而退回独立身份发布。
+	// ⚠️ 报出来是为了让"这次跑的人物可能是碎的"在运维日志里立刻可见，
+	// 详细的按块标记在 items.alias_degraded。
+	AliasDegraded bool
 	// StoppedEarly 说明这一轮没有把作业跑完：租约丢了、预算耗尽、
 	// 连续失败过多，或者 ctx 被取消。⚠️ 它与"作业失败"不是一回事，
 	// 前三种里有两种是可以从上次的位置接着跑的。
@@ -182,6 +186,7 @@ func (r *extractionRunner) runJob(ctx context.Context, jobID string) (runJobResu
 				itemResult, itemErr := r.runItem(ctx, job, epoch, item, chunk)
 				res.AmbiguousPositions += itemResult.AmbiguousPositions
 				res.AmbiguousEvidence += itemResult.AmbiguousEvidence
+				res.AliasDegraded = res.AliasDegraded || itemResult.AliasDegraded
 				err = itemErr
 				switch {
 				case err == nil:
@@ -253,6 +258,8 @@ func (r *extractionRunner) runJob(ctx context.Context, jobID string) (runJobResu
 type runItemResult struct {
 	AmbiguousPositions int
 	AmbiguousEvidence  int
+	// AliasDegraded：这一块归一失败，退回了独立身份。
+	AliasDegraded bool
 }
 
 func (r *extractionRunner) runItem(ctx context.Context, job RelationExtractionJob, epoch int, item gen.ListOpenExtractionItemsRow, chunk extractionChunkView) (runItemResult, error) {
@@ -298,6 +305,7 @@ func (r *extractionRunner) runItem(ctx context.Context, job RelationExtractionJo
 
 	var aliasRaw []byte
 	var assign identityAssignment
+	degraded := false
 	if !needsAliasPhase(in) {
 		// 零调用路径：没有候选也没有提案，各 mention 独立成身份。
 		assign = independentIdentities(in)
@@ -325,15 +333,35 @@ func (r *extractionRunner) runItem(ctx context.Context, job RelationExtractionJo
 				_, perr = resolveAliasDecisions(in, parsed)
 				return perr
 			})
-		if err != nil {
-			return runItemResult{}, err
-		}
-		parsed, err := parseAliasResponse(aliasRaw)
-		if err != nil {
-			return runItemResult{}, err
-		}
-		assign, err = resolveAliasDecisions(in, parsed)
-		if err != nil {
+		switch {
+		case err == nil:
+			parsed, perr := parseAliasResponse(aliasRaw)
+			if perr != nil {
+				return runItemResult{}, perr
+			}
+			assign, perr = resolveAliasDecisions(in, parsed)
+			if perr != nil {
+				return runItemResult{}, perr
+			}
+		case aliasFailureIsDegradable(err):
+			// ⭐ 归一失败**不再让整个 item 失败**，退回"每个称呼各自独立成
+			// 人物"照常发布关系。依据是全书实跑：归一阶段 11 失败 / 5 成功，
+			// 而按旧行为这 11 块的关系全被丢掉——那些关系每一条都有真实的
+			// 原文支持，丢掉它们损失的是召回，换来的只是"人物没被合并"。
+			//
+			// ⚠️ 这是**保守但有代价**的降级，代价是人物碎片化（同一个人的
+			// 几个称呼变成几个人物），而碎片化会直接压低召回率。所以：
+			//   - 降级要落进数据（items.alias_degraded），不能只写日志；
+			//   - 那次失败的归一调用照常记账，钱是真花了。
+			slog.Warn("knowledge: alias phase failed, publishing with independent identities",
+				"job_id", job.ID, "item_id", item.ID, "err", err)
+			degraded = true
+			assign = independentIdentities(in)
+			aliasRaw = nil
+		default:
+			// 预算耗尽、epoch 失效、ctx 取消这些**不能降级**：
+			// 它们说的是"这一轮不该再继续"，而不是"归一没做成"。
+			// 把它们也降级掉，等于在预算已经耗尽之后还继续发布结果。
 			return runItemResult{}, err
 		}
 	}
@@ -345,8 +373,35 @@ func (r *extractionRunner) runItem(ctx context.Context, job RelationExtractionJo
 	err = r.repo.publishItemOutcome(ctx, publishInput{
 		JobID: job.ID, ItemID: item.ID, Epoch: epoch, Outcome: outcome,
 		ExtractResponse: extractRaw, AliasResponse: aliasRaw,
+		AliasDegraded: degraded,
 	})
-	return runItemResult{AmbiguousPositions: resolved.AmbiguousPositions, AmbiguousEvidence: resolved.AmbiguousEvidence}, err
+	return runItemResult{
+		AmbiguousPositions: resolved.AmbiguousPositions,
+		AmbiguousEvidence:  resolved.AmbiguousEvidence,
+		AliasDegraded:      degraded,
+	}, err
+}
+
+// aliasFailureIsDegradable 判断一次归一失败能不能降级发布。
+//
+// ⭐ 能降级的只有"模型这次没做成"这一类：响应不合法、合并依据不足、
+// 三次尝试都没拿到可用结果。它们的共同点是——**关系本身是好的**，
+// 只是身份没能合并，退回独立身份仍然是一个诚实、保守的结果。
+//
+// ⚠️ 不能降级的是"这一轮不该再继续"：预算耗尽、epoch 失效、ctx 取消。
+// 把它们也降级掉，等于在钱已经花完、或者作业已经被别人接管之后，
+// 还在继续发布结果。
+func aliasFailureIsDegradable(err error) bool {
+	switch {
+	case errors.Is(err, errAliasResponseInvalid),
+		errors.Is(err, errAliasMergeUnsupported),
+		errors.Is(err, errQuoteNotFound),
+		errors.Is(err, errQuoteNotCitable),
+		errors.Is(err, errModelGaveUp):
+		return true
+	default:
+		return false
+	}
 }
 
 // runPhaseWithValidation 跑一个阶段，把**校验失败也当成这次尝试失败**。

@@ -239,6 +239,20 @@ func (q *Queries) CountAmbiguousAliasesBySurface(ctx context.Context, arg CountA
 	return count, err
 }
 
+const countDegradedItems = `-- name: CountDegradedItems :one
+SELECT COUNT(*) FROM relation_extraction_items
+WHERE job_id = ? AND alias_degraded = 1
+`
+
+// 有多少块的人物是没经过归一就发布的。报告里必须给出这个数——
+// 它直接解释了人物碎片化，而碎片化会压低召回率。
+func (q *Queries) CountDegradedItems(ctx context.Context, jobID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countDegradedItems, jobID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countJobAttemptsByState = `-- name: CountJobAttemptsByState :many
 SELECT state, COUNT(*) AS n FROM relation_extraction_attempts
 WHERE job_id = ? GROUP BY state ORDER BY state
@@ -1348,23 +1362,27 @@ func (q *Queries) MarkItemRunning(ctx context.Context, arg MarkItemRunningParams
 const markItemSucceeded = `-- name: MarkItemSucceeded :execrows
 UPDATE relation_extraction_items
 SET state = 'succeeded', extract_response = ?, alias_response = ?,
-    last_error_code = NULL, updated_at = CURRENT_TIMESTAMP(3)
+    alias_degraded = ?, last_error_code = NULL, updated_at = CURRENT_TIMESTAMP(3)
 WHERE id = ? AND job_id = ? AND state <> 'succeeded'
 `
 
 type MarkItemSucceededParams struct {
 	ExtractResponse json.RawMessage `json:"extract_response"`
 	AliasResponse   json.RawMessage `json:"alias_response"`
+	AliasDegraded   bool            `json:"alias_degraded"`
 	ID              string          `json:"id"`
 	JobID           string          `json:"job_id"`
 }
 
 // ⚠️ 守卫 state <> 'succeeded'：一个 item 只能成功一次，否则
 // succeeded_items 会被重复累加，而它是覆盖率的分子。
+// ⚠️ alias_degraded 一并写：归一失败退回独立身份也算成功发布，
+// 但"没归一过"这件事必须跟着这一行落库，否则报告读不出来。
 func (q *Queries) MarkItemSucceeded(ctx context.Context, arg MarkItemSucceededParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, markItemSucceeded,
 		arg.ExtractResponse,
 		arg.AliasResponse,
+		arg.AliasDegraded,
 		arg.ID,
 		arg.JobID,
 	)

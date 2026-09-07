@@ -128,7 +128,28 @@ func needsAliasPhase(in aliasInput) bool {
 	if len(in.Mentions) == 0 {
 		return false
 	}
-	return len(in.Proposals) > 0 || len(in.Candidates) > 0
+	if len(in.Proposals) > 0 {
+		return true
+	}
+	// ⭐ 2026-09-07：候选**非空**还不够，得有一个候选的正名与本块某个称呼
+	// 对得上才值得调用。依据是全书实跑：候选池一旦积累起来就永远非空，
+	// 于是每一块都要发一次归一调用，而其中大多数块的人物全是新出现的，
+	// 模型除了把它们全标成 new 之外无事可做——一次约 28s、失败率还很高。
+	//
+	// ⚠️ 代价说清楚：一个"老Q"要链接到候选"阿Q"、而第一阶段又没提出别名
+	// 提案的情形，现在会被跳过。那种链接本来就要靠两侧各有出处才成立，
+	// 属于少数；而按旧行为，为了这少数情形要给**每一块**都付一次调用。
+	// 这是拿一部分召回换掉大部分无谓开销，取舍要在报告里写明。
+	surfaces := make(map[string]bool, len(in.Mentions))
+	for _, m := range in.Mentions {
+		surfaces[m.Surface] = true
+	}
+	for _, c := range in.Candidates {
+		if surfaces[c.DisplayName] {
+			return true
+		}
+	}
+	return false
 }
 
 // selectAliasCandidates 按 plan §6 的口径选候选：精确名称命中优先，

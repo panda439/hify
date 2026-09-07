@@ -77,6 +77,9 @@ type Querier interface {
 	// 拿不准的称呼，不能在查询时被当成确定的某个人。
 	CountAmbiguousAliasesBySurface(ctx context.Context, arg CountAmbiguousAliasesBySurfaceParams) (int64, error)
 	CountConversationsByUser(ctx context.Context, userID string) (int64, error)
+	// 有多少块的人物是没经过归一就发布的。报告里必须给出这个数——
+	// 它直接解释了人物碎片化，而碎片化会压低召回率。
+	CountDegradedItems(ctx context.Context, jobID string) (int64, error)
 	CountDocumentsByKnowledgeBase(ctx context.Context, knowledgeBaseID string) (int64, error)
 	CountJobAttemptsByState(ctx context.Context, jobID string) ([]CountJobAttemptsByStateRow, error)
 	// usage 未知的尝试数。⚠️ 单独报，不并进调用总数：它是"这些调用的 token
@@ -375,6 +378,8 @@ type Querier interface {
 	MarkItemRunning(ctx context.Context, arg MarkItemRunningParams) (int64, error)
 	// ⚠️ 守卫 state <> 'succeeded'：一个 item 只能成功一次，否则
 	// succeeded_items 会被重复累加，而它是覆盖率的分子。
+	// ⚠️ alias_degraded 一并写：归一失败退回独立身份也算成功发布，
+	// 但"没归一过"这件事必须跟着这一行落库，否则报告读不出来。
 	MarkItemSucceeded(ctx context.Context, arg MarkItemSucceededParams) (int64, error)
 	// 人工重试 API 用：pending/failed -> pending 且 version 前进一位，让旧
 	// version 的任何延迟到达的任务实例在后续 CAS 里天然被判定过期。pending/
