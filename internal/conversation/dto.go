@@ -93,4 +93,31 @@ func toMessageResponse(m Message, citations []Citation) messageResponse {
 
 type sendMessageRequest struct {
 	Content string `json:"content" binding:"required"`
+	// RelationQuery 缺省时行为与这个字段出现之前逐字一致（010 契约 §3）。
+	// ⚠️ 请求体里**没有**知识库/文档范围：范围由服务端从 Agent 的配置取。
+	// 客户端能提交范围的话，"这个助手能查哪些书"就成了一个前端参数。
+	RelationQuery *relationQueryRequest `json:"relation_query"`
+}
+
+type relationQueryRequest struct {
+	DocumentID string `json:"document_id" binding:"required"`
+	Subject    string `json:"subject" binding:"required,max=128"`
+	Object     string `json:"object" binding:"required,max=128"`
+	// 两个 ID 来自上一轮的歧义候选。服务端仍然校验它们确实是这次称呼
+	// 解析出来的候选之一——只凭 ID 就信等于开了一条绕过范围校验的路。
+	SubjectCharacterID string `json:"subject_character_id"`
+	ObjectCharacterID  string `json:"object_character_id"`
+}
+
+func (r *sendMessageRequest) options() MessageOptions {
+	if r.RelationQuery == nil {
+		return MessageOptions{}
+	}
+	return MessageOptions{Relation: &RelationQueryOption{
+		DocumentID:         r.RelationQuery.DocumentID,
+		Subject:            r.RelationQuery.Subject,
+		Object:             r.RelationQuery.Object,
+		SubjectCharacterID: r.RelationQuery.SubjectCharacterID,
+		ObjectCharacterID:  r.RelationQuery.ObjectCharacterID,
+	}}
 }

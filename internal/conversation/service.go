@@ -42,6 +42,11 @@ type Service interface {
 	// second HTTP response, since the handler will already have committed
 	// SSE response headers by then.
 	StreamMessage(ctx context.Context, userID, conversationID, content string) (<-chan StreamEvent, error)
+
+	// StreamMessageWithOptions 是带可选项的版本（010 T033）。
+	// ⚠️ MessageOptions 的零值 = StreamMessage 的行为逐字不变，
+	// 所以旧调用方和旧 Fake 一个字都不用改。
+	StreamMessageWithOptions(ctx context.Context, userID, conversationID, content string, opts MessageOptions) (<-chan StreamEvent, error)
 }
 
 // service is constructed via NewService in wire.go. agentSvc/providerSvc/
@@ -140,6 +145,13 @@ func (s *service) ListMessages(ctx context.Context, userID, conversationID strin
 }
 
 func (s *service) StreamMessage(ctx context.Context, userID, conversationID, content string) (<-chan StreamEvent, error) {
+	return s.StreamMessageWithOptions(ctx, userID, conversationID, content, MessageOptions{})
+}
+
+func (s *service) StreamMessageWithOptions(ctx context.Context, userID, conversationID, content string, opts MessageOptions) (<-chan StreamEvent, error) {
+	if err := validateRelationOption(opts.Relation); err != nil {
+		return nil, err
+	}
 	conv, err := s.repo.getConversationForUser(ctx, conversationID, userID)
 	if err != nil {
 		return nil, err
@@ -177,6 +189,13 @@ func (s *service) StreamMessage(ctx context.Context, userID, conversationID, con
 	// retrieval already happens synchronously before runStream is spawned.
 	traceID := platform.NewID()
 	turnStart := time.Now()
+
+	// 010：关系分支。⚠️ 分叉点在**用户消息已经落库之后**——无论走哪条路，
+	// 提问都要留在会话里；分叉在落库之前的话，一次关系查询失败会让用户
+	// 看到自己的问题凭空消失。
+	if opts.Relation != nil {
+		return s.streamRelationTurn(ctx, conv, ag, model, client, content, *opts.Relation, traceID, turnStart)
+	}
 
 	assembled, err := s.assembleContext(ctx, conversationID, ag, model, content, traceID)
 	if err != nil {

@@ -52,6 +52,16 @@ func (f *fakeConvService) ListMessages(context.Context, string, string, *convers
 	return nil, nil, "", nil
 }
 
+// StreamMessageWithOptions：eval 只跑普通对话，不带任何选项。
+// ⚠️ 直接转给 StreamMessage 而不是忽略 opts：真传了选项还当没传，
+// 是在测试里悄悄换掉被测行为。
+func (f *fakeConvService) StreamMessageWithOptions(ctx context.Context, userID, conversationID, content string, opts conversation.MessageOptions) (<-chan conversation.StreamEvent, error) {
+	if opts.Relation != nil {
+		return nil, fmt.Errorf("eval: 关系查询不在 eval 的范围内")
+	}
+	return f.StreamMessage(ctx, userID, conversationID, content)
+}
+
 func (f *fakeConvService) StreamMessage(_ context.Context, _, conversationID, _ string) (<-chan conversation.StreamEvent, error) {
 	agentID := strings.TrimPrefix(conversationID, "conv-")
 	fx := f.fixtures[agentID]

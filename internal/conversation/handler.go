@@ -96,7 +96,8 @@ func (h *Handler) SendMessage(c *gin.Context) error {
 		return ErrInvalidRequest
 	}
 
-	events, err := h.service.StreamMessage(c.Request.Context(), middleware.UserIDFrom(c), c.Param("id"), req.Content)
+	events, err := h.service.StreamMessageWithOptions(c.Request.Context(),
+		middleware.UserIDFrom(c), c.Param("id"), req.Content, req.options())
 	if err != nil {
 		return err
 	}
