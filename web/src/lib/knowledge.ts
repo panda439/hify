@@ -342,3 +342,23 @@ export function useExtractionAction(kbId: string, docId: string) {
     },
   });
 }
+
+// useNarrativeDocuments 取一组知识库里**可以查关系**的文档。
+//
+// ⚠️ 只留 is_narrative 且 ready 的：普通文档永远不会有关系记录，
+// 把它们列进选择器，用户会去选一个永远查不出东西的书目。
+// 是否开启了抽取不在这里过滤——关掉抽取的文档仍然可能有上一轮的记录，
+// 而"关掉了"这件事由后端的确定性回复说清楚。
+export function useNarrativeDocuments(kbIds: string[]) {
+  const results = useQueries({
+    queries: kbIds.map((id) => ({
+      queryKey: documentsQueryKey(id),
+      queryFn: () => api.get<DocumentListResponse>(`/knowledge-bases/${id}/documents?limit=100`),
+    })),
+  });
+  const docs = results.flatMap((r) => r.data?.items ?? []);
+  return {
+    documents: docs.filter((d) => d.is_narrative && d.status === "ready"),
+    isLoading: results.some((r) => r.isLoading),
+  };
+}

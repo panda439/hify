@@ -23,19 +23,52 @@ export interface ToolCallInfo {
   result?: string;
 }
 
+// RelationClarification 是关系查询命中多个同名人物时的候选集合（010）。
+// ⚠️ 不用选的那一侧是空数组，前端据此只渲染一个选择器。
+export interface RelationClarification {
+  subject: string;
+  object: string;
+  document_id: string;
+  subject_candidates: { character_id: string; display_name: string; context: string }[];
+  object_candidates: { character_id: string; display_name: string; context: string }[];
+}
+
 export interface StreamEvent {
-  type: "retrieval" | "tool_call" | "delta" | "done" | "error";
+  type: "retrieval" | "tool_call" | "delta" | "final" | "relation_clarify" | "done" | "error";
   content?: string;
   error?: string;
   retrieved?: RetrievedChunkInfo[];
   tool_call?: ToolCallInfo;
+  relation?: RelationClarification;
 }
 
 interface ErrorBody {
   error?: { message?: string };
 }
 
-async function postStream(conversationId: string, content: string, token: string | null, signal: AbortSignal) {
+// RelationQuery 是 010 的关系查询选项。
+// ⚠️ 这里**没有**知识库/文档范围：范围由服务端从 Agent 配置里取。
+// 前端能提交范围的话，"这个助手能查哪些书"就成了一个前端参数。
+export interface RelationQuery {
+  document_id: string;
+  subject: string;
+  object: string;
+  // 上一轮返回歧义候选时，用户选定的人物。
+  subject_character_id?: string;
+  object_character_id?: string;
+}
+
+export interface SendOptions {
+  relationQuery?: RelationQuery;
+}
+
+async function postStream(
+  conversationId: string,
+  content: string,
+  token: string | null,
+  signal: AbortSignal,
+  options?: SendOptions,
+) {
   return fetch(`/api/v1/conversations/${conversationId}/messages`, {
     method: "POST",
     headers: {
@@ -43,7 +76,11 @@ async function postStream(conversationId: string, content: string, token: string
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     credentials: "include",
-    body: JSON.stringify({ content }),
+    // ⚠️ 只在真的要查关系时才带这个字段：恒定发一个 null 会让"没查"和
+    // "查了但没给参数"在抓包和后端日志里长得一样。
+    body: JSON.stringify(
+      options?.relationQuery ? { content, relation_query: options.relationQuery } : { content },
+    ),
     signal,
   });
 }
@@ -52,17 +89,22 @@ export function useChatStream() {
   const [streaming, setStreaming] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
 
-  const send = useCallback(async (conversationId: string, content: string, onEvent: (event: StreamEvent) => void) => {
+  const send = useCallback(async (
+    conversationId: string,
+    content: string,
+    onEvent: (event: StreamEvent) => void,
+    options?: SendOptions,
+  ) => {
     const controller = new AbortController();
     controllerRef.current = controller;
     setStreaming(true);
 
     try {
-      let res = await postStream(conversationId, content, getAccessToken(), controller.signal);
+      let res = await postStream(conversationId, content, getAccessToken(), controller.signal, options);
       if (res.status === 401) {
         const user = await refreshAccessToken();
         if (user) {
-          res = await postStream(conversationId, content, getAccessToken(), controller.signal);
+          res = await postStream(conversationId, content, getAccessToken(), controller.signal, options);
         }
       }
 

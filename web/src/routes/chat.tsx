@@ -16,8 +16,13 @@ import {
   useMessages,
   type Message,
 } from "@/lib/conversations";
-import { useChatStream, type RetrievedChunkInfo, type ToolCallInfo } from "@/lib/sse";
+import { useChatStream, type RelationQuery, type RetrievedChunkInfo, type ToolCallInfo } from "@/lib/sse";
 import { NewConversationDialog } from "@/routes/new-conversation-dialog";
+import {
+  ClarificationPicker,
+  RelationQueryBar,
+  type PendingClarification,
+} from "@/routes/relation-query-bar";
 
 // A message shown in the transcript while it's still in flight — not yet
 // the persisted row the backend returns, so it only needs what the bubble
@@ -75,6 +80,9 @@ export function ChatPage() {
   const [newDialogOpen, setNewDialogOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState<PendingMessage[]>([]);
+  // 010：上一轮返回的歧义候选。⚠️ 只保留**最近一次**：留着历史的话，
+  // 用户会对着一个早就答完的问题继续挑人物。
+  const [clarification, setClarification] = useState<PendingClarification | null>(null);
   const { send, stop, streaming } = useChatStream();
   const qc = useQueryClient();
 
@@ -86,16 +94,29 @@ export function ChatPage() {
     scrollRef.current?.scrollIntoView({ block: "end" });
   }, [persisted, pending]);
 
+  const currentAgentId = conversations.find((c) => c.id === conversationId)?.agent_id ?? "";
+  const currentAgent = (agentsData?.items ?? []).find((a) => a.id === currentAgentId);
+
   const handleSelectConversation = (id: string) => {
     if (streaming) return;
     setConversationId(id);
     setPending([]);
+    setClarification(null);
   };
 
   const handleSend = async () => {
     const content = draft.trim();
-    if (!content || !conversationId || streaming) return;
+    if (!content) return;
     setDraft("");
+    await sendTurn(content);
+  };
+
+  // sendTurn 是普通提问和关系查询共用的一条路：两者只差一个可选参数。
+  // ⚠️ 分成两个函数的话，事件处理（工具调用、错误、刷新列表）会被复制一份，
+  // 而两份迟早会长出不同的行为。
+  const sendTurn = async (content: string, relationQuery?: RelationQuery) => {
+    if (!conversationId || streaming) return;
+    setClarification(null);
     setPending([
       { id: "pending-user", role: "user", content },
       { id: "pending-assistant", role: "assistant", content: "" },
@@ -125,6 +146,13 @@ export function ChatPage() {
             return { ...m, toolCalls: updated };
           }),
         );
+      } else if (event.type === "relation_clarify" && event.relation) {
+        // 同名人物需要澄清：把候选留在页面上，用户选完再发一次。
+        const r = event.relation;
+        setClarification({
+          subject: r.subject, object: r.object, documentId: r.document_id,
+          subjectCandidates: r.subject_candidates, objectCandidates: r.object_candidates,
+        });
       } else if (event.type === "delta") {
         setPending((prev) =>
           prev.map((m) => (m.id === "pending-assistant" ? { ...m, content: m.content + (event.content ?? "") } : m)),
@@ -149,7 +177,7 @@ export function ChatPage() {
         qc.invalidateQueries({ queryKey: messagesQueryKey(conversationId) });
         qc.invalidateQueries({ queryKey: conversationsQueryKey() });
       }
-    });
+    }, relationQuery ? { relationQuery } : undefined);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -214,6 +242,24 @@ export function ChatPage() {
               </div>
             </div>
             <div className="border-t p-4">
+              <div className="mx-auto max-w-3xl">
+                {/* 只有配了知识库的助手才显示入口：没有知识库时点进去
+                    只会看到一个空的书目列表。 */}
+                {(currentAgent?.knowledge_base_ids?.length ?? 0) > 0 && (
+                  <RelationQueryBar
+                    knowledgeBaseIds={currentAgent?.knowledge_base_ids ?? []}
+                    disabled={streaming}
+                    onSubmit={(query, question) => void sendTurn(question, query)}
+                  />
+                )}
+                {clarification && (
+                  <ClarificationPicker
+                    clarification={clarification}
+                    disabled={streaming}
+                    onPick={(query, question) => void sendTurn(question, query)}
+                  />
+                )}
+              </div>
               <div className="mx-auto flex max-w-3xl items-end gap-2">
                 <Textarea
                   value={draft}

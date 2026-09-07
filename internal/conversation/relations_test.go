@@ -220,6 +220,29 @@ func TestRelationBranchNeverCallsTheModelWithoutRecords(t *testing.T) {
 					t.Errorf("回复里出现了内部标识 %q：%s", bad, final.Content)
 				}
 			}
+			// 歧义那一条要额外给出**结构化**的候选：正文里只有人话，
+			// 用户选完之后前端要能把 character_id 原样带回来。
+			if tc.res.Status == knowledge.RelationStatusAmbiguous {
+				var clarify *RelationClarification
+				for _, e := range got {
+					if e.Type == EventRelationClarify {
+						clarify = e.Relation
+					}
+				}
+				if clarify == nil {
+					t.Fatalf("歧义没有给出结构化候选：%v", eventTypes(got))
+				}
+				if len(clarify.ObjectCandidates) != 2 {
+					t.Errorf("客体候选数 = %d", len(clarify.ObjectCandidates))
+				}
+				// ⚠️ 不需要选的那一侧给空数组，前端才知道只渲染一个选择器。
+				if len(clarify.SubjectCandidates) != 0 {
+					t.Errorf("主体只有一个人物，却也给了候选：%+v", clarify.SubjectCandidates)
+				}
+				if clarify.ObjectCandidates[0].CharacterID == "" {
+					t.Error("候选没有带上可以回传的人物 ID")
+				}
+			}
 		})
 	}
 }

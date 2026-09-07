@@ -107,16 +107,17 @@ func (s *service) streamRelationTurn(ctx context.Context, conv Conversation, ag 
 	case knowledge.RelationStatusFound:
 		// 落到下面的受限生成。
 	case knowledge.RelationStatusAmbiguous:
-		return s.deterministicRelationReply(conv.ID, traceID, ambiguousText(opt, res)), nil
+		return s.deterministicRelationReply(conv.ID, traceID, ambiguousText(opt, res),
+			clarification(opt, res)), nil
 	case knowledge.RelationStatusDisabled:
-		return s.deterministicRelationReply(conv.ID, traceID, relationDisabledText), nil
+		return s.deterministicRelationReply(conv.ID, traceID, relationDisabledText, nil), nil
 	case knowledge.RelationStatusIncomplete:
-		return s.deterministicRelationReply(conv.ID, traceID, relationIncompleteText), nil
+		return s.deterministicRelationReply(conv.ID, traceID, relationIncompleteText, nil), nil
 	case knowledge.RelationStatusSameEntity:
-		return s.deterministicRelationReply(conv.ID, traceID, relationSameEntityText), nil
+		return s.deterministicRelationReply(conv.ID, traceID, relationSameEntityText, nil), nil
 	default: // not_found
 		return s.deterministicRelationReply(conv.ID, traceID,
-			relationNotFoundText+"\n\n"+coverageNote(res.Coverage)), nil
+			relationNotFoundText+"\n\n"+coverageNote(res.Coverage), nil), nil
 	}
 
 	// --- 有记录：受限生成 ---
@@ -138,7 +139,7 @@ func (s *service) streamRelationTurn(ctx context.Context, conv Conversation, ag 
 	evidence, dropped := relationEvidence(res.Records, capChars)
 	if len(evidence) == 0 {
 		// ⭐ 一条证据都放不下时给确定性回复，**不生成没有依据的结论**。
-		return s.deterministicRelationReply(conv.ID, traceID, relationNoBudgetText), nil
+		return s.deterministicRelationReply(conv.ID, traceID, relationNoBudgetText, nil), nil
 	}
 	if dropped > 0 && !strings.Contains(notes, relationTruncationNote) {
 		notes += "\n" + relationTruncationNote
@@ -171,8 +172,8 @@ func (s *service) streamRelationTurn(ctx context.Context, conv Conversation, ag 
 // ⚠️ 不收 ctx：保存走的是 persistFinalAssistantTurn 自己的独立超时上下文。
 // 客户端可能在收到这条消息之前就断开，而这一轮已经是最终结果了，
 // 不该因为断开而丢掉——这与普通对话里"断开也要保住已生成内容"是同一条规矩。
-func (s *service) deterministicRelationReply(conversationID, traceID, text string) <-chan StreamEvent {
-	events := make(chan StreamEvent, 4)
+func (s *service) deterministicRelationReply(conversationID, traceID, text string, clarify *RelationClarification) <-chan StreamEvent {
+	events := make(chan StreamEvent, 5)
 	content, citations, _, err := s.persistFinalAssistantTurn(conversationID, text, nil, nil)
 	if err != nil {
 		events <- StreamEvent{Type: EventError, TraceID: traceID, Error: "服务器内部错误，请稍后重试"}
@@ -183,6 +184,9 @@ func (s *service) deterministicRelationReply(conversationID, traceID, text strin
 	// ⚠️ 少发一个 final，前端就得为"确定性回复"单开一条渲染分支，
 	// 而两条分支迟早会长出不同的引用显示方式。
 	events <- StreamEvent{Type: EventDelta, TraceID: traceID, Content: content}
+	if clarify != nil {
+		events <- StreamEvent{Type: EventRelationClarify, TraceID: traceID, Relation: clarify}
+	}
 	events <- StreamEvent{Type: EventFinal, TraceID: traceID, Content: content,
 		Citations: toCitationResponses(citations)}
 	events <- StreamEvent{Type: EventDone, TraceID: traceID}
@@ -200,6 +204,32 @@ func ambiguousText(opt RelationQueryOption, res knowledge.RelationQueryResult) s
 	writeCandidates(&sb, opt.Subject, res.SubjectCandidates)
 	writeCandidates(&sb, opt.Object, res.ObjectCandidates)
 	return sb.String()
+}
+
+// clarification 把候选整理成结构化的澄清载荷。
+//
+// ⚠️ 只给**确实需要选**的那一侧候选：另一侧只有一个人物时给空数组，
+// 前端据此只渲染一个选择器。两侧都渲染的话，用户会以为自己两边都选错了。
+func clarification(opt RelationQueryOption, res knowledge.RelationQueryResult) *RelationClarification {
+	out := &RelationClarification{
+		Subject: opt.Subject, Object: opt.Object, DocumentID: opt.DocumentID,
+		SubjectCandidates: candidateInfos(res.SubjectCandidates),
+		ObjectCandidates:  candidateInfos(res.ObjectCandidates),
+	}
+	return out
+}
+
+func candidateInfos(cands []knowledge.RelationCharacterCandidate) []RelationCandidateInfo {
+	if len(cands) <= 1 {
+		return []RelationCandidateInfo{}
+	}
+	out := make([]RelationCandidateInfo, 0, len(cands))
+	for _, c := range cands {
+		out = append(out, RelationCandidateInfo{
+			CharacterID: c.CharacterID, DisplayName: c.DisplayName, Context: c.Context,
+		})
+	}
+	return out
 }
 
 func writeCandidates(sb *strings.Builder, surface string, cands []knowledge.RelationCharacterCandidate) {

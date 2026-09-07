@@ -56,6 +56,31 @@ type StreamEvent struct {
 	// since a final event with no citations must still serialize the
 	// field as `[]`, never be silently dropped by the same omitempty rule.
 	Citations []CitationResponse `json:"citations,omitempty"`
+	// Relation 只在关系查询需要澄清时出现（010 T033）。
+	//
+	// ⭐ 候选必须以**结构化**的形式送到前端：确定性回复的正文里只有
+	// "1. 阿Q（首次出现于第 1 个片段）"这样的人话，用户点了之后前端要能
+	// 把对应的 character_id 带回来。把 ID 塞进正文让前端去解析，
+	// 等于把一个内部标识变成了用户可见文本，还多了一层会静默出错的解析。
+	Relation *RelationClarification `json:"relation,omitempty"`
+}
+
+// RelationClarification 是一次歧义澄清的候选集合。
+type RelationClarification struct {
+	Subject    string `json:"subject"`
+	Object     string `json:"object"`
+	DocumentID string `json:"document_id"`
+	// 两侧各自的候选；只有一个候选的那一侧为空数组，表示"这一侧不用选"。
+	SubjectCandidates []RelationCandidateInfo `json:"subject_candidates"`
+	ObjectCandidates  []RelationCandidateInfo `json:"object_candidates"`
+}
+
+// RelationCandidateInfo 是给用户挑的一个人物。
+// ⚠️ Context 是"首次出现于第 N 个片段"这类可读定位，不是内部序号本身。
+type RelationCandidateInfo struct {
+	CharacterID string `json:"character_id"`
+	DisplayName string `json:"display_name"`
+	Context     string `json:"context"`
 }
 
 // finalStreamEventPayload is EventFinal's actual wire shape — Citations
@@ -203,8 +228,12 @@ const (
 	// to speak of). See runStream's doc comment for the full ordering
 	// contract.
 	EventFinal = "final"
-	EventDone  = "done"
-	EventError = "error"
+	// EventRelationClarify 只在关系查询命中多个同名人物时出现，
+	// 紧跟在那条确定性回复的 delta 之后。前端据此渲染一个带出处的候选
+	// 选择，用户选完把 character_id 原样带回下一次请求。
+	EventRelationClarify = "relation_clarify"
+	EventDone            = "done"
+	EventError           = "error"
 )
 
 // MessageCursor is the keyset cursor for paging a conversation's message
