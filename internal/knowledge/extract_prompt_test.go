@@ -124,6 +124,11 @@ func TestStrictJSONRejections(t *testing.T) {
 }
 
 // TestSemanticRejections：结构合法但语义违约，同样整次拒绝。
+//
+// ⚠️ 2026-09-07 起这里**没有** occurrence 相关的用例了：位置由服务端定位，
+// 模型给的 occurrence 一律忽略（字段本身还留着，为的是旧响应能回放——
+// 见 extractMention.Occurrence 的注释）。一个"occurrence 为负就拒绝"的用例
+// 现在守的是一段已经没人读的值，留着只会让人以为它还在起作用。
 func TestSemanticRejections(t *testing.T) {
 	mention := `{"ref":"m1","surface":"阿Q","occurrence":0},{"ref":"m2","surface":"赵太爷","occurrence":0}`
 	cases := []struct {
@@ -137,7 +142,6 @@ func TestSemanticRejections(t *testing.T) {
 		{"证据超过 4 条", `{"mentions":[` + mention + `],"relations":[{"subject_ref":"m1","object_ref":"m2","type":"冲突","evidence":[{"quote":"a","occurrence":0},{"quote":"b","occurrence":0},{"quote":"c","occurrence":0},{"quote":"d","occurrence":0},{"quote":"e","occurrence":0}]}],"alias_proposals":[]}`},
 		{"重复的 mention ref", `{"mentions":[{"ref":"m1","surface":"阿Q","occurrence":0},{"ref":"m1","surface":"赵太爷","occurrence":0}],"relations":[],"alias_proposals":[]}`},
 		{"surface 为空", `{"mentions":[{"ref":"m1","surface":"","occurrence":0}],"relations":[],"alias_proposals":[]}`},
-		{"occurrence 为负", `{"mentions":[{"ref":"m1","surface":"阿Q","occurrence":-1}],"relations":[],"alias_proposals":[]}`},
 		{"别名提案引用了不存在的 mention", `{"mentions":[` + mention + `],"relations":[],"alias_proposals":[{"left":"m1","right":"m9","quote":"阿Q","occurrence":0}]}`},
 	}
 	for _, tc := range cases {
@@ -191,31 +195,73 @@ func TestQuoteMustExistInTheChunk(t *testing.T) {
 	}
 }
 
-// TestOccurrenceOutOfRangeRejectsTheWholeResponse：越界的 occurrence 不是
-// "退回第 0 次"，是整次拒绝——退回去会静默地把引用指到另一处。
-func TestOccurrenceOutOfRangeRejectsTheWholeResponse(t *testing.T) {
+// TestOutOfRangeOccurrenceIsNowIgnored 固定契约变更后的行为：模型给的
+// occurrence 一律**忽略**，不再因为它越界而拒整份响应。
+//
+// ⭐ 这正是变更的收益所在：预检里 14B 的 6 次失败全是越界（引文逐字正确、
+// 只是"第几次"数错），按旧契约这 6 条全被拒；现在它们照常可用。
+// ⚠️ 字段仍然被解析（旧响应要能回放），只是没有任何地方读它的值。
+func TestOutOfRangeOccurrenceIsNowIgnored(t *testing.T) {
 	chunk := chunkFixture(sampleChunk, 100)
-	raw := `{"mentions":[{"ref":"m1","surface":"阿Q","occurrence":7}],"relations":[],"alias_proposals":[]}`
-	if _, err := resolveExtraction(chunk, mustParse(t, raw)); !errors.Is(err, errQuoteNotFound) {
-		t.Fatalf("accepted an out-of-range occurrence, err = %v", err)
+	raw := `{"mentions":[{"ref":"m1","surface":"阿Q","occurrence":99}],"relations":[],"alias_proposals":[]}`
+	resolved, err := resolveExtraction(chunk, mustParse(t, raw))
+	if err != nil {
+		t.Fatalf("越界的 occurrence 仍然导致失败：%v", err)
+	}
+	if len(resolved.Mentions) != 1 {
+		t.Fatalf("got %d mentions", len(resolved.Mentions))
+	}
+	// 落在第一处「阿Q」上，而不是第 99 处。
+	if got := resolved.Mentions[0]; got.ChunkStart != 14 {
+		t.Errorf("落在 chunk[%d,%d)，应当是第一处", got.ChunkStart, got.ChunkEnd)
+	}
+	// 「阿Q」在这个块里出现两次，多义位置要被计出来。
+	if resolved.AmbiguousPositions != 1 {
+		t.Errorf("AmbiguousPositions = %d，应当把这处多义位置计出来", resolved.AmbiguousPositions)
 	}
 }
 
-// TestOccurrenceCountsOverlappingMatches 固定 occurrence 的口径。
-// ⚠️ "aaa" 里找 "aa"：重叠算两次，不重叠算一次。两种数法都自洽，但服务端
-// 必须单方面定死一种并写进指令，否则引用会系统性地偏到同一句话的另一处。
-func TestOccurrenceCountsOverlappingMatches(t *testing.T) {
-	chunk := chunkFixture("阿阿阿Q", 0)
+// TestRepeatedSurfaceTakesTheFirstMatchAndReportsCount 固定 2026-09-07 的
+// 契约变更：位置由服务端定位，模型不再给 occurrence。
+//
+// ⭐ 变更的依据是实测：预检里 14B 的 6 次定位失败**全部**是 occurrence 数错
+// （引文逐字正确，只是"第几次"报错了，且多为 off-by-one），也就是说我们把
+// 一件模型做不好、服务端做得又快又准的事写进了协议，白白损失三分之一的
+// 合法响应。
+//
+// ⚠️ 代价要能计量：同一句话出现多次时取第一处，matches 报出总次数，
+// 调用方据此统计有多少证据落在多义位置上——不计量就等于假装没有这个代价。
+func TestRepeatedSurfaceTakesTheFirstMatchAndReportsCount(t *testing.T) {
+	chunk := chunkFixture("阿Q打了阿Q的邻居，阿Q笑了", 0)
 	loc := newQuoteLocator(chunk)
-	start, end, err := loc.locate("阿阿", 1)
+	start, end, matches, err := loc.locate("阿Q")
 	if err != nil {
-		t.Fatalf("overlapping match not found: %v", err)
+		t.Fatalf("locate: %v", err)
 	}
-	if start != 1 || end != 3 {
-		t.Errorf("second overlapping match at [%d,%d), want [1,3)", start, end)
+	if start != 0 || end != 2 {
+		t.Errorf("取到 [%d,%d)，应当是第一处 [0,2)", start, end)
 	}
-	if !strings.Contains(extractInstruction, "重叠也算一次") {
-		t.Error("指令里必须写明重叠计数口径，否则模型数的和我们数的不是一回事")
+	if matches != 3 {
+		t.Errorf("matches = %d，原文里「阿Q」出现 3 次", matches)
+	}
+
+	// ⚠️ 指令里必须**不再**要求模型给 occurrence：两边口径不一致时，
+	// 模型会继续输出一个我们已经不看的字段，而它数错了也没人发现。
+	if strings.Contains(extractInstruction, "第几次出现，从 0 开始数") {
+		t.Error("指令里还在要求模型数第几次出现，但服务端已经自己定位了")
+	}
+	if !strings.Contains(extractInstruction, "位置由系统在原文里查") {
+		t.Error("指令里没有说明位置由系统定位")
+	}
+}
+
+// TestFabricatedQuoteIsStillRejected：服务端自己定位**不等于**放宽引用校验。
+// 原文里一次都找不到的引文，照样整次拒绝。
+func TestFabricatedQuoteIsStillRejected(t *testing.T) {
+	chunk := chunkFixture(sampleChunk, 100)
+	loc := newQuoteLocator(chunk)
+	if _, _, _, err := loc.locate("赵太爷狠狠地打了阿Q一顿"); !errors.Is(err, errQuoteNotFound) {
+		t.Fatalf("编造的引文被接受了：err = %v", err)
 	}
 }
 
@@ -238,7 +284,7 @@ func TestQuoteAcrossGeneratedSeparatorIsRejected(t *testing.T) {
 		},
 	}
 	loc := newQuoteLocator(chunk)
-	start, end, err := loc.locate("赵太爷\n\n打", 0)
+	start, end, _, err := loc.locate("赵太爷\n\n打")
 	if err != nil {
 		t.Fatalf("locate: %v", err)
 	}
@@ -246,7 +292,7 @@ func TestQuoteAcrossGeneratedSeparatorIsRejected(t *testing.T) {
 		t.Fatalf("accepted a quote crossing a generated separator, err = %v", err)
 	}
 	// 只落在一侧的引用仍然可用。
-	start, end, err = loc.locate("打阿Q", 0)
+	start, end, _, err = loc.locate("打阿Q")
 	if err != nil {
 		t.Fatalf("locate: %v", err)
 	}
@@ -256,13 +302,19 @@ func TestQuoteAcrossGeneratedSeparatorIsRejected(t *testing.T) {
 	}
 }
 
-// TestOverlapCopyEvidenceDedupsBySourceInterval：overlap 复制进来的那一份
-// 和正文里的那一份是**同一处原文**，只能算一条证据。
+// TestSameQuoteCollapsesToTheFirstOccurrence 记录服务端定位换来的**代价**。
 //
-// ⚠️ 按引文字符串去重会把"书里真的说了两次"也压成一条。按坐标去重两者都对。
-func TestOverlapCopyEvidenceDedupsBySourceInterval(t *testing.T) {
+// 旧契约下，模型可以用 occurrence 0 / 1 分别指向 overlap 复制的那一份和正文
+// 那一份，于是同一句话的两处出处各留一条证据。现在位置由服务端定位、
+// 恒取第一处，同一句引文无论给几次都只会落到同一个区间，去重成一条。
+//
+// ⚠️ 这条用例存在的意义就是把这个损失钉死在测试里：将来有人看到"证据条数
+// 变少了"，能在这里读到为什么，而不是当成回归去修。
+// 对"这条关系成不成立"没有影响（任一处出现都同样支持它），但"书里说了两次"
+// 这个信息确实拿不到了——除非模型给出两句**不同**的引文。
+func TestSameQuoteCollapsesToTheFirstOccurrence(t *testing.T) {
 	// 块内容 = overlap 复制的 "阿Q" + 正文 "阿Q挨打"；复制那份指向 [50,52)，
-	// 正文那份指向 [52,56)。模型两次引用 "阿Q"（occurrence 0 和 1）。
+	// 正文那份指向 [52,56)。
 	content := "阿Q阿Q挨打"
 	chunk := extractionChunkView{
 		ChunkID: "c-3", DocumentVersion: 1, Content: content,
@@ -276,25 +328,24 @@ func TestOverlapCopyEvidenceDedupsBySourceInterval(t *testing.T) {
 	}
 	loc := newQuoteLocator(chunk)
 
-	// 同一处原文被引用两次（occurrence 0 与 0）→ 去重成一条。
-	same, err := loc.resolveEvidence([]extractQuote{{Quote: "阿Q", Occurrence: 0}, {Quote: "阿Q", Occurrence: 0}})
+	got, err := loc.resolveEvidence([]extractQuote{{Quote: "阿Q"}, {Quote: "阿Q"}})
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if len(same) != 1 {
-		t.Errorf("同一处原文引用两次应当去重成 1 条，got %d", len(same))
+	if len(got) != 1 {
+		t.Fatalf("同一句引文应当去重成 1 条，got %d", len(got))
+	}
+	if got[0].SourceStart != 50 {
+		t.Errorf("没有落在第一处：SourceStart=%d，want 50", got[0].SourceStart)
 	}
 
-	// 两处不同的原文位置 → 保留两条。
-	both, err := loc.resolveEvidence([]extractQuote{{Quote: "阿Q", Occurrence: 0}, {Quote: "阿Q", Occurrence: 1}})
+	// 两句**不同**的引文仍然各留一条——去重的键是原文区间，不是引文字符串。
+	two, err := loc.resolveEvidence([]extractQuote{{Quote: "阿Q"}, {Quote: "挨打"}})
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if len(both) != 2 {
-		t.Fatalf("两处不同原文应当各留一条，got %d", len(both))
-	}
-	if both[0].SourceStart != 50 || both[1].SourceStart != 52 {
-		t.Errorf("overlap 那份丢了自己的真实区间：%d / %d", both[0].SourceStart, both[1].SourceStart)
+	if len(two) != 2 {
+		t.Fatalf("两句不同的引文应当各留一条，got %d", len(two))
 	}
 }
 

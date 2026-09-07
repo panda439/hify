@@ -30,12 +30,12 @@ const (
 	// （见 relation_extraction_jobs.config_snapshot）。
 	// ⚠️ 恢复中的作业**不升级**版本：换了协议再接着跑，等于同一份账目里
 	// 混了两种口径的结果。
-	extractionSchemaVersion = 1
+	extractionSchemaVersion = 2
 
 	// extractPromptVersion 标识指令文本本身。与 schema 分开是因为两者
 	// 变化频率不同：措辞调整不改结构，但**足以改变结果**，所以也必须
 	// 进快照，否则两次实验的差异无法归因。
-	extractPromptVersion = "extract/v3"
+	extractPromptVersion = "extract/v4"
 )
 
 // 契约 §1 的规模上限。超限整次拒绝，不截断——截断会让"模型只抽到这些"和
@@ -73,7 +73,11 @@ var (
 	// 输出。调用方据此重试（至多 3 次），耗尽后这个 item 失败。
 	errExtractionResponseInvalid = errors.New("knowledge: extraction response invalid")
 
-	// errQuoteNotFound：引用在当前块原文里找不到，或 occurrence 越界。
+	// errQuoteNotFound：引用在当前块原文里一次都找不到。
+	//
+	// ⚠️ 2026-09-07 起它**只**表示"这句话不在原文里"（模型编造或改写了引文）。
+	// 之前它还兼职表示"occurrence 越界"，两者混在一起会让报告读不出
+	// 模型到底是编造引文还是数错次数——而这两件事的严重程度差得很远。
 	errQuoteNotFound = errors.New("knowledge: quote not found in chunk")
 
 	// errQuoteNotCitable：引用跨过了系统拼进去的分隔符。
@@ -108,17 +112,17 @@ const extractInstruction = `你在为一部中文小说建立人物关系索引�
 {"mentions":[...],"relations":[...],"alias_proposals":[...]}
 三个数组都必须出现，没有内容就给空数组。
 
-mentions：片段中出现的人物称呼，每项 {"ref","surface","occurrence"}。
-  ref 是你在本次输出里自定的短编号（如 m1），surface 逐字复制原文中的称呼，
-  occurrence 是它在片段中的第几次出现，从 0 开始数，重叠也算一次。
+mentions：片段中出现的人物称呼，每项 {"ref","surface"}。
+  ref 是你在本次输出里自定的短编号（如 m1），surface 逐字复制原文中的称呼。
+  不需要指出它是第几次出现，位置由系统在原文里查。
 
 relations：人物之间有原文支持的关系，每项
-  {"subject_ref","object_ref","type","evidence":[{"quote","occurrence"}]}。
+  {"subject_ref","object_ref","type","evidence":[{"quote"}]}。
   type 只能是：雇佣、亲属、同乡邻里、冲突、欺凌、追求、权势压迫、同伙。
   evidence 给 1～4 条引用。先在上面的原文中逐字找到支持关系的连续文字，再从原文直接复制到 quote；不要凭记忆或常识补写，不要改写、不要拼接不相邻的句子；如果不能在原文中用眼睛逐字核对 quote，就不要输出这条关系；
   跨越多处的支持请分成多条引用。
 
-alias_proposals：你认为指同一个人的两个称呼，每项 {"left","right","quote","occurrence"}，
+alias_proposals：你认为指同一个人的两个称呼，每项 {"left","right","quote"}，
   quote 是原文中支持这个判断的那句话。只在原文明确写出时提出，
   "可能是"、"也许"、"不知道是不是"这类说法不要提。
 
@@ -128,7 +132,7 @@ alias_proposals：你认为指同一个人的两个称呼，每项 {"left","righ
 1. 回复只有一个 JSON 对象，且没有代码围栏或任何说明文字。
 2. 三个顶层数组都存在；每个 ref 唯一且关系端点都来自 mentions。
 3. 每个 surface 和每个 quote 都能在上面的原文中逐字找到；不能确认逐字相同就删掉该 mention、relation 或 alias_proposal。尤其不能把符合情节但原文没有的句子当 quote。
-4. 每个 occurrence 从 0 开始按原文出现顺序计数，重叠出现也计数；从原文实际数 occurrence，不要猜。`
+4. 不要输出 occurrence 或任何位置编号——同一句话在片段里出现多次时由系统定位，你只需保证引文逐字正确。`
 
 // buildExtractInstruction 目前返回固定文本；留成函数是因为下一步要把
 // 章节标题这类块级上下文拼进去，而调用方不该关心它是常量还是拼出来的。
@@ -147,9 +151,15 @@ type extractResponse struct {
 }
 
 type extractMention struct {
-	Ref        string `json:"ref"`
-	Surface    string `json:"surface"`
-	Occurrence int    `json:"occurrence"`
+	Ref     string `json:"ref"`
+	Surface string `json:"surface"`
+	// Occurrence 已废弃：位置由服务端定位（见 quoteLocator.locate）。
+	//
+	// ⚠️ 字段**保留但忽略**，不是遗漏。DisallowUnknownFields 会拒绝任何
+	// 未知字段，而 relation_extraction_attempts 里已经存着一批带 occurrence
+	// 的旧响应——删掉这个字段，那些响应在回放时会整批失效，等于把已经花过
+	// 的钱作废。指令里已经不再要求它，新响应不会再带。
+	Occurrence int `json:"occurrence"`
 }
 
 type extractRelation struct {
@@ -160,15 +170,17 @@ type extractRelation struct {
 }
 
 type extractQuote struct {
-	Quote      string `json:"quote"`
-	Occurrence int    `json:"occurrence"`
+	Quote string `json:"quote"`
+	// 同 extractMention.Occurrence：保留但忽略，为的是旧响应仍能回放。
+	Occurrence int `json:"occurrence"`
 }
 
 type extractAliasProposal struct {
-	Left       string `json:"left"`
-	Right      string `json:"right"`
-	Quote      string `json:"quote"`
-	Occurrence int    `json:"occurrence"`
+	Left  string `json:"left"`
+	Right string `json:"right"`
+	Quote string `json:"quote"`
+	// 同上：保留但忽略。
+	Occurrence int `json:"occurrence"`
 }
 
 // --- 解析后的领域视图 ---
@@ -199,6 +211,10 @@ type resolvedExtraction struct {
 	Mentions       []resolvedMention
 	Relations      []resolvedRelation
 	AliasProposals []resolvedAliasProposal
+	// AmbiguousPositions 是有多少个称呼在块内出现不止一次——那些我们取了
+	// 第一处。⚠️ 这个数字必须能报出来：服务端定位换来了合法率，代价是
+	// "引用指向确切位置"弱了一档，不计量就等于假装没有这个代价。
+	AmbiguousPositions int
 }
 
 // parseExtractionResponse 把一次第一阶段的原始输出解析成校验过的结构。
@@ -329,15 +345,12 @@ func validateExtractResponse(resp extractResponse) error {
 	}
 
 	refs := make(map[string]struct{}, len(mentions))
-	for i, m := range mentions {
+	for _, m := range mentions {
 		if err := checkRunes("mention ref", m.Ref, maxExtractRefRunes); err != nil {
 			return err
 		}
 		if err := checkRunes("mention surface", m.Surface, maxExtractSurfaceRunes); err != nil {
 			return err
-		}
-		if m.Occurrence < 0 {
-			return fmt.Errorf("%w: mention %d occurrence %d", errExtractionResponseInvalid, i, m.Occurrence)
 		}
 		if _, dup := refs[m.Ref]; dup {
 			return fmt.Errorf("%w: duplicate mention ref %q", errExtractionResponseInvalid, m.Ref)
@@ -386,7 +399,7 @@ func validateExtractResponse(resp extractResponse) error {
 		if p.Left == p.Right {
 			return fmt.Errorf("%w: alias proposal %d links a mention to itself", errExtractionResponseInvalid, i)
 		}
-		if err := checkQuote(extractQuote{Quote: p.Quote, Occurrence: p.Occurrence}); err != nil {
+		if err := checkQuote(extractQuote{Quote: p.Quote}); err != nil {
 			return err
 		}
 	}
@@ -396,9 +409,6 @@ func validateExtractResponse(resp extractResponse) error {
 func checkQuote(q extractQuote) error {
 	if err := checkRunes("quote", q.Quote, maxExtractQuoteRunes); err != nil {
 		return err
-	}
-	if q.Occurrence < 0 {
-		return fmt.Errorf("%w: quote occurrence %d", errExtractionResponseInvalid, q.Occurrence)
 	}
 	return nil
 }
@@ -422,9 +432,12 @@ func resolveExtraction(chunk extractionChunkView, resp extractResponse) (resolve
 	locator := newQuoteLocator(chunk)
 
 	for _, m := range *resp.Mentions {
-		start, end, err := locator.locate(m.Surface, m.Occurrence)
+		start, end, matches, err := locator.locate(m.Surface)
 		if err != nil {
 			return resolvedExtraction{}, fmt.Errorf("mention %q: %w", m.Ref, err)
+		}
+		if matches > 1 {
+			out.AmbiguousPositions++
 		}
 		docStart, docEnd, err := locator.documentRange(start, end)
 		if err != nil {
@@ -450,7 +463,7 @@ func resolveExtraction(chunk extractionChunkView, resp extractResponse) (resolve
 	}
 
 	for i, p := range *resp.AliasProposals {
-		evidence, err := locator.resolveEvidence([]extractQuote{{Quote: p.Quote, Occurrence: p.Occurrence}})
+		evidence, err := locator.resolveEvidence([]extractQuote{{Quote: p.Quote}})
 		if err != nil {
 			return resolvedExtraction{}, fmt.Errorf("alias proposal %d: %w", i, err)
 		}
@@ -477,33 +490,47 @@ func newQuoteLocator(chunk extractionChunkView) *quoteLocator {
 	}
 }
 
-// locate 找出第 occurrence 次出现（0 起）的 rune 区间。
+// locate 找出引文在块内的**第一处**出现，并报告它一共出现了几次。
 //
-// ⚠️ **允许重叠匹配**：每次只前进一个 rune 再找下一处，而不是跳过整个匹配。
-// 契约把计数口径定死在这里，因为两种数法对 "aaa" 里找 "aa" 会给出不同的
-// 出现次数——模型数的是哪一种我们无从得知，所以必须由服务端单方面定义，
-// 并且与指令里写给模型的口径一致。
-func (l *quoteLocator) locate(needle string, occurrence int) (int, int, error) {
+// ⭐ 2026-09-07 的契约变更：occurrence 不再由模型给出，改由服务端定位。
+// 原因是实测数据：qwen2.5:14b 在预检里 6 次定位失败**全部**是 occurrence
+// 数错（"趙太爺" 报第 5 次而全文只有 5 次、"阿Q" 报第 2 次而只有 2 次——
+// 典型的 off-by-one），引文本身逐字正确。也就是说，我们把一件模型做不好、
+// 而服务端做得又快又准的事（数第几次出现）当成了协议的一部分，
+// 白白损失掉三分之一的合法响应。
+//
+// ⚠️ 代价是明确的，不能含糊：同一句话在块内出现多次时，我们**取第一处**，
+// 而那未必是模型心里想的那一处。对"证据"这个用途这是可接受的——任一处出现
+// 都同样支持这条关系——但它确实让"引用指向原文的确切位置"这个保证弱了一档。
+// 返回的 matches 就是为了让这件事可计量：调用方据此统计有多少条证据落在
+// 多义位置上，报告里如实写出来，而不是假装每条引用都唯一。
+//
+// ⚠️ 重叠匹配的计数口径保留（每次只前进一个 rune）：它现在只影响 matches
+// 这个统计数字，不再影响选哪一处，所以模型数不数得清已经无关紧要。
+func (l *quoteLocator) locate(needle string) (start, end, matches int, err error) {
 	needleRunes := utf8.RuneCountInString(needle)
 	if needleRunes == 0 {
-		return 0, 0, fmt.Errorf("%w: empty needle", errQuoteNotFound)
+		return 0, 0, 0, fmt.Errorf("%w: empty needle", errQuoteNotFound)
 	}
-	count := 0
+	first := -1
 	for pos := 0; pos < len(l.content); {
 		idx := strings.Index(l.content[pos:], needle)
 		if idx < 0 {
 			break
 		}
 		at := pos + idx
-		if count == occurrence {
-			start := l.runeIndex.at(at)
-			return start, start + needleRunes, nil
+		if first < 0 {
+			first = at
 		}
-		count++
+		matches++
 		_, size := utf8.DecodeRuneInString(l.content[at:])
 		pos = at + size
 	}
-	return 0, 0, fmt.Errorf("%w: %q occurrence %d (found %d)", errQuoteNotFound, needle, occurrence, count)
+	if first < 0 {
+		return 0, 0, 0, fmt.Errorf("%w: %q", errQuoteNotFound, needle)
+	}
+	start = l.runeIndex.at(first)
+	return start, start + needleRunes, matches, nil
 }
 
 // documentRange 把块内 rune 区间翻译成原文 rune 区间。
@@ -552,10 +579,11 @@ func (l *quoteLocator) resolveEvidence(quotes []extractQuote) ([]evidenceDraft, 
 	seen := map[[2]int]struct{}{}
 	out := make([]evidenceDraft, 0, len(quotes))
 	for _, q := range quotes {
-		start, end, err := l.locate(q.Quote, q.Occurrence)
+		start, end, matches, err := l.locate(q.Quote)
 		if err != nil {
 			return nil, err
 		}
+		_ = matches // 证据层的多义计数由 resolveExtraction 汇总，这里不重复计
 		docStart, docEnd, err := l.documentRange(start, end)
 		if err != nil {
 			return nil, err

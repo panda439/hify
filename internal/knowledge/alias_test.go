@@ -19,9 +19,9 @@ func aliasFixture(t *testing.T) aliasInput {
 	t.Helper()
 	chunk := chunkFixture(aliasChunk, 0)
 	loc := newQuoteLocator(chunk)
-	mention := func(ref, surface string, occ int) resolvedMention {
+	mention := func(ref, surface string, _ int) resolvedMention {
 		t.Helper()
-		s, e, err := loc.locate(surface, occ)
+		s, e, _, err := loc.locate(surface)
 		if err != nil {
 			t.Fatalf("fixture mention %q: %v", surface, err)
 		}
@@ -88,7 +88,7 @@ func TestExplicitAliasProposalLetsTwoMentionsShareAGroup(t *testing.T) {
 func TestHedgedAliasProposalCannotMerge(t *testing.T) {
 	in := aliasFixture(t)
 	loc := newQuoteLocator(in.Chunk)
-	s, e, err := loc.locate("阿贵", 0)
+	s, e, _, err := loc.locate("阿贵")
 	if err != nil {
 		t.Fatal(err)
 	}

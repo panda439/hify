@@ -6,17 +6,29 @@
 
 ```json
 {
-  "mentions": [{"ref":"m1","surface":"李明","occurrence":0},{"ref":"m2","surface":"小李","occurrence":0}],
+  "mentions": [{"ref":"m1","surface":"李明"},{"ref":"m2","surface":"小李"}],
   "relations": [],
-  "alias_proposals": [{"left":"m1","right":"m2","quote":"李明，人称小李","occurrence":0}]
+  "alias_proposals": [{"left":"m1","right":"m2","quote":"李明，人称小李"}]
 }
 ```
 
 示例仅为协议夹具，不是阿Q标注。
-relations 每项 `{subject_ref,object_ref,type,evidence:[{quote,occurrence}]}`；evidence 1～4 项。
+relations 每项 `{subject_ref,object_ref,type,evidence:[{quote}]}`；evidence 1～4 项。
 所有数组必须存在，可空；mentions最多32、relations最多64、alias_proposals最多32；
-ref为该响应内唯一短字符串≤32 rune，surface非空≤128 rune，quote非空≤2000 rune；occurrence为0起非负整数。
-出现位置由程序在当前 chunk 原文精确查找并计数（按rune，允许重叠匹配）；occurrence越界整次拒绝。
+ref为该响应内唯一短字符串≤32 rune，surface非空≤128 rune，quote非空≤2000 rune。
+
+**2026-09-07 变更：模型不再给出 occurrence，位置一律由服务端定位。**
+依据是实测：qwen2.5:14b 在预检里 6 次定位失败**全部**是 occurrence 数错
+（引文逐字正确，"趙太爺"报第5次而全文只有5次、"阿Q"报第2次而只有2次，典型 off-by-one），
+等于把一件模型做不好、服务端做得又快又准的事写进了协议，白白损失三分之一的合法响应。
+
+服务端在当前 chunk 原文里精确查找引文（按 rune），**取第一处**，并记录它一共出现几次。
+引文一次都找不到（模型编造或改写）仍然整次拒绝——这条没有放宽。
+⚠️ 代价：同一句引文出现多次时我们取第一处，未必是模型心里那一处；
+"引用指向原文的确切位置"这个保证因此弱了一档。多义位置的条数必须计量并进报告
+（`resolvedExtraction.AmbiguousPositions`），不能假装每条引用都唯一。
+⚠️ `occurrence` 字段在解析结构里**保留但忽略**：attempts 表里存着一批带它的旧响应，
+删字段会让那些响应在回放时整批失效，等于把已经花过的钱作废。
 没有 tool call、finish_reason=length、非法/过大输出均为失败，不能部分采用。
 
 关系类型恰为标注指南8类；subject/object必须引用存在且原文可定位的mention，不允许代词当已知人物。
@@ -34,7 +46,8 @@ ref为该响应内唯一短字符串≤32 rune，surface非空≤128 rune，quot
 action为 new/link/ambiguous；new/ambiguous的character_id为空，link只能指向本次提供的候选ID。
 new_group为当前块的新人物组号：只有明确别名提案及原文支持的mentions可共用一组；
 ambiguous必须各自独立组号，link的new_group为空。服务端先为合法新组创建一个人物ID，再解析关系端点。
-supports 为1～4条 `{source_ref,quote,occurrence}`，source_ref只能是当前块或输入候选已有依据。
+supports 为1～4条 `{source_ref,quote}`，source_ref只能是当前块或输入候选已有依据；
+位置同样由服务端定位（见 §1 的 2026-09-07 变更）。
 new无既有身份时可只给当前mention引用；link必须同时支持当前和候选身份，或有明确别名连接句。
 reason_code封闭为 explicit_alias/context_identity/insufficient/contradictory；不能仅回传数字confidence。
 

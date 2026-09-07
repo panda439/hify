@@ -27,7 +27,7 @@ import (
 const (
 	// aliasPromptVersion 与 extractPromptVersion 分开：两阶段的指令各自演进，
 	// 混成一个版本号会让"只改了归一措辞"的实验无法与上一次对比。
-	aliasPromptVersion = "alias/v1"
+	aliasPromptVersion = "alias/v2"
 
 	// 候选窗口（plan §6）。⚠️ 超出窗口的候选**不是"就当不存在"**：
 	// 被删掉多少必须回传给调用方标 candidate_truncated，否则一次因为候选
@@ -174,9 +174,9 @@ action 三选一：
   ambiguous —— 拿不准，character_id 留空，new_group 填一个**只属于它自己**的组号。
 只有原文明确写出是同一个人的称呼，才可以填同一个 new_group。
 
-supports 给 1～4 条依据，每条 {"source_ref","quote","occurrence"}：
+supports 给 1～4 条依据，每条 {"source_ref","quote"}：
   source_ref 填 "chunk" 表示引自下面的原文，或填某个候选依据的 ref（形如 xxx#0）；
-  quote 逐字复制，occurrence 是它在原文中的第几次出现，从 0 开始数，重叠也算一次。
+  quote 逐字复制即可，不需要指出是第几次出现，位置由系统在原文里查。
 link 需要两侧都有依据（原文一条 + 该候选的依据一条），
 或者原文里有一句同时写出两个称呼、明确说明是同一个人的话。
 
@@ -233,9 +233,10 @@ type aliasSupport struct {
 	// SourceRef 是这条依据的出处：当前块（"chunk"）或某个候选的既有依据 ref。
 	// ⚠️ 不接受空出处。一条没有出处的"依据"是模型的断言本身，
 	// 拿它当依据等于让模型自己给自己作证。
-	SourceRef  string `json:"source_ref"`
-	Quote      string `json:"quote"`
-	Occurrence int    `json:"occurrence"`
+	SourceRef string `json:"source_ref"`
+	Quote     string `json:"quote"`
+	// 同 extractMention.Occurrence：保留但忽略，为的是旧响应仍能回放。
+	Occurrence int `json:"occurrence"`
 }
 
 func parseAliasResponse(raw []byte) (aliasResponse, error) {
@@ -447,7 +448,7 @@ func checkAliasSupport(locator *quoteLocator, candidateRefs map[string]string, s
 	}
 	if s.SourceRef == aliasSourceRefCurrent {
 		// 当前块的依据必须在原文里精确命中，口径与第一阶段完全一致。
-		if _, _, err := locator.locate(s.Quote, s.Occurrence); err != nil {
+		if _, _, _, err := locator.locate(s.Quote); err != nil {
 			return err
 		}
 		return nil
@@ -497,7 +498,7 @@ func checkLinkSupported(locator *quoteLocator, mention resolvedMention, cand ali
 		if hedgedAliasQuote(s.Quote) {
 			continue
 		}
-		if _, _, err := locator.locate(s.Quote, s.Occurrence); err != nil {
+		if _, _, _, err := locator.locate(s.Quote); err != nil {
 			return err
 		}
 		return nil
