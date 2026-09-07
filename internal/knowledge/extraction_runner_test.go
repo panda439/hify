@@ -193,6 +193,8 @@ func TestReplayedResponseIsNotCalledAgain(t *testing.T) {
 		`DELETE FROM narrative_relations WHERE job_id=?`,
 		`DELETE FROM narrative_characters WHERE job_id=?`,
 		`UPDATE relation_extraction_items SET state='pending' WHERE job_id=?`,
+		// 崩在半路的作业当然还没收尾。
+		`UPDATE relation_extraction_jobs SET state='running', finished_at=NULL WHERE id=?`,
 	} {
 		if _, err := repo.db.ExecContext(ctx, q, job.ID); err != nil {
 			t.Fatal(err)

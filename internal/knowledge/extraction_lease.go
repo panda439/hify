@@ -220,3 +220,22 @@ func (k *leaseKeeper) Stop() {
 	k.stopOnce.Do(func() { close(k.stop) })
 	k.wg.Wait()
 }
+
+// stopExtractionJob 给一次运行收尾：跑完、失败或暂停。
+//
+// ⚠️ 必须带 epoch。不带的表现是一个被接管过的旧 worker 把新 worker 正跑着的
+// 作业标成结束——新 worker 会继续跑到底，而它的结果发布不出去。
+// 返回 0 行是**正常**的（自己早就不是持有者了），不是错误。
+func (r *Repository) stopExtractionJob(ctx context.Context, jobID string, epoch int, state, reason string, finished bool) error {
+	var finishedAt sql.NullTime
+	if finished {
+		finishedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
+	}
+	if _, err := r.queries.StopRelationExtractionJob(ctx, gen.StopRelationExtractionJobParams{
+		State: state, StopReason: nullString(reason), FinishedAt: finishedAt,
+		ID: jobID, Epoch: int32(epoch),
+	}); err != nil {
+		return fmt.Errorf("knowledge: stop extraction job: %w", err)
+	}
+	return nil
+}

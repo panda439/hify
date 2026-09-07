@@ -103,17 +103,22 @@ func TestUploadOptionsRejectionsAreExplicit(t *testing.T) {
 		{"叙事 pdf", FileTypePDF, UploadOptions{Narrative: true}, nil},
 		{"抽取但没开叙事", FileTypeTxt,
 			UploadOptions{RelationExtraction: true}, ErrRelationExtractionRequiresNarrative},
-		{"抽取尚未开放", FileTypeTxt,
+		{"没配抽取模型", FileTypeTxt,
 			UploadOptions{Narrative: true, RelationExtraction: true},
-			ErrRelationExtractionUnavailable},
+			ErrRelationExtractionModelNotConfigured},
 		// ⚠️ PDF 且关闭叙事必须照常通过——拒绝理由不能扩大到不该管的路径。
 		{"普通 pdf 不受影响", FileTypePDF, UploadOptions{}, nil},
 	}
 	for _, tc := range cases {
-		err := validateUploadOptions(tc.fileType, tc.opts)
+		err := validateUploadOptions(tc.fileType, tc.opts, "")
 		if !errors.Is(err, tc.want) {
 			t.Errorf("%s：got %v, want %v", tc.name, err, tc.want)
 		}
+	}
+	// 配了模型之后，同一个开关必须放行——拒绝理由不能在配置好之后还留着。
+	if err := validateUploadOptions(FileTypeTxt,
+		UploadOptions{Narrative: true, RelationExtraction: true}, "qwen2.5:14b"); err != nil {
+		t.Errorf("配置了抽取模型之后仍被拒绝：%v", err)
 	}
 }
 

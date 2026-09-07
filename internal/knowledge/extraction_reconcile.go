@@ -59,13 +59,16 @@ func (r *Repository) listRecoverableExtractionJobs(ctx context.Context, afterID 
 
 // ReconcileResult 是一次恢复扫描的结果，供日志与运维观察。
 //
-// ⚠️ JobsNeedingRecovery 是「扫出来多少条需要有人接手」，**不是**「重新
-// 入队了多少条」。这两个数在 Phase 3 的入队接上之前不相等，而且现在恒等于
-// "全都没入队"。名字必须说实话：一个叫 JobsRequeued 的字段配上一条只写
-// slog 的实现，会让运维看着非零的计数以为作业已经在跑了。
+// ⚠️ JobsNeedingRecovery 与 JobsRequeued 是两个数，不是一个：入队可能失败
+// （Redis 不可用）。两者不等就是"有作业没能被叫醒"，而那正是要看见的事——
+// 合并成一个数会让这种情况变得不可观测。
 type ReconcileResult struct {
 	JobsNeedingRecovery  int
+	JobsRequeued         int
 	ReservationsResolved int
+	// JobIDsNeedingRecovery 交给 Service 去入队。
+	// ⚠️ repository 不该知道 asynq 的存在（分层），所以这里只把 ID 带出去。
+	JobIDsNeedingRecovery []string
 }
 
 // reconcileRelationExtractions 跑一轮恢复。
@@ -77,12 +80,8 @@ type ReconcileResult struct {
 // ⚠️ 它绝不在这里直接跑作业——恢复扫描是个短任务，在里面同步跑几百次
 // 模型调用会让下一次扫描迟迟不来，而租约还在滴答。
 //
-// 🚧 未完成（Phase 3）：扫出来的作业目前**只记账，没有重新入队**。
-// 抽取的 asynq 任务类型还不存在（唯一的入口 validateUploadOptions 仍然
-// 用 ErrRelationExtractionUnavailable 硬拒，所以现在一条作业都建不出来）。
-// 接上入队之前，这个扫描对「崩掉的 worker 留下的作业」是无效的：它会每轮
-// 扫到、每轮记一笔、然后什么都不发生。等 task type 落地后，在 Service 层
-// （不是这里——repository 不该知道 asynq 的存在）把它们 Enqueue 出去。
+// ⚠️ 入队本身不在这里做：repository 不该知道 asynq 的存在。这里只把需要
+// 接手的作业 ID 带出去，由 Service.ReconcileRelationExtractions 入队。
 func (r *Repository) reconcileRelationExtractions(ctx context.Context) (ReconcileResult, error) {
 	var res ReconcileResult
 
@@ -99,6 +98,7 @@ func (r *Repository) reconcileRelationExtractions(ctx context.Context) (Reconcil
 		slog.Debug("knowledge: extraction job needs recovery",
 			"job_id", job.ID, "state", job.State,
 			"initialized", job.InitializationComplete)
+		res.JobIDsNeedingRecovery = append(res.JobIDsNeedingRecovery, job.ID)
 	})
 	res.JobsNeedingRecovery = n
 	return res, err

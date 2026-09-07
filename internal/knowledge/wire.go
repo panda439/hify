@@ -26,12 +26,14 @@ func NewRepository(db, pgdb *sql.DB) *Repository {
 // at Hify's current single-instance deployment scale). rerankEnabled/
 // rerankModelID/rerankTimeout are 001-rag-query-rerank's rerank config
 // (data-model.md §3).
-func NewService(repo *Repository, providerSvc provider.Service, asynqClient *asynq.Client, storageDir string, rerankEnabled bool, rerankModelID string, rerankTimeout time.Duration, metadataFilterEnabled bool) Service {
+func NewService(repo *Repository, providerSvc provider.Service, asynqClient *asynq.Client, storageDir string, rerankEnabled bool, rerankModelID string, rerankTimeout time.Duration, metadataFilterEnabled bool, relationModelID string) Service {
 	s := &service{
 		repo:        repo,
 		providerSvc: providerSvc,
 		asynqClient: asynqClient,
 		storageDir:  storageDir,
+		// 空字符串 = 关系抽取在本部署上没开，见 config.RelationExtractionModelID。
+		relationModelID: relationModelID,
 		// See the service struct's findNeighborBatch doc comment for why
 		// this is a method value instead of expandWithNeighborWindow
 		// calling repo.findPublishedNeighborChunksBatch directly.

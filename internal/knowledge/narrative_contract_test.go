@@ -58,7 +58,7 @@ func TestReviewOverlapRemainsLocatable(t *testing.T) {
 	}
 }
 func TestReviewPDFSupported(t *testing.T) {
-	if e := validateUploadOptions(FileTypePDF, UploadOptions{Narrative: true}); e != nil {
+	if e := validateUploadOptions(FileTypePDF, UploadOptions{Narrative: true}, ""); e != nil {
 		t.Fatal(e)
 	}
 }

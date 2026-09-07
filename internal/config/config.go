@@ -87,6 +87,14 @@ type Config struct {
 	// 这也是它与 RAGRerankEnabled 不同、没有"配错了就静默降级"这条路径的原因：
 	// 这里没有什么可配错的，而"降级"本身就是那个失败模式。
 	RAGMetadataFilterEnabled bool
+
+	// RelationExtractionModelID 是 010 关系抽取用的模型。
+	// ⚠️ 空字符串 = 这个功能在本部署上没开：上传时勾"关系抽取"会被明确
+	// 拒绝（ErrRelationExtractionModelNotConfigured），而不是存下开关然后
+	// 什么都不发生——后者会让用户一直等一个永远不会开始的作业。
+	// 抽取要打成百上千次本地推理，这里**故意没有默认值**：默认指向对话用的
+	// 那个模型，会让一次上传悄悄开始烧几个小时的 GPU。
+	RelationExtractionModelID string
 }
 
 func Load() (Config, error) {
@@ -172,6 +180,7 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: parse HIFY_RAG_METADATA_FILTER_ENABLED: %w", err)
 	}
 	cfg.RAGMetadataFilterEnabled = metadataFilterEnabled
+	cfg.RelationExtractionModelID = os.Getenv("HIFY_RELATION_EXTRACTION_MODEL_ID")
 
 	if cfg.MySQLDSN == "" {
 		return Config{}, fmt.Errorf("config: HIFY_MYSQL_DSN is required")

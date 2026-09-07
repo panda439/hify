@@ -38,6 +38,14 @@ type Service interface {
 	// 不是故障；自动重启它们等于系统擅自推翻用户的选择，而用户会看到
 	// 一个自己明明暂停过的作业又开始花钱。
 	ReconcileRelationExtractions(ctx context.Context) (ReconcileResult, error)
+
+	// StartRelationExtraction 为一份 ready 的叙事文档建立抽取作业并入队。
+	// ⚠️ 幂等由 initializeExtractionJob 的守卫和 operation_key 保证，
+	// 不靠调用方"只调一次"。
+	StartRelationExtraction(ctx context.Context, documentID string, version int64) (RelationExtractionJob, error)
+
+	// RunRelationExtraction 接手并尽量跑完一个作业，asynq worker 的入口。
+	RunRelationExtraction(ctx context.Context, jobID string) error
 	ListDocuments(ctx context.Context, kbID string, limit, offset int) ([]Document, int, error)
 	GetDocument(ctx context.Context, id string) (Document, error)
 
@@ -132,6 +140,10 @@ type service struct {
 	providerSvc provider.Service
 	asynqClient *asynq.Client
 	storageDir  string
+	// relationModelID 是关系抽取用的模型（HIFY_RELATION_EXTRACTION_MODEL_ID）。
+	// ⚠️ 空字符串表示这个功能在本部署上没开：上传时明确报错，
+	// 不接受开关然后什么都不做。
+	relationModelID string
 
 	// findNeighborBatch is expandWithNeighborWindow's only way to reach
 	// the database — deliberately a method-value field, not a direct
@@ -288,7 +300,7 @@ func (s *service) UploadDocumentWithOptions(ctx context.Context, kbID, userID, r
 	if len(content) > maxFileSizeBytes {
 		return Document{}, ErrFileTooLarge
 	}
-	if err := validateUploadOptions(fileType, opts); err != nil {
+	if err := validateUploadOptions(fileType, opts, s.relationModelID); err != nil {
 		return Document{}, err
 	}
 
@@ -334,15 +346,14 @@ func (s *service) UploadDocumentWithOptions(ctx context.Context, kbID, userID, r
 // ⚠️ 三条守卫的共同点是：不满足时**明确报错**，绝不"接受开关然后什么都不做"。
 // 静默接受的表现都一样——用户勾了一个开关，界面显示已开启，而实际行为
 // 与没勾完全相同，且没有任何东西说明这件事。
-func validateUploadOptions(fileType string, opts UploadOptions) error {
+func validateUploadOptions(fileType string, opts UploadOptions, relationModelID string) error {
 	if opts.RelationExtraction && !opts.Narrative {
 		// 与 000017 的 CHECK 同义，在这里先挡一道，让用户拿到中文提示
 		// 而不是一条数据库约束错误。
 		return ErrRelationExtractionRequiresNarrative
 	}
-	if opts.RelationExtraction {
-		// Phase 3 接上作业编排后删掉这条。
-		return ErrRelationExtractionUnavailable
+	if opts.RelationExtraction && relationModelID == "" {
+		return ErrRelationExtractionModelNotConfigured
 	}
 	if opts.Narrative && fileType != FileTypeTxt && fileType != FileTypeMD && fileType != FileTypePDF {
 		return ErrNarrativeUnsupportedFileType
@@ -782,7 +793,35 @@ func (s *service) publishAndComplete(ctx context.Context, documentID string, ver
 		// idempotent race, not an error.
 		slog.Info("knowledge: publishing->ready CAS already completed by another runner", "document_id", documentID, "version", version)
 	}
+	s.maybeStartRelationExtraction(ctx, documentID, version)
 	return nil
+}
+
+// maybeStartRelationExtraction 在文档 ready 之后开抽取作业。
+//
+// ⭐ 失败**不让文档失败**：文档已经处理好了，检索照常可用，抽取只是它上面
+// 的一个附加功能。把整份文档判失败，等于因为附加功能没开成而丢掉一份已经
+// 花过嵌入钱的语料。
+//
+// ⚠️ 但也绝不静默：没有作业就没有任何东西会去重试它（恢复扫描只捡已经存在
+// 的作业），所以这条 Error 日志是唯一的线索，用户侧要靠 restart 重来。
+func (s *service) maybeStartRelationExtraction(ctx context.Context, documentID string, version int64) {
+	doc, err := s.repo.getDocument(ctx, documentID)
+	if err != nil {
+		slog.Error("knowledge: cannot check relation extraction flag", "err", err, "document_id", documentID)
+		return
+	}
+	if !doc.IsRelationExtractionEnabled {
+		return
+	}
+	job, err := s.StartRelationExtraction(ctx, documentID, version)
+	if err != nil {
+		slog.Error("knowledge: relation extraction did not start; the document is ready but has no job",
+			"err", err, "document_id", documentID, "version", version)
+		return
+	}
+	slog.Info("knowledge: relation extraction started",
+		"document_id", documentID, "job_id", job.ID, "total_items", job.TotalItems)
 }
 
 // failDocument is ProcessDocument's failure-path CAS (processing ->
@@ -1451,7 +1490,76 @@ func (s *service) DocumentCoverages(ctx context.Context, documentIDs []string) (
 }
 
 func (s *service) ReconcileRelationExtractions(ctx context.Context) (ReconcileResult, error) {
-	return s.repo.reconcileRelationExtractions(ctx)
+	res, err := s.repo.reconcileRelationExtractions(ctx)
+	// ⚠️ 即使扫描中途出错，已经扫出来的那部分照样入队：它们是**确定**
+	// 无人认领的作业，让它们多等一分钟没有任何好处。
+	for _, jobID := range res.JobIDsNeedingRecovery {
+		if qerr := s.enqueueRunRelationExtraction(ctx, jobID); qerr != nil {
+			slog.Error("knowledge: cannot requeue extraction job", "err", qerr, "job_id", jobID)
+			continue
+		}
+		res.JobsRequeued++
+	}
+	return res, err
+}
+
+// StartRelationExtraction 建作业并入队。
+func (s *service) StartRelationExtraction(ctx context.Context, documentID string, version int64) (RelationExtractionJob, error) {
+	if s.relationModelID == "" {
+		return RelationExtractionJob{}, ErrRelationExtractionModelNotConfigured
+	}
+	doc, err := s.repo.getDocument(ctx, documentID)
+	if err != nil {
+		return RelationExtractionJob{}, err
+	}
+	spec, err := newAutoExtractionJobSpec(doc, version, s.relationModelID)
+	if err != nil {
+		return RelationExtractionJob{}, err
+	}
+	job, err := s.repo.initializeExtractionJob(ctx, spec)
+	if err != nil {
+		return RelationExtractionJob{}, err
+	}
+	if err := s.enqueueRunRelationExtraction(ctx, job.ID); err != nil {
+		// ⚠️ 作业已经建好了，入队失败不回滚它：恢复扫描每分钟会把这个
+		// 无人认领的作业捡回来重新入队。回滚反而会把一个可自愈的状态
+		// 变成"什么都没有"。
+		slog.Error("knowledge: extraction job created but not enqueued; the reconcile scan will pick it up",
+			"err", err, "job_id", job.ID)
+	}
+	return job, nil
+}
+
+// RunRelationExtraction 是 asynq worker 的入口。
+func (s *service) RunRelationExtraction(ctx context.Context, jobID string) error {
+	runner := newExtractionRunner(s.repo, s.providerSvc)
+	res, err := runner.runJob(ctx, jobID)
+	if errors.Is(err, ErrExtractionJobNotClaimable) {
+		// 别人正拿着它，或者它已经结束了。⚠️ 这是**正常**的并发结果，
+		// 不是失败——当成错误上抛会让 asynq 的失败率里全是这种噪音。
+		slog.Info("knowledge: extraction job is not claimable, leaving it alone", "job_id", jobID)
+		return nil
+	}
+	slog.Info("knowledge: extraction run finished",
+		"job_id", jobID, "succeeded", res.ItemsSucceeded, "failed", res.ItemsFailed,
+		"stopped_early", res.StoppedEarly, "stop_reason", res.StopReason)
+	if errors.Is(err, ErrExtractionCallBudgetExhausted) || errors.Is(err, ErrExtractionActiveTimeExhausted) {
+		// 作业已经被停成 paused（见 runJob），追加额度后由用户 resume。
+		// ⚠️ 不把它当任务失败：重试它只会立刻撞上同一堵墙。
+		return nil
+	}
+	return err
+}
+
+func (s *service) enqueueRunRelationExtraction(ctx context.Context, jobID string) error {
+	task, err := newRunRelationExtractionTask(jobID)
+	if err != nil {
+		return err
+	}
+	// ⚠️ MaxRetry(0)：重试由 knowledge 自己那一层负责（见 extraction_retry.go）。
+	// asynq 再重试一遍等于两层重试相乘，而账目只会记下其中一层。
+	_, err = s.asynqClient.EnqueueContext(ctx, task, asynq.MaxRetry(0))
+	return err
 }
 
 // validateNarrativePieces 对每个带叙事元数据的块跑一遍不变量校验。

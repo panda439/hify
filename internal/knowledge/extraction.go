@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -130,6 +131,42 @@ func newExtractionJobSpec(jobID, documentID string, version int64, modelID strin
 		CallLimit:         defaultCallLimit,
 		ActiveMsLimit:     defaultActiveMsLimit,
 	}
+}
+
+// newAutoExtractionJobSpec 是"文档 ready 之后自动开一次抽取"用的 spec。
+//
+// ⭐ operation_key 由**文档 + 版本 + run 号**算出来，不是随机数：
+// 同一个版本被要求开两次抽取（重复投递、用户手快点了两下），第二次会撞上
+// 幂等键返回已有的 run，而不是又建一个把上一个顶掉。
+//
+// ⚠️ config_snapshot 里固定 schema/prompt/身份规则的版本与模型 ID。
+// 恢复中的作业不升级这些版本——换了协议再接着跑，等于同一份账目里混了
+// 两种口径的结果，而两者的差异事后无法归因。
+func newAutoExtractionJobSpec(doc Document, version int64, modelID string) (extractionJobSpec, error) {
+	snapshot, err := json.Marshal(map[string]any{
+		"model_id":                  modelID,
+		"extraction_schema_version": extractionSchemaVersion,
+		"extract_prompt_version":    extractPromptVersion,
+		"alias_prompt_version":      aliasPromptVersion,
+		"chunk_size":                defaultChunkSize,
+		"max_input_runes":           maxInputRunes,
+		"max_output_tokens":         maxOutputTokens,
+	})
+	if err != nil {
+		return extractionJobSpec{}, fmt.Errorf("knowledge: marshal extraction config snapshot: %w", err)
+	}
+	configHash := sha256.Sum256(snapshot)
+	operationKey := sha256.Sum256(fmt.Appendf(nil, "auto:%s:%d:%d", doc.ID, version, 1))
+	return extractionJobSpec{
+		JobID: platform.NewID(), DocumentID: doc.ID,
+		KnowledgeBaseID: doc.KnowledgeBaseID, DocumentVersion: version,
+		RunNumber: 1, ModelID: modelID,
+		ConfigHash: configHash[:], ConfigSnapshot: snapshot,
+		OperationKey: operationKey[:], RequestHash: configHash[:],
+		ApprovedItemLimit: defaultApprovedItemLimit,
+		CallLimit:         defaultCallLimit,
+		ActiveMsLimit:     defaultActiveMsLimit,
+	}, nil
 }
 
 // initializeExtractionJob 枚举语料、建作业与全部待处理项，并把文档指向它。

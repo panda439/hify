@@ -109,14 +109,13 @@ var ErrNarrativeUnsupportedFileType = apperr.InvalidInput(
 	"knowledge.narrative_unsupported_file_type",
 	"按场景分块只支持 txt、md 和可解析的 pdf 文件")
 
-// ErrRelationExtractionUnavailable：关系抽取的作业编排尚未接入。
+// ErrRelationExtractionModelNotConfigured：没有配置抽取用的模型。
 //
-// ⚠️ 同样是"宁可报错也不静默接受"。接受并存下这个开关、却什么都不发生，
+// ⚠️ 宁可报错也不静默接受。接受并存下这个开关、却什么都不发生，
 // 用户会一直等一个永远不会开始的抽取，而系统不会说任何话。
-// Phase 3 接上作业编排后删掉这条守卫。
-var ErrRelationExtractionUnavailable = apperr.InvalidInput(
-	"knowledge.relation_extraction_unavailable",
-	"关系抽取功能尚未开放，请先只开启按场景分块")
+var ErrRelationExtractionModelNotConfigured = apperr.InvalidInput(
+	"knowledge.relation_extraction_model_not_configured",
+	"服务端没有配置关系抽取使用的模型，请联系管理员")
 
 // ErrNarrativeMetadataInvalid：来源映射自检没过，文档直接判失败。
 //

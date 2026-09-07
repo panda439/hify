@@ -127,6 +127,17 @@ func (r *extractionRunner) runJob(ctx context.Context, jobID string) (runJobResu
 			return res, fmt.Errorf("knowledge: list open items: %w", err)
 		}
 		if len(items) == 0 {
+			// 没有待处理的 item 了：这一轮把作业跑完了。
+			// ⭐ 全部 item 都失败时标 failed 而不是 succeeded：一个
+			// "成功完成、产出为零"的作业在列表里和真正抽完的作业长得
+			// 一模一样，而它其实什么都没抽到。
+			state, reason := jobStateSucceeded, "completed"
+			if res.ItemsSucceeded == 0 && res.ItemsFailed > 0 {
+				state, reason = jobStateFailed, "all_items_failed"
+			}
+			if err := r.repo.stopExtractionJob(ctx, jobID, epoch, state, reason, true); err != nil {
+				return res, err
+			}
 			return res, nil
 		}
 
@@ -176,7 +187,15 @@ func (r *extractionRunner) runJob(ctx context.Context, jobID string) (runJobResu
 					// ⚠️ 预算耗尽不是这个 item 的失败：item 保持原状，
 					// 追加额度之后从这里接着跑。把它记成失败会让"因为没钱
 					// 停下"看起来像"这段书抽不出东西"。
+					// ⭐ 停成 paused 而不是留在 running：留着的话恢复扫描
+					// 每分钟都会把它捡回来，而每次都在同一处因为同样的
+					// 理由停下——一个不花钱但永不停歇的循环。
+					// paused 需要用户显式追加额度后 resume（T030）。
 					res.StoppedEarly, res.StopReason = true, "budget_exhausted"
+					if serr := r.repo.stopExtractionJob(ctx, jobID, epoch,
+						jobStatePaused, res.StopReason, false); serr != nil {
+						return res, serr
+					}
 					return res, err
 				case errors.Is(err, ErrExtractionEpochLost):
 					res.StoppedEarly, res.StopReason = true, "lease_lost"
@@ -212,6 +231,12 @@ func (r *extractionRunner) runJob(ctx context.Context, jobID string) (runJobResu
 				// 模型被换掉、语料格式不对）。继续跑只是拿剩下几百个 item
 				// 把预算烧完，换回一堆同样的失败。
 				res.StoppedEarly, res.StopReason = true, "consecutive_failures"
+				// 同样停成 paused：系统性问题要人来看，不该被恢复扫描
+				// 每分钟自动重启一次。
+				if serr := r.repo.stopExtractionJob(ctx, jobID, epoch,
+					jobStatePaused, res.StopReason, false); serr != nil {
+					return res, serr
+				}
 				return res, nil
 			}
 			afterIndex = item.ChunkIndex

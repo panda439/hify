@@ -109,14 +109,14 @@ func newFakeProvider() *fakeProviderService {
 // 002-metadata-filter 的开关。单独一个构造器而不是给 newTestService 加参数，
 // 是为了让既有几十个用例保持一字未改——它们全部传空过滤器，开关对其无影响。
 func newTestServiceWithFilter(repo *Repository, fp *fakeProviderService, storageDir string) Service {
-	return NewService(repo, fp, nil, storageDir, false, "", 1500*time.Millisecond, true)
+	return NewService(repo, fp, nil, storageDir, false, "", 1500*time.Millisecond, true, "")
 }
 
 func newTestService(repo *Repository, fp *fakeProviderService, storageDir string) Service {
 	// asynq client 传 nil：这些用例不走 UploadDocument/RetryDocument 的入队
 	// 路径——真正需要入队（比如验证 RetryDocument 重新排队）的用例改用
 	// newTestAsynqClient 构造一个连真实 Redis 的 client。
-	return NewService(repo, fp, nil, storageDir, false, "", 1500*time.Millisecond, false)
+	return NewService(repo, fp, nil, storageDir, false, "", 1500*time.Millisecond, false, "")
 }
 
 // newTestAsynqClient connects to the docker-compose Redis instance —
@@ -855,7 +855,7 @@ func TestIntegrationRetryDocumentOnlyAllowedFromPendingOrFailed(t *testing.T) {
 	repo := setupIntegration(t)
 	// RetryDocument's success path enqueues a task, unlike everything else
 	// in this file — needs a real asynq client, not newTestService's nil.
-	svc := NewService(repo, newFakeProvider(), newTestAsynqClient(t), t.TempDir(), false, "", 1500*time.Millisecond, false)
+	svc := NewService(repo, newFakeProvider(), newTestAsynqClient(t), t.TempDir(), false, "", 1500*time.Millisecond, false, "")
 	ctx := context.Background()
 
 	seedKB(t, repo, "kb-retry", "m3", "owner-4", true)
@@ -1251,7 +1251,7 @@ func TestIntegrationExpiredLeaseReclaimedAndStaleWorkerStops(t *testing.T) {
 	fp := newFakeProvider()
 	fp.embed = embedFn
 	dir := t.TempDir()
-	svc := NewService(repo, fp, newTestAsynqClient(t), dir, false, "", 1500*time.Millisecond, false) // reconciliation 的回收要真的入队
+	svc := NewService(repo, fp, newTestAsynqClient(t), dir, false, "", 1500*time.Millisecond, false, "") // reconciliation 的回收要真的入队
 	ctx := context.Background()
 
 	seedKB(t, repo, "kb-expire", "m3", "u1", true)
@@ -3574,7 +3574,7 @@ func TestIntegrationRetrieveAdmissionCorrectAcrossKnowledgeBasesAndEmbeddingMode
 // 断言的是"重排结果如何影响 Retrieve 对真实数据库发出的查询"，不是纯函数
 // 本身（applyRerank 的纯函数覆盖见 rerank_test.go）。
 func newTestServiceWithRerank(repo *Repository, fp *fakeProviderService, storageDir string, scoreFn func(ctx context.Context, query string, documents []string) (provider.RerankResult, error)) *service {
-	svc := NewService(repo, fp, nil, storageDir, true, "rerank-model", 1500*time.Millisecond, false).(*service)
+	svc := NewService(repo, fp, nil, storageDir, true, "rerank-model", 1500*time.Millisecond, false, "").(*service)
 	svc.rerankScoreFn = scoreFn
 	return svc
 }
@@ -3747,7 +3747,7 @@ func TestIntegrationRetrieveRerankDegradesOnTimeoutMatchesDisabledOrderVerbatim(
 		<-ctx.Done()
 		return provider.RerankResult{}, ctx.Err()
 	}
-	svc := NewService(repo, fp, nil, t.TempDir(), true, "rerank-model", 10*time.Millisecond, false).(*service)
+	svc := NewService(repo, fp, nil, t.TempDir(), true, "rerank-model", 10*time.Millisecond, false, "").(*service)
 	svc.rerankScoreFn = blockingScoreFn
 
 	got, err := svc.Retrieve(ctx, []string{kb}, "内容与关键词完全无关的填充文本", 3, RetrieveOptions{})

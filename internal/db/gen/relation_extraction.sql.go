@@ -1230,6 +1230,43 @@ func (q *Queries) SettleExtractionAttempt(ctx context.Context, arg SettleExtract
 	return result.RowsAffected()
 }
 
+const stopRelationExtractionJob = `-- name: StopRelationExtractionJob :execrows
+UPDATE relation_extraction_jobs
+SET state = ?, stop_reason = ?, finished_at = ?, lease_until = NULL,
+    updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ? AND epoch = ? AND state IN ('initializing', 'running')
+`
+
+type StopRelationExtractionJobParams struct {
+	State      string         `json:"state"`
+	StopReason sql.NullString `json:"stop_reason"`
+	FinishedAt sql.NullTime   `json:"finished_at"`
+	ID         string         `json:"id"`
+	Epoch      int32          `json:"epoch"`
+}
+
+// 一次运行的收尾：跑完（succeeded/failed）或停下（paused）。
+//
+// ⭐ 一条语句同时承担"停"和"完"，因为它们的守卫必须完全一样：
+// 带 epoch，且只对还在跑的作业生效。分成两条早晚会有一条漏掉 epoch，
+// 而漏掉的表现是一个被接管过的旧 worker 把新 worker 跑着的作业标成结束。
+//
+// ⚠️ paused 传 NULL 的 finished_at：暂停的作业没有结束时间，
+// 写一个会让"暂停多久了"和"跑了多久"这两个数字永久混在一起。
+func (q *Queries) StopRelationExtractionJob(ctx context.Context, arg StopRelationExtractionJobParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, stopRelationExtractionJob,
+		arg.State,
+		arg.StopReason,
+		arg.FinishedAt,
+		arg.ID,
+		arg.Epoch,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const upsertNarrativeRelation = `-- name: UpsertNarrativeRelation :exec
 INSERT IGNORE INTO narrative_relations
     (id, job_id, subject_id, object_id, relation_type, is_directed,

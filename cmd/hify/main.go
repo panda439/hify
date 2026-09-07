@@ -159,7 +159,7 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 
 	// Layer 2
 	knowledgeRepo := knowledge.NewRepository(db, pgdb)
-	knowledgeSvc := knowledge.NewService(knowledgeRepo, providerSvc, asynqClient, cfg.KnowledgeStorageDir, cfg.RAGRerankEnabled, cfg.RAGRerankModelID, cfg.RAGRerankTimeout, cfg.RAGMetadataFilterEnabled)
+	knowledgeSvc := knowledge.NewService(knowledgeRepo, providerSvc, asynqClient, cfg.KnowledgeStorageDir, cfg.RAGRerankEnabled, cfg.RAGRerankModelID, cfg.RAGRerankTimeout, cfg.RAGMetadataFilterEnabled, cfg.RelationExtractionModelID)
 	knowledgeHandler := knowledge.NewHandler(knowledgeSvc)
 	knowledge.RegisterRoutes(v1, knowledgeHandler, cfg.JWTSecret)
 
@@ -193,6 +193,8 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 	mux.Handle(knowledge.TaskTypeReconcileDocuments, knowledge.NewReconcileTaskHandler(knowledgeSvc))
 	mux.Handle(knowledge.TaskTypeReconcileRelationExtractions,
 		knowledge.NewRelationExtractionReconcileHandler(knowledgeSvc))
+	mux.Handle(knowledge.TaskTypeRunRelationExtraction,
+		knowledge.NewRelationExtractionTaskHandler(knowledgeSvc))
 	mux.Handle(auth.TaskTypeCleanupRefreshTokens, auth.NewCleanupTaskHandler(authSvc))
 	asynqServer := platform.NewAsynqServer(redisCfg, cfg.AsynqConcurrency)
 	if err := asynqServer.Start(mux); err != nil {
@@ -223,11 +225,9 @@ func buildApp(cfg config.Config, logger *slog.Logger) (*gin.Engine, *asynq.Serve
 	// 因为这边有租约在滴答——一个崩掉的 worker 留下的作业，最坏要等
 	// 「租约 TTL + 扫描间隔」才会被接手，而那段时间里作业是完全停滞的。
 	//
-	// 🚧 现在这一轮扫描只做「孤儿预留改判 unknown」+ 记账；重新入队还没接上
-	// （见 knowledge.reconcileRelationExtractions）。抽取入口也仍被
-	// ErrRelationExtractionUnavailable 挡着，所以这个周期任务目前是空跑。
-	// 提前注册是为了让恢复路径和 Phase 3 的其余部分一起上线、一起被观察，
-	// 而不是等功能开了才第一次运行这段代码。
+	// ⚠️ 这一轮扫描做两件事：把无人认领的作业重新入队，把停留过久的孤儿
+	// 预留改判 unknown。⭐ 它**不碰** paused / budget_exhausted 的作业——
+	// 那是用户和预算的显式决定，自动捡回来跑等于系统擅自推翻一次停止。
 	if _, err := scheduler.Register("@every 1m",
 		asynq.NewTask(knowledge.TaskTypeReconcileRelationExtractions, nil)); err != nil {
 		asynqServer.Shutdown()

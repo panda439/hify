@@ -64,7 +64,8 @@ func newWFService(t *testing.T) (Service, *Repository, *wfFakeProvider) {
 }
 
 // condDefinition: start → cond(input=="yes") → true: llm → end
-//                                            → false: end2(固定文案)
+//
+//	→ false: end2(固定文案)
 func condDefinition() Definition {
 	return Definition{Steps: []Step{
 		{ID: "start", Type: StepStart, Next: "cond"},

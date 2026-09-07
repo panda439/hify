@@ -22,7 +22,7 @@ import (
 // used by the worker, without consuming other tests' shared Redis queue.
 func TestNarrativeHTTPUploadToPublishedSource(t *testing.T) {
 	repo := setupIntegration(t)
-	svc := NewService(repo, newFakeProvider(), newTestAsynqClient(t), t.TempDir(), false, "", time.Second, false)
+	svc := NewService(repo, newFakeProvider(), newTestAsynqClient(t), t.TempDir(), false, "", time.Second, false, "")
 	seedKB(t, repo, "kb-narr-http", "m3", "u1", true)
 	if _, err := repo.db.ExecContext(t.Context(), "UPDATE knowledge_bases SET chunk_size=40,chunk_overlap=8 WHERE id='kb-narr-http'"); err != nil {
 		t.Fatal(err)

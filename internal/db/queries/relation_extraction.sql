@@ -347,3 +347,17 @@ FROM narrative_characters
 WHERE job_id = ?
 ORDER BY first_source_order, id
 LIMIT ?;
+
+-- name: StopRelationExtractionJob :execrows
+-- 一次运行的收尾：跑完（succeeded/failed）或停下（paused）。
+--
+-- ⭐ 一条语句同时承担"停"和"完"，因为它们的守卫必须完全一样：
+-- 带 epoch，且只对还在跑的作业生效。分成两条早晚会有一条漏掉 epoch，
+-- 而漏掉的表现是一个被接管过的旧 worker 把新 worker 跑着的作业标成结束。
+--
+-- ⚠️ paused 传 NULL 的 finished_at：暂停的作业没有结束时间，
+-- 写一个会让"暂停多久了"和"跑了多久"这两个数字永久混在一起。
+UPDATE relation_extraction_jobs
+SET state = ?, stop_reason = ?, finished_at = ?, lease_until = NULL,
+    updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ? AND epoch = ? AND state IN ('initializing', 'running');
