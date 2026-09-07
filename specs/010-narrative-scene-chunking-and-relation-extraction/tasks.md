@@ -76,10 +76,17 @@ T027 只完成一半：第一阶段成功响应的复用、归一独立重试、
 （该状态不在 000017 的 CHECK 里），改成"开关先落库、事实 ready 时自动建作业"；
 resume 目前只在服务端保证"同时只有一个 worker"靠租约，不额外加队列去重。
 
-- [ ] T031 实现QueryRelations：Agent范围服务端下推，空KB不是全库、DocumentIDs空仅在KB内放宽；当前doc/version/job验证、名称多候选澄清、同实体别名回复、无记录与故障区分。
-- [ ] T032 先写selection/budget测试，再实现按源顺序多类型/跨章选证据、候选200/引用12、LIMIT+1截断提示；仅用一份既有RAG预算，不伪造相似度；验证极小ContextWindow与无证据可容纳。
-- [ ] T033 对话领域选项→Service→dto/handler接入：普通StreamMessage零选项不变；关系分支停query rewrite/tool循环，固定无结果/歧义/故障文本，有证据才受限生成。
-- [ ] T034 引用来源PG批量核验+入模前MySQL复检，实际引用与message_citations一致；删除/新run并发变化停止本轮，刷新后消息/覆盖/截断提示可重放。
+- [x] T031 实现QueryRelations：Agent范围服务端下推，空KB不是全库、DocumentIDs空仅在KB内放宽；当前doc/version/job验证、名称多候选澄清、同实体别名回复、无记录与故障区分。
+- [x] T032 先写selection/budget测试，再实现按源顺序多类型/跨章选证据、候选200/引用12、LIMIT+1截断提示；仅用一份既有RAG预算，不伪造相似度；验证极小ContextWindow与无证据可容纳。
+- [x] T033 对话领域选项→Service→dto/handler接入：普通StreamMessage零选项不变；关系分支停query rewrite/tool循环，固定无结果/歧义/故障文本，有证据才受限生成。
+- [x] T034 引用来源PG批量核验+入模前MySQL复检，实际引用与message_citations一致；删除/新run并发变化停止本轮，刷新后消息/覆盖/截断提示可重放。
+补录说明（2026-09-07 第七轮续）：T031～T034 已实现并测试（knowledge 侧走真实
+MySQL/PG，conversation 侧走真实 MySQL + 脚本化模型客户端）。
+两处与契约的偏差记在 review-fixes 第七轮：ambiguous 的候选目前只按"首次出现
+的片段序号"给上下文（契约说的是"上下文称谓与出处"，需要人物级别的代表性
+引文，抽取侧还没有存）；关系分支的 trace 只有既有的 turn/llm_call span，
+没有为关系查询单开一个 span。
+
 <!-- T035 只做了抽取那一半：上传开关、状态/暂停/续跑/重开面板已接入并通过
      tsc + vite build，但**没有在浏览器里点过**；聊天页的关系选项依赖 T031～T034，未做。 -->
 - [ ] T035 前端knowledge.ts/conversations.ts及两个页面接入：上传开关、状态/暂停/续跑、同一聊天页关系选项/书目/两人输入/歧义选择；提示不出现epoch/hash等内部术语。
