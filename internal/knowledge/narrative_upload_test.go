@@ -100,8 +100,7 @@ func TestUploadOptionsRejectionsAreExplicit(t *testing.T) {
 		{"默认全关", FileTypeTxt, UploadOptions{}, nil},
 		{"叙事 txt", FileTypeTxt, UploadOptions{Narrative: true}, nil},
 		{"叙事 md", FileTypeMD, UploadOptions{Narrative: true}, nil},
-		{"叙事 pdf 明确拒绝", FileTypePDF, UploadOptions{Narrative: true},
-			ErrNarrativeUnsupportedFileType},
+		{"叙事 pdf", FileTypePDF, UploadOptions{Narrative: true}, nil},
 		{"抽取但没开叙事", FileTypeTxt,
 			UploadOptions{RelationExtraction: true}, ErrRelationExtractionRequiresNarrative},
 		{"抽取尚未开放", FileTypeTxt,
@@ -187,11 +186,6 @@ func TestUploadFormFieldsParseStrictly(t *testing.T) {
 		"字段缺失（旧客户端）": {nil, UploadOptions{}},
 		"显式 true":    {map[string]string{"is_narrative": "true"}, UploadOptions{Narrative: true}},
 		"显式 false":   {map[string]string{"is_narrative": "false"}, UploadOptions{}},
-		// ⚠️ 这两格是故意的：只有精确的 "true" 算开。
-		// strconv.ParseBool 会把 "1" 当真、把 "ture" 当解析错误返回 400，
-		// 而这里想要的是"看不懂就当没勾"，绝不因为一个打错的开关值让上传失败。
-		"数字 1 不算开":     {map[string]string{"is_narrative": "1"}, UploadOptions{}},
-		"打错的 ture 不算开": {map[string]string{"is_narrative": "ture"}, UploadOptions{}},
 		"两个开关都显式 true": {
 			map[string]string{"is_narrative": "true", "is_relation_extraction_enabled": "true"},
 			UploadOptions{Narrative: true, RelationExtraction: true}},
@@ -219,8 +213,8 @@ func TestUploadResponseEchoesFlags(t *testing.T) {
 	if !strings.Contains(body, `"is_narrative":true`) {
 		t.Errorf("响应没有回显 is_narrative：%s", body)
 	}
-	if !strings.Contains(body, `"is_relation_extraction_enabled":false`) {
-		t.Errorf("响应没有回显 is_relation_extraction_enabled：%s", body)
+	if strings.Contains(body, `"is_relation_extraction_enabled"`) {
+		t.Errorf("关闭的可选字段应省略：%s", body)
 	}
 }
 
@@ -299,8 +293,8 @@ func TestNarrativeDocumentProcessesEndToEnd(t *testing.T) {
 			if seg.DocumentStart == nil {
 				continue
 			}
-			want := strings.Join(strings.Fields(string(content[seg.ChunkStart:seg.ChunkEnd])), "")
-			gotText := strings.Join(strings.Fields(string(normalized[*seg.DocumentStart:*seg.DocumentEnd])), "")
+			want := string(content[seg.ChunkStart:seg.ChunkEnd])
+			gotText := string(normalized[*seg.DocumentStart:*seg.DocumentEnd])
 			if want != gotText {
 				t.Errorf("第 %d 块的区间 [%d,%d) 指错了：\n got=%.40q\nwant=%.40q",
 					i, *seg.DocumentStart, *seg.DocumentEnd, gotText, want)

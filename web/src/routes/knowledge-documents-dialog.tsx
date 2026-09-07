@@ -183,6 +183,14 @@ export function KnowledgeDocumentsDialog({
                 <div className="flex items-center gap-2">
                   <span className="truncate text-sm font-medium">{d.file_name}</span>
                   {statusBadge(d.status)}
+                  {/* 上传时写定、之后不可改。没有这个标记的话，"这份文档是不是
+                      按场景切的"在界面上完全看不出来——而它决定了引用能不能
+                      定位到原文位置，事后又改不了。 */}
+                  {d.is_narrative && (
+                    <Badge variant="outline" title="按章节和场景分隔线切分，上传后不可更改">
+                      场景分块
+                    </Badge>
+                  )}
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {d.status === "ready" ? `${d.chunk_count} 个分片` : d.status === "failed" ? d.error_message : "—"}
@@ -227,7 +235,7 @@ export function KnowledgeDocumentsDialog({
             <span>
               按场景切分（小说等叙事文本）
               <span className="block text-xs text-muted-foreground">
-                按章节标题和场景分隔线切，而不是按长度硬切。仅支持 txt / md，
+                优先按章节和场景分隔线切分，超长内容仍按长度拆分。支持 txt / md / 可解析 PDF，
                 上传后不可更改。
               </span>
             </span>

@@ -45,8 +45,20 @@ import (
 // splitter was concerned, and the two scenes it separated were merged into
 // one with no error. Neither public-domain corpus on hand contains ANY
 // divider line, so nothing but a constructed fixture can catch this.
+//
+// ⚠️ ※ appears in BOTH branches on purpose. The `※+` branch exists because
+// a single ※ on its own line is already a divider (unlike a single `*`,
+// which is prose). It must NOT be the only place ※ appears: `※ ※ ※` — the
+// most common form in Chinese novels — has interior whitespace and only the
+// general branch can match it. A version that moved ※ out of the general
+// class to give it a `※+` branch silently stopped recognising the spaced
+// form, and the two scenes it separated merged with no error.
+//
+// ⚠️ 空白用 `[\s\p{Zs}]` 而不是 `\s`：Go 的 RE2 里 `\s` 只有
+// `[\t\n\f\r ]`，**不含全角空格 U+3000**，而中文排版里 `※　※　※`
+// 用的正是全角空格。只写 `\s` 的话这一行会被当成行文，两个场景合成一个。
 var sceneDividerPattern = regexp.MustCompile(
-	`^\s*[*※·＊\-—–─＿_=](?:\s*[*※·＊\-—–─＿_=]){2,}\s*$`)
+	`^[\s\p{Zs}]*(?:※+|[*※·＊\-—–─＿_=](?:[\s\p{Zs}]*[*※·＊\-—–─＿_=]){2,})[\s\p{Zs}]*$`)
 
 // chapterHeadingPattern matches the common Chinese chapter-heading forms.
 //
@@ -67,7 +79,7 @@ var sceneDividerPattern = regexp.MustCompile(
 // the same way starts a bogus chapter. A constructed fixture caught this;
 // neither corpus happens to contain such a paragraph.
 var chapterHeadingPattern = regexp.MustCompile(
-	`^\s*第\s*([〇○零一二三四五六七八九十百千0-9]{1,8})\s*[章回节節卷篇](?:\s+|[　、：:．.·「『(（]|$)\s*(.*)$`)
+	`^\s*第\s*([〇○零两一二三四五六七八九十百千0-9]{1,8})\s*[章回节節卷篇](?:\s+|[　、：:．.·「『(（]|$)\s*(.*)$`)
 
 // maxHeadingRunes bounds how long a line may be and still be a heading.
 // 西遊記's are about 20 runes ("第一回　靈根育孕源流出　心性修持大道生");
@@ -77,7 +89,7 @@ const maxHeadingRunes = 40
 // prologueHeadingPattern covers the unnumbered openers (楔子/序章/引子).
 // They get no chapter number — inventing one would be a fabricated time
 // coordinate (FR-004).
-var prologueHeadingPattern = regexp.MustCompile(`^\s*(楔子|序章|序言|引子|前言|自序)\s*$`)
+var prologueHeadingPattern = regexp.MustCompile(`^\s*(楔子|序章|序言|引子|前言|自序|序)\s*$`)
 
 // narrativeUnit is one scene: the text plus where it came from.
 //
@@ -98,7 +110,8 @@ type narrativeUnit struct {
 	// SceneIndex is the 1-based position of this scene within its chapter,
 	// so a chapter that contains several divider-separated scenes keeps
 	// them distinguishable even though they share a chapter number.
-	SceneIndex int
+	SceneIndex   int
+	BoundaryKind string
 }
 
 // chapterMark is an identified heading and where it sits.
@@ -116,23 +129,27 @@ type chapterMark struct {
 // begin mid-book, and silently discarding its opening would lose content
 // with no error.
 func splitNarrativeScenes(text string) []narrativeUnit {
-	marks := findChapterMarks(text)
+	return splitNarrativeScenesWithOptions(text, false, true)
+}
+
+func splitNarrativeScenesWithOptions(text string, markdown, blankScenes bool) []narrativeUnit {
+	marks := findChapterMarksWithOptions(text, markdown)
 	if len(marks) == 0 {
 		// No chapter structure at all. Every scene is unnumbered; divider
 		// splitting still applies (FR-004: degrade, do not fabricate).
-		return scenesWithin(text, 0, 0, "")
+		return scenesWithinOptions(text, 0, 0, "", markdown, blankScenes, false)
 	}
 
 	var out []narrativeUnit
 	if lead := strings.TrimSpace(text[:marks[0].offset]); lead != "" {
-		out = append(out, scenesWithin(text[:marks[0].offset], 0, 0, "")...)
+		out = append(out, scenesWithinOptions(text[:marks[0].offset], 0, 0, "", markdown, blankScenes, false)...)
 	}
 	for i, m := range marks {
 		end := len(text)
 		if i+1 < len(marks) {
 			end = marks[i+1].offset
 		}
-		out = append(out, scenesWithin(text[m.offset:end], m.offset, m.number, m.title)...)
+		out = append(out, scenesWithinOptions(text[m.offset:end], m.offset, m.number, m.title, markdown, blankScenes, true)...)
 	}
 	return out
 }
@@ -142,6 +159,9 @@ func splitNarrativeScenes(text string) []narrativeUnit {
 // byte offset of body within the whole document, so the returned units
 // carry document-frame intervals.
 func scenesWithin(body string, base, chapter int, title string) []narrativeUnit {
+	return scenesWithinOptions(body, base, chapter, title, false, true, chapter > 0 || title != "")
+}
+func scenesWithinOptions(body string, base, chapter int, title string, markdown, blankScenes, hasChapter bool) []narrativeUnit {
 	var out []narrativeUnit
 	idx := 0
 	segStart, offset := 0, 0
@@ -157,14 +177,50 @@ func scenesWithin(body string, base, chapter int, title string) []narrativeUnit 
 			ChapterNumber: chapter, ChapterTitle: title, SceneIndex: idx,
 		})
 	}
+	var fence narrativeFence
+	blankCount := 0
+	explicit := false
 	for _, ln := range strings.SplitAfter(body, "\n") {
-		if sceneDividerPattern.MatchString(strings.TrimRight(ln, "\r\n")) {
-			flush(offset)
-			segStart = offset + len(ln)
+		protected := markdown && fence.consume(ln)
+		if !protected && sceneDividerPattern.MatchString(strings.TrimSpace(ln)) {
+			explicit = true
+			// Preserve the marker on the preceding scene; leading markers stay with the next.
+			if strings.TrimSpace(body[segStart:offset]) != "" {
+				flush(offset + len(ln))
+				segStart = offset + len(ln)
+			}
+			blankCount = 0
+		} else if !protected && blankScenes && strings.TrimSpace(ln) == "" {
+			blankCount++
+			if blankCount == 2 && strings.TrimSpace(body[segStart:offset]) != "" {
+				explicit = true
+				flush(offset + len(ln))
+				segStart = offset + len(ln)
+			}
+		} else {
+			blankCount = 0
 		}
 		offset += len(ln)
 	}
 	flush(len(body))
+	// ⚠️ kind 是**整段 body 一个值**，不是逐场景一个值，这是有意的，别"修"。
+	// 分隔线把 body 切成若干段，所以只要 body 里有一条分隔线，其中每一个
+	// 场景都至少有一端**紧贴着**那条真实的分隔线（第一个的尾、最后一个的头、
+	// 中间的两头都是）——对它们每一个来说 divider 都是实话。
+	// 反过来按"谁起的头"逐场景标才会撒谎：那样一章里第一个场景会被标成
+	// chapter_fallback，而 chapter_fallback 的含义是"没做到场景识别，只退到
+	// 了章的粒度"——这一章明明识别出了场景。
+	kind := boundaryNone
+	if hasChapter {
+		kind = boundaryChapterFallback
+	}
+	if explicit {
+		kind = boundaryDivider
+	}
+	for i := range out {
+		out[i].BoundaryKind = kind
+	}
+
 	return out
 }
 
@@ -190,11 +246,20 @@ func headingSubmatch(line string) []string {
 // The check exists so a caller can log the anomaly — the failure this
 // guards against (a numeral form the pattern does not know, silently
 // dropping headings) produces no error on its own.
-func findChapterMarks(text string) []chapterMark {
+func findChapterMarks(text string) []chapterMark { return findChapterMarksWithOptions(text, false) }
+func findChapterMarksWithOptions(text string, markdown bool) []chapterMark {
+	var fence narrativeFence
 	var marks []chapterMark
 	offset := 0
 	for _, line := range strings.SplitAfter(text, "\n") {
 		trimmed := strings.TrimRight(line, "\r\n")
+		if markdown {
+			if fence.consume(line) {
+				offset += len(line)
+				continue
+			}
+			trimmed = unwrapNarrativeHeading(trimmed)
+		}
 		if m := headingSubmatch(trimmed); m != nil {
 			if n := chineseNumeral(m[1]); n > 0 {
 				marks = append(marks, chapterMark{
@@ -234,7 +299,7 @@ func chapterNumbersConsecutive(marks []chapterMark) bool {
 
 var numeralDigits = map[rune]int{
 	'〇': 0, '○': 0, '零': 0, '0': 0,
-	'一': 1, '1': 1, '二': 2, '2': 2, '三': 3, '3': 3, '四': 4, '4': 4,
+	'一': 1, '1': 1, '两': 2, '二': 2, '2': 2, '三': 3, '3': 3, '四': 4, '4': 4,
 	'五': 5, '5': 5, '六': 6, '6': 6, '七': 7, '7': 7, '八': 8, '8': 8,
 	'九': 9, '9': 9,
 }
@@ -335,6 +400,9 @@ func numeralWithUnit(s string) int {
 // chunk's content would spend the rune budget on text the reader of a
 // novel does not need repeated.
 func chunkNarrative(text string, size, overlap int) []chunkPiece {
+	return chunkNarrativeWithOptions(text, size, overlap, false, true)
+}
+func chunkNarrativeWithOptions(text string, size, overlap int, markdown, blankScenes bool) []chunkPiece {
 	size, overlap = normalizeChunkParams(size, overlap)
 
 	// ⭐ Normalize CRLF ONCE, here, and treat the result as the canonical
@@ -350,28 +418,29 @@ func chunkNarrative(text string, size, overlap int) []chunkPiece {
 	sourceOrder := 0
 
 	var pieces []chunkPiece
-	// perChapter numbers scenes WITHIN each chapter across the whole
-	// document. ⚠️ narrativeUnit.SceneIndex cannot be used directly:
-	// it restarts at 1 for every scenesWithin call, and the unnumbered
-	// (chapter 0) group is produced by SEVERAL such calls — a leading
-	// excerpt and a 楔子 would both come out as "ch0-s1". Duplicate keys
-	// do not fail anything here; they quietly merge two distinct scenes
-	// downstream. Only lookups happen on this map, never iteration, so
-	// the result stays deterministic (constitution V).
-	perChapter := map[int]int{}
-	for _, scene := range splitNarrativeScenes(text) {
-		bodies := shiftSpans(chunkPlainTextSpans(scene.Text, size, overlap), scene.Start)
+	for _, scene := range splitNarrativeScenesWithOptions(text, markdown, blankScenes) {
+		// ⚠️ keepClosingQuotes is TRUE for every narrative scene, and must not
+		// be keyed off BoundaryKind. Whether a closing 」 belongs to the
+		// sentence it closes is a property of the PROSE, not of whether this
+		// document happened to have a chapter heading. A version that passed
+		// `BoundaryKind != boundaryNone` here split the same text two
+		// different ways — an excerpt with no heading (and every PDF whose
+		// chapters aren't recognisable) came out with chunks that begin on a
+		// dangling ”, which is exactly the defect the flag exists to prevent.
+		bodies := shiftSpans(chunkPlainTextSpans(scene.Text, size, overlap, true), scene.Start)
 		if len(bodies) == 0 {
 			continue
 		}
 		chapter := scene.ChapterNumber
-		perChapter[chapter]++
-		key := sceneKey(chapter, perChapter[chapter])
+		key := docHash + ":" + strconv.Itoa(ri.at(scene.Start))
 		for _, body := range bodies {
 			from, to := body.Start, body.End
 			piece := chunkPiece{
-				Content: body.Text, SceneKey: &key,
+				Content:     body.Text,
 				SourceStart: &from, SourceEnd: &to,
+			}
+			if scene.BoundaryKind != boundaryNone {
+				piece.SceneKey = &key
 			}
 			if chapter > 0 {
 				// Only a chapter we actually identified is recorded.
@@ -387,20 +456,11 @@ func chunkNarrative(text string, size, overlap int) []chunkPiece {
 			// book. ⚠️ It is what everything downstream sorts by — NOT the
 			// chapter number, because a flashback chapter's number does not
 			// match its position in the text (FR-008).
-			meta := buildNarrativeMetadata(ri, docHash, piece, sourceOrder,
-				len([]rune(body.Text)), body.PrefixRunes)
+			meta := buildNarrativeMetadata(ri, docHash, piece, sourceOrder, body, scene.BoundaryKind)
 			sourceOrder++
 			piece.Narrative = &meta
 			pieces = append(pieces, piece)
 		}
 	}
 	return pieces
-}
-
-// sceneKey builds a stable, human-readable scene identifier. Chapter 0
-// (unknown) renders as "ch0" rather than being omitted, so every chunk has
-// a key and scenes from an unstructured document stay distinguishable from
-// one another.
-func sceneKey(chapter, scene int) string {
-	return "ch" + strconv.Itoa(chapter) + "-s" + strconv.Itoa(scene)
 }

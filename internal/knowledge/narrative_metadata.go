@@ -31,9 +31,10 @@ const narrativeMetadataSchemaVersion = 1
 
 // Boundary kinds — what decided this chunk's scene.
 const (
-	boundaryChapter = "chapter"
-	boundaryDivider = "divider"
-	boundaryNone    = "none"
+	boundaryChapter         = "chapter" // legacy metadata
+	boundaryChapterFallback = "chapter_fallback"
+	boundaryDivider         = "divider"
+	boundaryNone            = "none"
 )
 
 // narrativeSegment maps one stretch of a chunk's CONTENT back to the
@@ -59,10 +60,7 @@ type narrativeSegment struct {
 	// they can never be quoted as evidence.
 	IsGeneratedSeparator bool `json:"is_generated_separator"`
 
-	// IsOverlapCopy marks the seed carried over from the previous chunk.
-	// The text is real, but its home is the PREVIOUS chunk's range —
-	// citing it from here would point a reader at the wrong place, so it
-	// carries no document interval at all.
+	// IsOverlapCopy marks copied context; its original interval is retained for citation deduplication.
 	IsOverlapCopy bool `json:"is_overlap_copy"`
 }
 
@@ -118,49 +116,12 @@ func normalizedDocumentHash(text string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// buildNarrativeMetadata describes one chunk's provenance.
-//
-// contentRunes is the chunk's own rune length; prefixRunes is how many of
-// its leading runes are an overlap copy (see textSpan.PrefixRunes).
-//
-// ⚠️ The mapping is exact AT THE BOUNDARIES only. A chunk's interior may
-// differ from source[start:end] in WHITESPACE, because the chunker rejoins
-// paragraphs with "\n\n" and sentences with " " regardless of what
-// separated them in the source. Consumers must compare quotes
-// whitespace-insensitively; a byte-exact comparison will fail on perfectly
-// correct data. (Verified: 0 mismatches across 阿Q正传 and 西遊記 全 100 回
-// under whitespace-insensitive comparison.)
-func buildNarrativeMetadata(
-	ri *runeIndex, docHash string, piece chunkPiece, sourceOrder, contentRunes, prefixRunes int,
-) narrativeMetadata {
-	meta := narrativeMetadata{
-		SchemaVersion:          narrativeMetadataSchemaVersion,
-		NormalizedDocumentHash: docHash,
-		BoundaryKind:           boundaryNone,
-		SceneKey:               piece.SceneKey,
-		ChapterNumber:          piece.ChapterNumber,
-		ChapterTitle:           piece.SectionTitle,
-		SourceOrder:            sourceOrder,
-	}
-	if piece.ChapterNumber != nil {
-		meta.BoundaryKind = boundaryChapter
-	} else if piece.SceneKey != nil {
-		meta.BoundaryKind = boundaryDivider
-	}
-
-	if prefixRunes > 0 {
-		meta.Segments = append(meta.Segments, narrativeSegment{
-			ChunkStart: 0, ChunkEnd: prefixRunes, IsOverlapCopy: true,
-		})
-	}
-	if piece.SourceStart != nil && piece.SourceEnd != nil && prefixRunes < contentRunes {
-		from, to := ri.at(*piece.SourceStart), ri.at(*piece.SourceEnd)
-		meta.Segments = append(meta.Segments, narrativeSegment{
-			ChunkStart: prefixRunes, ChunkEnd: contentRunes,
-			DocumentStart: &from, DocumentEnd: &to,
-		})
-	}
-	return meta
+// buildNarrativeMetadata persists the source map carried through every split/join.
+func buildNarrativeMetadata(ri *runeIndex, docHash string, piece chunkPiece, sourceOrder int, body textSpan, kind string) narrativeMetadata {
+	return narrativeMetadata{SchemaVersion: narrativeMetadataSchemaVersion,
+		NormalizedDocumentHash: docHash, BoundaryKind: kind, SceneKey: piece.SceneKey,
+		ChapterNumber: piece.ChapterNumber, ChapterTitle: piece.SectionTitle, SourceOrder: sourceOrder,
+		Segments: sourceSegments(ri, body)}
 }
 
 var (
@@ -183,7 +144,7 @@ func validateNarrativeMetadata(meta narrativeMetadata, contentRunes int) error {
 		return fmt.Errorf("%w: %d", errMetadataSchema, meta.SchemaVersion)
 	}
 	switch meta.BoundaryKind {
-	case boundaryChapter, boundaryDivider, boundaryNone:
+	case boundaryChapter, boundaryChapterFallback, boundaryDivider, boundaryNone:
 	default:
 		return fmt.Errorf("%w: %q", errMetadataBoundary, meta.BoundaryKind)
 	}
@@ -207,13 +168,16 @@ func validateNarrativeMetadata(meta narrativeMetadata, contentRunes int) error {
 		}
 		cursor = seg.ChunkEnd
 
-		locatable := !seg.IsOverlapCopy && !seg.IsGeneratedSeparator
+		locatable := !seg.IsGeneratedSeparator
+		if (seg.DocumentStart == nil) != (seg.DocumentEnd == nil) {
+			return fmt.Errorf("%w: partial source interval", errMetadataRange)
+		}
 		hasInterval := seg.DocumentStart != nil && seg.DocumentEnd != nil
 		if locatable && !hasInterval {
 			return fmt.Errorf("%w: segment %d", errMetadataUnlocated, i)
 		}
 		if hasInterval {
-			if *seg.DocumentStart < 0 || *seg.DocumentStart >= *seg.DocumentEnd {
+			if *seg.DocumentStart < 0 || *seg.DocumentStart >= *seg.DocumentEnd || *seg.DocumentEnd-*seg.DocumentStart != seg.ChunkEnd-seg.ChunkStart {
 				return fmt.Errorf("%w: segment %d document [%d,%d)",
 					errMetadataRange, i, *seg.DocumentStart, *seg.DocumentEnd)
 			}

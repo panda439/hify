@@ -76,12 +76,11 @@ func TestSplitOnExplicitDivider(t *testing.T) {
 	if !strings.Contains(units[0].Text, "场景甲") || strings.Contains(units[0].Text, "场景乙") {
 		t.Errorf("第一个场景串味了：%q", units[0].Text)
 	}
-	// ⚠️ 分隔线本身是标记，不是正文，不得留在任何场景里。
-	for _, u := range units {
-		if strings.Contains(u.Text, "* * *") {
-			t.Errorf("分隔线漏进了正文：%q", u.Text)
-		}
+	// 分隔线保留并附在前场景。
+	if !strings.Contains(units[0].Text, "* * *") || strings.Contains(units[1].Text, "* * *") {
+		t.Fatal("分隔线归属错误")
 	}
+
 }
 
 // TestDividerMustBeTheWholeLine——一行里**出现**星号是行文，一行**只有**星号才是分隔。
@@ -187,15 +186,12 @@ func TestTextBeforeFirstHeadingIsKept(t *testing.T) {
 }
 
 // TestNoContentLost 是本文件里最值钱的一条：
-// 除分隔线（标记，不是正文）外，输入的每一个非空白字符都必须出现在输出里，顺序不变。
+// 包含分隔线在内，输入的每一个非空白字符都必须出现在输出里，顺序不变。
 // 上面每条用例只看自己关心的那一小块，只有这条能抓住「某一段整体消失」。
 func TestNoContentLost(t *testing.T) {
 	text := "引言。\n楔子\n楔子正文。\n第一章　甲\n甲一。\n\n···\n\n甲二。\n第二章　乙\n乙正文。\n"
 	var want strings.Builder
 	for _, ln := range strings.Split(text, "\n") {
-		if sceneDividerPattern.MatchString(ln) {
-			continue
-		}
 		want.WriteString(strings.Join(strings.Fields(ln), ""))
 	}
 	var got strings.Builder
@@ -287,15 +283,18 @@ func TestSceneKeysAreUnique(t *testing.T) {
 	seen := map[string]string{}
 	for _, p := range chunkNarrative(text, 500, 0) {
 		if p.SceneKey == nil {
-			t.Fatalf("块没有 scene_key：%q", p.Content)
+			if p.Narrative.BoundaryKind != boundaryNone {
+				t.Fatalf("有结构的块没有 scene_key：%q", p.Content)
+			}
+			continue
 		}
 		if prev, dup := seen[*p.SceneKey]; dup && prev != p.Content {
 			t.Errorf("scene_key %q 被两个不同场景共用：%q / %q", *p.SceneKey, prev, p.Content)
 		}
 		seen[*p.SceneKey] = p.Content
 	}
-	if len(seen) != 6 {
-		t.Errorf("不同 scene_key 数 = %d, want 6（引言/楔子/序章/一章两场景/二章）：%v", len(seen), seen)
+	if len(seen) != 5 {
+		t.Errorf("不同 scene_key 数 = %d, want 5（无结构引言留空；楔子/序章/一章两场景/二章）：%v", len(seen), seen)
 	}
 }
 
@@ -459,21 +458,18 @@ func TestMetadataCoversEveryChunk(t *testing.T) {
 	}
 }
 
-// TestOverlapCopyCarriesNoDocumentInterval——⭐ overlap 种子那一段**不带**
-// 文档区间。它的文字是真的，但它的家在**前一块**；从这里引用它会把读者指到
-// 错误的位置，而位置看起来完全合理。所以宁可标成"不可定位"，也不给一个
-// 差不多的坐标。
-func TestOverlapCopyCarriesNoDocumentInterval(t *testing.T) {
+// Real overlap keeps the original source interval; generated separators remain unlocated.
+func TestOverlapCopyRetainsDocumentInterval(t *testing.T) {
 	text := "第一章\n" + strings.Repeat("甲的正文。", 60) + "\n"
 	var sawCopy bool
 	for _, p := range chunkNarrative(text, 120, 40) {
 		for _, seg := range p.Narrative.Segments {
-			if !seg.IsOverlapCopy {
+			if !seg.IsOverlapCopy || seg.IsGeneratedSeparator {
 				continue
 			}
 			sawCopy = true
-			if seg.DocumentStart != nil || seg.DocumentEnd != nil {
-				t.Errorf("overlap 拷贝段带上了文档区间 [%v,%v)", seg.DocumentStart, seg.DocumentEnd)
+			if seg.DocumentStart == nil || seg.DocumentEnd == nil {
+				t.Errorf("overlap 拷贝段丢失文档区间 [%v,%v)", seg.DocumentStart, seg.DocumentEnd)
 			}
 		}
 	}
@@ -543,7 +539,7 @@ func TestValidatorRejectsPartialCoverage(t *testing.T) {
 		"可定位段没有文档区间": {SchemaVersion: 1, BoundaryKind: boundaryNone,
 			Segments: []narrativeSegment{{ChunkStart: 0, ChunkEnd: 10}}},
 		"不可引用段却带着区间": {SchemaVersion: 1, BoundaryKind: boundaryNone,
-			Segments: []narrativeSegment{{ChunkStart: 0, ChunkEnd: 10, IsOverlapCopy: true,
+			Segments: []narrativeSegment{{ChunkStart: 0, ChunkEnd: 10, IsGeneratedSeparator: true,
 				DocumentStart: &from, DocumentEnd: &to}}},
 		"章节号填了 0": {SchemaVersion: 1, BoundaryKind: boundaryChapter, ChapterNumber: &from,
 			Segments: []narrativeSegment{{ChunkStart: 0, ChunkEnd: 10, DocumentStart: &from, DocumentEnd: &to}}},
@@ -560,7 +556,7 @@ func TestValidatorRejectsPartialCoverage(t *testing.T) {
 }
 
 // TestSegmentsReproduceTheirOwnText——⭐ 每个可定位段的文档区间取出来的原文，
-// 必须**逐字**等于该段在块内容里对应的那一截（忽略空白）。
+// 必须**逐字**等于该段在块内容里对应的那一截（包括空白）。
 //
 // ⚠️ 这条是一次真实缺陷的回归，而且是结构校验**抓不到**的那一类：
 // PrefixRunes 原本在 TrimSpace **之前**计算，而 overlap 种子是前一块的尾巴、
@@ -581,8 +577,8 @@ func TestSegmentsReproduceTheirOwnText(t *testing.T) {
 					continue
 				}
 				checked++
-				got := stripWS(string(normalized[*seg.DocumentStart:*seg.DocumentEnd]))
-				want := stripWS(string(content[seg.ChunkStart:seg.ChunkEnd]))
+				got := string(normalized[*seg.DocumentStart:*seg.DocumentEnd])
+				want := string(content[seg.ChunkStart:seg.ChunkEnd])
 				if got != want {
 					t.Errorf("overlap=%d 段 %d 的区间 [%d,%d) 取出来对不上：\n got=%.50q\nwant=%.50q",
 						overlap, i, *seg.DocumentStart, *seg.DocumentEnd, got, want)
@@ -628,5 +624,112 @@ func TestDecodeRejectsUnknownSchema(t *testing.T) {
 		if err != nil || meta != nil {
 			t.Errorf("「%s」应解码成 (nil, nil)，得到 (%v, %v)", name, meta, err)
 		}
+	}
+}
+
+// ---- 第六轮修复的回归 ----
+
+// TestSpacedAsteriskDividerForms——⭐ 分隔线的**带空格写法**必须和紧挨着的
+// 写法一样被认出来。
+//
+// ⚠️ 这是一次真实回归的回归测试。为了让**单个** ※ 也算分隔线（不像单个
+// `*`，那是行文），有一版把 ※ 从通用字符类里挪出来单开了一个 `※+` 分支，
+// 于是 `※ ※ ※` —— 中文小说里最常见的那种写法 —— 悄悄不再匹配：两个场景
+// 被合成一个，没有任何错误。原有用例只覆盖了裸 `\n※\n`，抓不到。
+func TestSpacedAsteriskDividerForms(t *testing.T) {
+	for _, line := range []string{
+		"※", "※※※", "※ ※ ※", "※　※　※", // 半角空格与全角空格都要认
+		"***", "* * *", "···", "───", "- - -", "＊ ＊ ＊",
+	} {
+		if !sceneDividerPattern.MatchString(line) {
+			t.Errorf("分隔线 %q 没被认出来", line)
+		}
+	}
+	for _, line := range []string{
+		"*", "-", "他说：“走。”", "第一章　甲", "** 加粗不是分隔 **",
+	} {
+		if sceneDividerPattern.MatchString(line) {
+			t.Errorf("%q 是行文，不该当分隔线", line)
+		}
+	}
+	// 端到端：带空格的 ※ 真的切出两个场景。
+	units := splitNarrativeScenes("第一章　甲\n场景甲。\n※ ※ ※\n场景乙。\n")
+	if len(units) != 2 {
+		t.Fatalf("场景数 = %d, want 2：%v", len(units), spanTextsOfUnits(units))
+	}
+	if !strings.Contains(units[0].Text, "场景甲") || !strings.Contains(units[1].Text, "场景乙") {
+		t.Errorf("场景切错了：%v", spanTextsOfUnits(units))
+	}
+}
+
+func spanTextsOfUnits(units []narrativeUnit) []string {
+	out := make([]string, len(units))
+	for i, u := range units {
+		out[i] = u.Text
+	}
+	return out
+}
+
+// TestClosingQuoteHandlingDoesNotDependOnStructure——⭐ 同一段对白，
+// 加不加章节标题，断句结果必须**一样**。
+//
+// ⚠️ 也是一次真实回归。keepClosingQuotes（句末的 ”/」 跟着它闭合的那句走）
+// 一度被接到 BoundaryKind 上，于是"这份文档有没有章节标题"决定了对白怎么断：
+// 没识别出结构的文本（节选、无章节的作品、以及**所有认不出章回的 PDF**）
+// 每一块都从一个孤零零的 ” 开头。引号属于哪一句是**行文**的性质，
+// 和这份文档碰巧有没有标题无关。
+func TestClosingQuoteHandlingDoesNotDependOnStructure(t *testing.T) {
+	body := strings.Repeat("他说：“走。”她答：“好。”", 20)
+
+	withHeading := chunkNarrative("第一章　甲\n\n"+body+"\n", 60, 0)
+	withHeading = withHeading[1:] // 去掉标题自己那一块
+	without := chunkNarrative(body+"\n", 60, 0)
+
+	if len(withHeading) != len(without) {
+		t.Fatalf("块数不一致：有标题 %d，无标题 %d", len(withHeading), len(without))
+	}
+	for i := range without {
+		if withHeading[i].Content != without[i].Content {
+			t.Fatalf("第 %d 块因为有没有标题而不同：\n有标题=%q\n无标题=%q",
+				i, withHeading[i].Content, without[i].Content)
+		}
+	}
+	for i, p := range without {
+		if strings.HasPrefix(p.Content, "”") || strings.HasPrefix(p.Content, "」") {
+			t.Errorf("第 %d 块从一个孤零零的闭引号开头：%q", i, p.Content)
+		}
+	}
+}
+
+// TestNarrativePiecesPassTheValidator——发布路径上的自检真的能跑通，
+// 而且真的会拒绝坏数据。
+//
+// ⚠️ validateNarrativeMetadata 在这之前只有单元测试在调，线上没有任何东西
+// 挡着一份坐标错位的元数据被发布。这条锁住 ProcessDocument 里那道守卫。
+func TestNarrativePiecesPassTheValidator(t *testing.T) {
+	text := "第一章　甲\n" + strings.Repeat("甲的正文。", 60) +
+		"\n※ ※ ※\n" + strings.Repeat("乙的正文。", 60) + "\n"
+	for _, overlap := range []int{0, 20, 40} {
+		pieces := chunkNarrative(text, 120, overlap)
+		if len(pieces) < 2 {
+			t.Fatalf("overlap=%d 只切出 %d 块", overlap, len(pieces))
+		}
+		if err := validateNarrativePieces(pieces); err != nil {
+			t.Errorf("overlap=%d 的真实输出没过自检：%v", overlap, err)
+		}
+	}
+	// 坏数据必须被挡下来：把一段的源区间改短，长度就对不上了。
+	pieces := chunkNarrative(text, 120, 0)
+	for i := range pieces {
+		segs := pieces[i].Narrative.Segments
+		if len(segs) == 0 || segs[0].DocumentEnd == nil {
+			continue
+		}
+		shorter := *segs[0].DocumentEnd - 1
+		segs[0].DocumentEnd = &shorter
+		break
+	}
+	if err := validateNarrativePieces(pieces); err == nil {
+		t.Error("被改坏的来源区间本该被自检拒绝")
 	}
 }

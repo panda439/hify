@@ -156,14 +156,16 @@ func (h *Handler) UploadDocument(c *gin.Context) error {
 		return ErrInvalidRequest
 	}
 
-	// ⚠️ multipart 里的开关用**显式白名单**解析，不用 strconv.ParseBool：
-	// ParseBool 会把 "0"/"f"/"FALSE" 都当合法，也会把打错的 "ture" 当成错误
-	// 返回，而这里想要的是"只有明确的 true 才算开，其余一律当没勾"。
-	// 表单字段缺失是最常见的情况（旧客户端），必须等于关闭。
-	opts := UploadOptions{
-		Narrative:          c.PostForm("is_narrative") == "true",
-		RelationExtraction: c.PostForm("is_relation_extraction_enabled") == "true",
+	// Missing fields preserve old clients; malformed or conflicting values fail explicitly.
+	narrative, err := uploadBoolean(c, "narrative_mode", "is_narrative")
+	if err != nil {
+		return err
 	}
+	extraction, err := uploadBoolean(c, "extract_relations", "is_relation_extraction_enabled")
+	if err != nil {
+		return err
+	}
+	opts := UploadOptions{Narrative: narrative, RelationExtraction: extraction}
 
 	doc, err := h.service.UploadDocumentWithOptions(
 		c.Request.Context(),
@@ -302,4 +304,29 @@ func (h *Handler) Retrieve(c *gin.Context) error {
 
 	c.JSON(http.StatusOK, toRetrieveResponse(chunks, !filter.IsEmpty()))
 	return nil
+}
+
+// uploadBoolean accepts canonical names and the initial implementation's aliases.
+// Multiple submitted values must agree, including duplicate multipart fields.
+func uploadBoolean(c *gin.Context, names ...string) (bool, error) {
+	var result bool
+	seen := false
+	for _, name := range names {
+		values, ok := c.GetPostFormArray(name)
+		if !ok {
+			continue
+		}
+		for _, v := range values {
+			if v != "true" && v != "false" {
+				return false, ErrInvalidRequest
+			}
+			value := v == "true"
+			if seen && value != result {
+				return false, ErrInvalidRequest
+			}
+			seen = true
+			result = value
+		}
+	}
+	return result, nil
 }

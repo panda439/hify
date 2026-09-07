@@ -31,3 +31,11 @@
 未经人工复核，只可用于开发或“与 AI 参考标注的一致性”实验。
 满足 spec 人工真值要求，需要对完整验收范围逐段补漏、裁定并留下真实审阅记录。
 不得只把文件移动到 `eval/truth/` 就声称完成。当前无真实 Qwen 效果或成本数据。
+
+
+## 重建本地语料
+
+运行 `python3 scripts/prepare-aq-corpus.py --source-dir <包含 ch01.txt～ch09.txt 的目录>`。
+脚本先核对本目录 manifest 的逐章 SHA 和 coverage 的逐段 SHA，再写入被 gitignore 的 eval/corpus/aq-010。
+生成 narrative-only.txt 及 source-map.json，保留 322 原 ID / 314 正文 / 8 排除，不改动本目录 AI 标注。
+没有自动抓取会变化的网页；原上游 revision 与发布许可仍需补证，不能把重建当成人工标注冻结。

@@ -81,8 +81,8 @@ type documentResponse struct {
 	// missing" line throws away the only part that tells the user what to do.
 	UnparseablePages []int `json:"unparseable_pages"`
 	// 010：上传时写定的两个开关，只读回显。存量文档恒为 false。
-	IsNarrative                 bool      `json:"is_narrative"`
-	IsRelationExtractionEnabled bool      `json:"is_relation_extraction_enabled"`
+	IsNarrative                 bool      `json:"is_narrative,omitempty"`
+	IsRelationExtractionEnabled bool      `json:"is_relation_extraction_enabled,omitempty"`
 	Version                     int64     `json:"version"`
 	CreatedAt                   time.Time `json:"created_at"`
 	UpdatedAt                   time.Time `json:"updated_at"`

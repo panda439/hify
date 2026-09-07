@@ -83,8 +83,8 @@ export interface KnowledgeDocument {
   file_type: "txt" | "md" | "pdf";
   file_size: number;
   // 这份文档是否按场景切分（010）。上传时写定，之后不可改；存量文档恒为 false。
-  is_narrative: boolean;
-  is_relation_extraction_enabled: boolean;
+  is_narrative?: boolean;
+  is_relation_extraction_enabled?: boolean;
   status: DocumentStatus;
   error_message: string;
   chunk_count: number;
@@ -150,7 +150,7 @@ export function useUploadDocument(kbId: string) {
       // ⚠️ 只在开启时才 append。后端只认精确的 "true"，其余一律当没勾；
       // 无脑 append String(false) 也能工作，但会让"没传"和"传了 false"
       // 在抓包和日志里长得不一样，排查时多一层噪音。
-      if (options?.narrative) form.append("is_narrative", "true");
+      if (options?.narrative) form.append("narrative_mode", "true");
       return api.postForm<KnowledgeDocument>(`/knowledge-bases/${kbId}/documents`, form);
     },
     onSuccess: () => {

@@ -1,0 +1,28 @@
+{
+  "fixture_schema_version": 1,
+  "status": "SYNTHETIC_DEVELOPMENT_INPUTS_NOT_ACCEPTANCE_GOLD",
+  "frozen_on": "2026-09-06",
+  "protocol": "specs/010-narrative-scene-chunking-and-relation-extraction/contracts/extraction.md",
+  "source": "李明，人称小李。李明走了。",
+  "model_responses": [
+    {"name":"empty_success","raw":"{\"mentions\":[],\"relations\":[],\"alias_proposals\":[]}","expected":"valid_empty_result"},
+    {"name":"explicit_alias","raw":"{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"李明\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"小李\",\"occurrence\":0}],\"relations\":[],\"alias_proposals\":[{\"left\":\"m1\",\"right\":\"m2\",\"quote\":\"李明，人称小李\",\"occurrence\":0}]}","expected":"valid_alias_proposal_pending_identity_validation"},
+    {"name":"duplicate_key","raw":"{\"mentions\":[],\"mentions\":[],\"relations\":[],\"alias_proposals\":[]}","expected":"reject"},
+    {"name":"trailing_json","raw":"{\"mentions\":[],\"relations\":[],\"alias_proposals\":[]}{}","expected":"reject"},
+    {"name":"unknown_field","raw":"{\"mentions\":[],\"relations\":[],\"alias_proposals\":[],\"confidence\":1}","expected":"reject"},
+    {"name":"out_of_range_occurrence","raw":"{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"李明\",\"occurrence\":2}],\"relations\":[],\"alias_proposals\":[]}","expected":"reject"},
+    {"name":"truncated_output","raw":"{\"mentions\":[","finish_reason":"length","expected":"failed_item_no_partial_publication"}
+  ],
+  "http_and_state_faults": [
+    {"name":"malformed_upload_flag","fields":{"narrative_mode":"ture"},"expected_status":400},
+    {"name":"conflicting_upload_alias","fields":{"narrative_mode":"true","is_narrative":"false"},"expected_status":400},
+    {"name":"missing_flags","fields":{},"expected_narrative":false},
+    {"name":"retryable_429","status":429,"expected_max_physical_attempts":3},
+    {"name":"unauthorized_provider","status":401,"expected_max_physical_attempts":1},
+    {"name":"response_persisted_then_crash","state":"response_recorded","expected":"replay_without_model_call"},
+    {"name":"late_epoch","expected":"reject_publication"},
+    {"name":"user_pause","state":"paused","expected":"no_automatic_resume"},
+    {"name":"budget_stop","state":"budget_exhausted","expected":"no_automatic_resume"},
+    {"name":"dispatch_outcome_unknown","expected":"retain_possible_call_and_unknown_usage"}
+  ]
+}

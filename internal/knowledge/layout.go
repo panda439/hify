@@ -136,9 +136,10 @@ var (
 //	P5  merging only ever happens at a page boundary — between the last
 //	    unit of one page and the first unit of the next
 type paragraphUnit struct {
-	Content   string
-	PageStart int
-	PageEnd   int
+	NarrativeParts []pdfNarrativePart
+	Content        string
+	PageStart      int
+	PageEnd        int
 	// Headings is the heading stack in force where this unit sits, outermost
 	// first — the PDF counterpart of chunkMarkdown's heading stack (US4).
 	// Empty whenever no heading could be recognised reliably, which is every
@@ -173,17 +174,29 @@ type paragraphUnit struct {
 // pretending otherwise would splice together two passages that never
 // touched. See mergeAcrossPageBreak's adjacency check.
 func buildParagraphStream(pages []pdfPage) []paragraphUnit {
+	return buildParagraphStreamWithSources(pages, false)
+}
+func buildParagraphStreamWithSources(pages []pdfPage, sources bool) []paragraphUnit {
 	var stream []paragraphUnit
 	// The heading stack runs across the whole document, not per page — a
 	// section started on page 3 is still in force on page 4.
 	var headings []string
 	for _, page := range pages {
 		pageUnits, next := unitsOfPage(page, headings)
+		if sources {
+			for i := range pageUnits {
+				pageUnits[i].NarrativeParts = []pdfNarrativePart{{Text: pageUnits[i].Content, Page: page.Number}}
+			}
+		}
 		headings = next
 		if len(pageUnits) == 0 {
 			continue
 		}
 		if n := len(stream); n > 0 && withinMergeSpan(stream[n-1]) && mergeAcrossPageBreak(stream[n-1], pages, page) {
+			if sources {
+				stream[n-1].NarrativeParts = append(stream[n-1].NarrativeParts, pdfNarrativePart{Text: "\n"})
+				stream[n-1].NarrativeParts = append(stream[n-1].NarrativeParts, pageUnits[0].NarrativeParts...)
+			}
 			stream[n-1].Content += "\n" + pageUnits[0].Content
 			stream[n-1].PageEnd = page.Number
 			pageUnits = pageUnits[1:]

@@ -38,16 +38,10 @@ type textSpan struct {
 	Text  string
 	Start int
 	End   int
-	// PrefixRunes counts leading runes of Text that are an OVERLAP COPY —
-	// text carried over from the previous chunk, whose real home is that
-	// chunk's source range, not [Start,End).
-	//
-	// ⚠️ It exists so a consumer can tell which part of a chunk is NOT
-	// citable. Without it the only options are to attribute the copied
-	// runes to this chunk's interval (a citation pointing at the wrong
-	// place) or to leave part of the content unmapped (a coverage check
-	// that silently passes on incomplete data).
+	// PrefixRunes counts the overlap prefix including its inserted join character.
+	// Origins is the exact mapping; copied text keeps its previous source position.
 	PrefixRunes int
+	Origins     []sourceRune
 }
 
 func spanTexts(spans []textSpan) []string {
@@ -102,7 +96,16 @@ func chunkTextSpans(text string, size, overlap int) []textSpan {
 			end = len(runes)
 		}
 		if chunk, from, to := trimmedSpan(text, off[start], off[end]); chunk != "" {
-			chunks = append(chunks, textSpan{Text: chunk, Start: from, End: to})
+			sp := textSpan{Text: chunk, Start: from, End: to}
+			sp.Origins = spanOrigins(sp)
+			if start > 0 {
+				for i, o := range sp.Origins {
+					if o.Byte < off[min(start+overlap, len(runes))] {
+						sp.Origins[i].Copy = true
+					}
+				}
+			}
+			chunks = append(chunks, sp)
 		}
 		if end == len(runes) {
 			break
@@ -218,14 +221,13 @@ type chunkPiece struct {
 // Every branch still bottoms out at chunkText for any single structural
 // unit that doesn't fit in size runes — see each chunker's doc comment.
 func chunkDocument(fileType string, parsed parsedContent, size, overlap int, narrative bool) []chunkPiece {
-	// ⭐ 叙事分支在格式分发**之前**：场景边界是文档级的语义结构，
-	// 与"这是 txt 还是 md"无关。放到 default 分支里的话，一份 md 小说
-	// 会走标题栈而不是场景切分，而两者都不报错。
-	// 只有 txt/md 能走到这里——PDF 在 UploadDocument 就被明确拒绝了
-	// （见 ErrNarrativeUnsupportedFileType），不是在这里静默回退。
 	if narrative {
-		return chunkNarrative(parsed.Text, size, overlap)
+		if fileType == FileTypePDF {
+			return chunkNarrativePDF(parsed.Pages, size, overlap)
+		}
+		return chunkNarrativeWithOptions(parsed.Text, size, overlap, fileType == FileTypeMD, true)
 	}
+
 	switch fileType {
 	case FileTypeMD:
 		return chunkMarkdown(parsed.Text, size, overlap)
@@ -623,8 +625,14 @@ func splitSentences(text string) []string {
 
 // splitSentenceSpans is splitSentences with source intervals, shifted by
 // base so a caller can express offsets in the enclosing document's frame.
-func splitSentenceSpans(text string, base int) []textSpan {
-	idxs := sentenceBoundaryPattern.FindAllStringIndex(text, -1)
+var narrativeSentencePattern = regexp.MustCompile(`[^。！？.!?]*[。！？.!?]+[”’"'」』）]*`)
+
+func splitSentenceSpans(text string, base int, keepClosingQuotes ...bool) []textSpan {
+	pattern := sentenceBoundaryPattern
+	if len(keepClosingQuotes) > 0 && keepClosingQuotes[0] {
+		pattern = narrativeSentencePattern
+	}
+	idxs := pattern.FindAllStringIndex(text, -1)
 	var out []textSpan
 	last := 0
 	emit := func(from, to int) {
@@ -677,6 +685,11 @@ func shiftSpans(spans []textSpan, by int) []textSpan {
 	for i := range spans {
 		spans[i].Start += by
 		spans[i].End += by
+		for j := range spans[i].Origins {
+			if spans[i].Origins[j].Byte >= 0 {
+				spans[i].Origins[j].Byte += by
+			}
+		}
 	}
 	return spans
 }
@@ -694,8 +707,8 @@ func chunkBySentence(text string, size, overlap int) []string {
 // duplicate of its neighbour's, and any downstream "which part of the book
 // is covered" number computed from these intervals would be wrong in the
 // direction that looks better.
-func chunkBySentenceSpans(text string, base, size, overlap int) []textSpan {
-	sentences := splitSentenceSpans(text, base)
+func chunkBySentenceSpans(text string, base, size, overlap int, keepClosingQuotes ...bool) []textSpan {
+	sentences := splitSentenceSpans(text, base, keepClosingQuotes...)
 	if len(sentences) == 0 {
 		return nil
 	}
@@ -703,6 +716,7 @@ func chunkBySentenceSpans(text string, base, size, overlap int) []textSpan {
 	var chunks []textSpan
 	var acc []textSpan
 	var pendingOverlap string
+	var pendingOrigins []sourceRune
 
 	accRuneLen := func() int {
 		if len(acc) == 0 {
@@ -722,14 +736,17 @@ func chunkBySentenceSpans(text string, base, size, overlap int) []textSpan {
 			return
 		}
 		body := strings.Join(spanTexts(acc), " ")
+		origins := joinedOrigins(acc, " ")
 		if t := strings.TrimSpace(body); t != "" {
 			chunks = append(chunks, textSpan{
 				Text: t, Start: acc[0].Start, End: acc[len(acc)-1].End,
 				PrefixRunes: trimmedPrefixRunes(body, t, acc[0].PrefixRunes),
+				Origins:     trimOrigins(body, t, origins),
 			})
 		}
 		if carryOverlap && overlap > 0 {
 			pendingOverlap = tailRunes(body, overlap)
+			pendingOrigins = copyOriginsTail(origins, len([]rune(pendingOverlap)))
 		} else {
 			pendingOverlap = ""
 		}
@@ -758,6 +775,7 @@ func chunkBySentenceSpans(text string, base, size, overlap int) []textSpan {
 			// ⚠️ Text gains the seed; Start/End deliberately do NOT.
 			next.Text = prependOverlap(pendingOverlap, " ", sentence.Text, size)
 			next.PrefixRunes = len([]rune(next.Text)) - len([]rune(sentence.Text))
+			next.Origins = prefixedOrigins(sentence, pendingOrigins, next.PrefixRunes)
 			pendingOverlap = ""
 		}
 		acc = append(acc, next)
@@ -781,7 +799,7 @@ func chunkPlainText(text string, size, overlap int) []string {
 
 // chunkPlainTextSpans is chunkPlainText with source intervals.
 // ⚠️ Offsets index the CRLF-normalized text — see splitParagraphSpans.
-func chunkPlainTextSpans(text string, size, overlap int) []textSpan {
+func chunkPlainTextSpans(text string, size, overlap int, keepClosingQuotes ...bool) []textSpan {
 	size, overlap = normalizeChunkParams(size, overlap)
 	paragraphs := splitParagraphSpans(text)
 	if len(paragraphs) == 0 {
@@ -791,6 +809,7 @@ func chunkPlainTextSpans(text string, size, overlap int) []textSpan {
 	var chunks []textSpan
 	var acc []textSpan
 	var pendingOverlap string
+	var pendingOrigins []sourceRune
 
 	accRuneLen := func() int {
 		if len(acc) == 0 {
@@ -810,14 +829,17 @@ func chunkPlainTextSpans(text string, size, overlap int) []textSpan {
 			return
 		}
 		body := strings.Join(spanTexts(acc), "\n\n")
+		origins := joinedOrigins(acc, "\n\n")
 		if t := strings.TrimSpace(body); t != "" {
 			chunks = append(chunks, textSpan{
 				Text: t, Start: acc[0].Start, End: acc[len(acc)-1].End,
 				PrefixRunes: trimmedPrefixRunes(body, t, acc[0].PrefixRunes),
+				Origins:     trimOrigins(body, t, origins),
 			})
 		}
 		if carryOverlap && overlap > 0 {
 			pendingOverlap = tailRunes(body, overlap)
+			pendingOrigins = copyOriginsTail(origins, len([]rune(pendingOverlap)))
 		} else {
 			pendingOverlap = ""
 		}
@@ -830,7 +852,7 @@ func chunkPlainTextSpans(text string, size, overlap int) []textSpan {
 			flush(false)
 			// Sentence level indexes para.Text; shift back to the document.
 			chunks = append(chunks,
-				chunkBySentenceSpans(para.Text, para.Start, size, overlap)...)
+				chunkBySentenceSpans(para.Text, para.Start, size, overlap, keepClosingQuotes...)...)
 			continue
 		}
 
@@ -843,6 +865,7 @@ func chunkPlainTextSpans(text string, size, overlap int) []textSpan {
 			// ⚠️ Text gains the seed; Start/End deliberately do NOT.
 			next.Text = prependOverlap(pendingOverlap, "\n", para.Text, size)
 			next.PrefixRunes = len([]rune(next.Text)) - len([]rune(para.Text))
+			next.Origins = prefixedOrigins(para, pendingOrigins, next.PrefixRunes)
 			pendingOverlap = ""
 		}
 		acc = append(acc, next)

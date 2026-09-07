@@ -1,6 +1,10 @@
 package knowledge
 
-import "hify/internal/platform/apperr"
+import (
+	"errors"
+
+	"hify/internal/platform/apperr"
+)
 
 var (
 	ErrNotFound              = apperr.NotFound("knowledge.not_found", "知识库不存在")
@@ -100,15 +104,10 @@ var (
 
 // --- 010-narrative-scene-chunking-and-relation-extraction ---
 
-// ErrNarrativeUnsupportedFileType：只有 txt/md 支持按场景切分。
-//
-// ⚠️ 这里**明确报错而不是静默忽略开关**。静默忽略的表现是：用户勾了"叙事
-// 分块"、拿到的却是按长度切的块，而界面上没有任何东西说明这件事——正是这个
-// 功能存在的意义被悄悄抹掉，且无法从结果反推。PDF 要支持还需要把场景切分
-// 接到跨页段落流上并保留页码映射，那是独立的一块工作。
+// ErrNarrativeUnsupportedFileType rejects formats without a narrative parser.
 var ErrNarrativeUnsupportedFileType = apperr.InvalidInput(
 	"knowledge.narrative_unsupported_file_type",
-	"按场景分块目前只支持 txt 和 md 文件")
+	"按场景分块只支持 txt、md 和可解析的 pdf 文件")
 
 // ErrRelationExtractionUnavailable：关系抽取的作业编排尚未接入。
 //
@@ -118,6 +117,19 @@ var ErrNarrativeUnsupportedFileType = apperr.InvalidInput(
 var ErrRelationExtractionUnavailable = apperr.InvalidInput(
 	"knowledge.relation_extraction_unavailable",
 	"关系抽取功能尚未开放，请先只开启按场景分块")
+
+// ErrNarrativeMetadataInvalid：来源映射自检没过，文档直接判失败。
+//
+// ⚠️ 这条是给**我们自己**的守卫，不是给用户的输入校验，所以它是唯一一个
+// "正常情况下永远不该出现"的 010 错误。validateNarrativeMetadata 检查的是
+// 区间覆盖、长度一致、不可引用段不带坐标这类不变量——全都没有运行时症状：
+// 映射错了的块照样能嵌入、照样能被检索到，只是它给出的引用指向原文的错误
+// 位置，而且看上去完全合理。宁可让这份文档 failed（用户能看见、能重试），
+// 也不要把一份坐标错位的证据悄悄发布出去。
+// 刻意**不是** apperr：这不是用户能修的输入问题，是我们自己的不变量破了。
+// 走 userFacingFailureMessage 的兜底分支，用户看到通用的"处理失败"提示，
+// 而真正的细节（哪一块、哪一段、坐标是什么）进 slog.Error 给我们看。
+var errNarrativeMetadataInvalid = errors.New("knowledge: narrative source mapping failed self-check")
 
 // ErrRelationExtractionRequiresNarrative 与 000017 的 CHECK 约束同义，
 // 在 Service 层先挡一道，让用户拿到中文提示而不是数据库错误。

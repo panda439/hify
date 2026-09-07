@@ -344,7 +344,7 @@ func validateUploadOptions(fileType string, opts UploadOptions) error {
 		// Phase 3 接上作业编排后删掉这条。
 		return ErrRelationExtractionUnavailable
 	}
-	if opts.Narrative && fileType != FileTypeTxt && fileType != FileTypeMD {
+	if opts.Narrative && fileType != FileTypeTxt && fileType != FileTypeMD && fileType != FileTypePDF {
 		return ErrNarrativeUnsupportedFileType
 	}
 	return nil
@@ -592,6 +592,18 @@ func (s *service) ProcessDocument(ctx context.Context, documentID string, versio
 	}
 	if len(pieces) > maxChunksPerDocument {
 		return s.failDocument(ctx, documentID, version, ErrTooManyChunks)
+	}
+	// ⭐ 叙事来源映射的自检，放在**花嵌入的钱之前**。
+	//
+	// ⚠️ validateNarrativeMetadata 在这之前只有单元测试在调，也就是说线上
+	// 没有任何东西挡着一份坐标错位的元数据被发布。这类错误没有运行时症状：
+	// 块照样嵌入、照样召回，只是它给出的原文引用指向错误的位置，而且看上去
+	// 完全合理——只有拿区间去取原文逐字比对才会发现。宁可把文档判 failed
+	// （用户看得见、可以重试），也不要发布一份会撒谎的证据。
+	if err := validateNarrativePieces(pieces); err != nil {
+		slog.Error("knowledge: narrative metadata self-check failed",
+			"err", err, "document_id", documentID, "version", version)
+		return s.failDocument(ctx, documentID, version, err)
 	}
 	contents := make([]string, len(pieces))
 	for i, piece := range pieces {
@@ -1440,4 +1452,18 @@ func (s *service) DocumentCoverages(ctx context.Context, documentIDs []string) (
 
 func (s *service) ReconcileRelationExtractions(ctx context.Context) (ReconcileResult, error) {
 	return s.repo.reconcileRelationExtractions(ctx)
+}
+
+// validateNarrativePieces 对每个带叙事元数据的块跑一遍不变量校验。
+// 关闭叙事模式时 Narrative 恒为 nil，这里整个是个空循环。
+func validateNarrativePieces(pieces []chunkPiece) error {
+	for i, piece := range pieces {
+		if piece.Narrative == nil {
+			continue
+		}
+		if err := validateNarrativeMetadata(*piece.Narrative, len([]rune(piece.Content))); err != nil {
+			return fmt.Errorf("%w: chunk %d: %w", errNarrativeMetadataInvalid, i, err)
+		}
+	}
+	return nil
 }
