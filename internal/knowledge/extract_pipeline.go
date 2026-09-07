@@ -189,7 +189,8 @@ func (p extractionPipeline) resolveIdentities(
 		return local, nil
 	}
 
-	rendered, dropped, err := fitAliasInput(aliasInstruction, proj.Text, renderCandidates(aliasIn))
+	rendered, dropped, err := fitAliasInput(aliasInstruction, proj.Text,
+		renderMentions(aliasIn), renderCandidates(aliasIn))
 	if err != nil {
 		return nil, fmt.Errorf("knowledge: item %s: alias input: %w", in.ItemID, err)
 	}
@@ -246,6 +247,19 @@ func renderCandidates(in aliasInput) []string {
 	out := make([]string, 0, len(ids))
 	for _, id := range ids {
 		out = append(out, id+"\t"+in.Candidates[id])
+	}
+	return out
+}
+
+func renderMentions(in aliasInput) []string {
+	refs := make([]string, 0, len(in.Mentions))
+	for ref := range in.Mentions {
+		refs = append(refs, ref)
+	}
+	sort.Strings(refs)
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, ref+"\t"+in.Mentions[ref])
 	}
 	return out
 }

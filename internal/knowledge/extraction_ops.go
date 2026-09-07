@@ -278,11 +278,12 @@ func (r *Repository) applyExtractionSwitch(ctx context.Context, scope documentSc
 		// ⚠️ initialization_complete 保持 0，state 保持 pending——它还不是
 		// 一个"跑到一半"的作业，只是一个意图。
 		jobID := platform.NewID()
+		configSnapshot, configHash := defaultExtractionConfig()
 		if err := q.CreateRelationExtractionJobIntent(ctx, gen.CreateRelationExtractionJobIntentParams{
 			ID: jobID, DocumentID: scope.DocumentID,
 			KnowledgeBaseID: scope.KnowledgeBaseID, DocumentVersion: int32(scope.Version),
 			RunNumber: 1, ModelID: op.ModelID,
-			ConfigHash: reqHash, ConfigSnapshot: []byte(`{}`),
+			ConfigHash: configHash, ConfigSnapshot: configSnapshot,
 			ApprovedItemLimit: defaultApprovedItemLimit, CallLimit: defaultCallLimit,
 			ActiveMsLimit:        defaultActiveMsLimit,
 			OperationKeyHash:     nullBytes(keyHash),
@@ -562,10 +563,11 @@ func (r *Repository) createUploadExtractionIntent(ctx context.Context, doc Docum
 	op := ExtractionOperation{IdempotencyKey: uploadKeyPrefix + doc.ID, ModelID: modelID}
 	keyHash, reqHash := operationHashes(op, "enable")
 	jobID := platform.NewID()
+	configSnapshot, configHash := defaultExtractionConfig()
 	if err := r.queries.CreateRelationExtractionJobIntent(ctx, gen.CreateRelationExtractionJobIntentParams{
 		ID: jobID, DocumentID: doc.ID, KnowledgeBaseID: doc.KnowledgeBaseID,
 		DocumentVersion: 1, RunNumber: 1, ModelID: modelID,
-		ConfigHash: reqHash, ConfigSnapshot: []byte(`{}`),
+		ConfigHash: configHash, ConfigSnapshot: configSnapshot,
 		ApprovedItemLimit: defaultApprovedItemLimit, CallLimit: defaultCallLimit,
 		ActiveMsLimit:        defaultActiveMsLimit,
 		OperationKeyHash:     nullBytes(keyHash),

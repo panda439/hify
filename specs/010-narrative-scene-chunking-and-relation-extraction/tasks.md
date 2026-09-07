@@ -2,64 +2,63 @@
 
 **日期**：2026-09-06。按 [plan](plan.md)、[data-model](data-model.md)、
 [抽取契约](contracts/extraction.md)、[接口契约](contracts/http-and-chat.md) 实施。
-旧 T001～T037 拆分为下列任务；旧编号不再引用。**全部未勾选：本轮补设计，不冒充实现/测试已完成。**
-AI初标交付单独记录，人工冻结仍未完成。共库任务不并行。
+旧 T001～T037 已拆分为下列任务；勾选状态按当前代码、测试和运行证据复核。
+AI 初标交付单独记录，人工冻结仍未完成。共库任务不并行。
 
 ## Phase 1：基线与实验输入
 
-- [ ] T001 核对 checkout/status、constitution/integration、实际Go工具链与配置；记录既有dirty文件。只读检查Ollama标签；不下载模型或自动运行整书。
-- [ ] T002 数据库测试需要独占时按仓库要求 app-down/db-up，顺序归档 eval-retrieval-gate、eval-context-gate，再 go test ./... -race -count=1；保存命令/commit/退出码/skip。失败如实记录，不覆盖已有报告。
+- [x] T001 核对 checkout/status、constitution/integration、实际Go工具链与配置；记录既有dirty文件。只读检查Ollama标签；不下载模型或自动运行整书。
+- [x] T002 数据库测试需要独占时按仓库要求 app-down/db-up，顺序归档 eval-retrieval-gate、eval-context-gate，再 go test ./... -race -count=1；保存命令/commit/退出码/skip。失败如实记录，不覆盖已有报告。
 - [ ] T003 固定语料manifest：9章原始SHA、322原ID/314保留/8排除、清洗规则及来源映射；补可重新获取与生成的脚本/来源版本。正文维持gitignore，不改AI引用；来源许可在发布前核验。
-- [ ] T004 给当前chunk实现建立SC-001基线夹具：短场景、长段/句、场景边界、缺章/节选、重复文字、overlap、PDF跨页；记录实际结果而非预设FAIL。验证默认500字符和明确的实验配置。
-- [ ] T005 先冻结模型输出/HTTP/状态故障测试夹具和schema版本；这些为构造开发数据，不从未来人工验收答案调prompt。真实语义评价仍由Phase 6承担。
+- [x] T004 给当前chunk实现建立SC-001基线夹具：短场景、长段/句、场景边界、缺章/节选、重复文字、overlap、PDF跨页；记录实际结果而非预设FAIL。验证默认500字符和明确的实验配置。
+- [x] T005 先冻结模型输出/HTTP/状态故障测试夹具和schema版本；这些为构造开发数据，不从未来人工验收答案调prompt。真实语义评价仍由Phase 6承担。
 
 **Phase 1门槛**：运行证据与可定位输入齐备；不以“本地模型已安装”替代基线。现有AI稿不等于T003全完成。
 
 ## Phase 2：持久化与场景分块（US1）
 
-- [ ] T006 先写迁移/约束测试，核对最新迁移号；实现MySQL000017及PG000006 up/down，按data-model创建7表、documents字段与PG metadata；检查引用列索引、状态CHECK、名字非唯一、幂等键唯一性。
-- [ ] T007 修改SQL源查询、make sqlc；确认生成差异仅对应本期，旧检索SELECT/谓词/排序不改。新增PG游标来源读取/批量校验、MySQL作业/事务CRUD。
-- [ ] T008 按model→errors→repository顺序映射领域类型与CRUD，业务状态/权限放Service；先写真实数据库约束/游标测试。新字段NULL/默认值保持旧文档响应。
-- [ ] T009 先写叙事纯函数失败测试，再实现narrative.go：标题数字变体、显式场景线、PDF非空行推断、未知标题、缺章、从11章开始。固定输入结果可重复。
-- [ ] T010 实现超限段落→句子→rune降级及同场景overlap；正文来源区间去重还原，不把首个substring命中当重复段的唯一位置；全部输出不超ChunkSize，块数≤2000。
-- [ ] T011 实现metadata的source_segments与scene_key；覆盖PDF真实页区间、生成分隔符、同章多场景、无结构既有分块映射。PG创建事务同存metadata，发布/重试/回收复用原版本语义。
-- [ ] T012 Service新增零默认UploadOptions、dto/handler/wire接入multipart，前端文档上传增加叙事与独立抽取开关；Phase 2抽取关闭验证。构造函数/调用方/Fake接口同步，旧UploadDocument保留包装。
-- [ ] T013 验证txt/md/PDF默认关闭的内容/顺序/旧元数据/HTTP快照及双门禁不变；启用模式做上传→ready→原文位置真实HTTP冒烟。只报告分块机制，不预告检索质量提升。
+- [x] T006 先写迁移/约束测试，核对最新迁移号；实现MySQL000017及PG000006 up/down，按data-model创建7表、documents字段与PG metadata；检查引用列索引、状态CHECK、名字非唯一、幂等键唯一性。
+- [x] T007 修改SQL源查询、make sqlc；确认生成差异仅对应本期，旧检索SELECT/谓词/排序不改。新增PG游标来源读取/批量校验、MySQL作业/事务CRUD。
+- [x] T008 按model→errors→repository顺序映射领域类型与CRUD，业务状态/权限放Service；先写真实数据库约束/游标测试。新字段NULL/默认值保持旧文档响应。
+- [x] T009 先写叙事纯函数失败测试，再实现narrative.go：标题数字变体、显式场景线、PDF非空行推断、未知标题、缺章、从11章开始。固定输入结果可重复。
+- [x] T010 实现超限段落→句子→rune降级及同场景overlap；正文来源区间去重还原，不把首个substring命中当重复段的唯一位置；全部输出不超ChunkSize，块数≤2000。
+- [x] T011 实现metadata的source_segments与scene_key；覆盖PDF真实页区间、生成分隔符、同章多场景、无结构既有分块映射。PG创建事务同存metadata，发布/重试/回收复用原版本语义。
+- [x] T012 Service新增零默认UploadOptions、dto/handler/wire接入multipart，前端文档上传增加叙事与独立抽取开关；Phase 2抽取关闭验证。构造函数/调用方/Fake接口同步，旧UploadDocument保留包装。
+- [x] T013 验证txt/md/PDF默认关闭的内容/顺序/旧元数据/HTTP快照及双门禁不变；启用模式做上传→ready→原文位置真实HTTP冒烟。只报告分块机制，不预告检索质量提升。
 
 **US1交付门槛**：不是只有narrative.go；上传选项、持久字段、来源与实际发布均验证后才可独立交付。
 
 ## Phase 3：任务、预算与恢复
 
-**2026-09-06 独立审核：未通过。** 审核对象 phase3-extraction@f046d59；既有868测试通过，新增10个顶层契约反例全部失败。
-T014～T023保持未勾选，具体缺口及复审顺序见 [review-fixes 第六轮](review-fixes.md)。Phase2修复尚未合入此分支。
+**2026-09-07 复审通过。** 第六轮发现的问题均已修复并纳入回归，生产 worker、账目、租约、恢复和预算链路已接通；详见 [review-fixes 第七轮](review-fixes.md)。
 
-- [ ] T014 在provider先写单次dispatch契约测试，再实现Service.ChatOnce及ChatAttemptResult，复用限流/breaker但不自动重试；适配器/SDK/transport单次网络请求验证；旧Chat/Embed/Stream回归。
-- [ ] T015 编排初始化：ready当前版本创建job、枚举全体published chunks与item、校验数量及metadata；initialization_complete事务提交，失败不改变事实status。
-- [ ] T016 先写状态转换和并发测试，再实现claim/epoch/180s租约/30s心跳、每次发布版本和active job检查；goroutine等待退出、取消/失效不再调用模型。
-- [ ] T017 实现attempt预留、dispatch结果、原始响应落盘、usage未知、正常/未知结局结算；验证失败调用不因关系事务回滚而消失，归一调用同账。
-- [ ] T018 实现唯一重试层：各阶段最多3次、1s/2s退避、不可重试配置错误、连续5最终失败块停止；自动恢复不重置计数，asynq MaxRetry(0)。
-- [ ] T019 实现500不同item/3000调用/7200s活跃预算、单次60s、12000输入rune/2048输出token/64KiB响应限制；先写边界测试，检查别名输入和输出也受控。
-- [ ] T020 实现成功item/人物/关系/证据/计数同事务、空结果成功、原始响应回放；验证重复消息/提交后丢ACK/响应落盘后崩溃不重复发模型，未知结果窗口如实记账。
-- [ ] T021 实现ReconcileRelationExtractions和asynq handlers；cmd/hify/config/wire注册，每分钟分页扫描待处理/丢入队/过期lease；重启和Redis失效恢复，不自动恢复用户暂停/预算耗尽。
-- [ ] T022 实现模型/源版本固定、superseded与删除守卫；锁document→job→item。数据库故障注入覆盖PG发布后未建job、删除期间响应返回、旧epoch晚到写入。
-- [ ] T023 实现清理与账目归档：失效派生记录分批清理、attempt30天归档后删除；聚合/游标同事务，不重复累计、不让文档费用因清理归零。
+- [x] T014 在provider先写单次dispatch契约测试，再实现Service.ChatOnce及ChatAttemptResult，复用限流/breaker但不自动重试；适配器/SDK/transport单次网络请求验证；旧Chat/Embed/Stream回归。
+- [x] T015 编排初始化：ready当前版本创建job、枚举全体published chunks与item、校验数量及metadata；initialization_complete事务提交，失败不改变事实status。
+- [x] T016 先写状态转换和并发测试，再实现claim/epoch/180s租约/30s心跳、每次发布版本和active job检查；goroutine等待退出、取消/失效不再调用模型。
+- [x] T017 实现attempt预留、dispatch结果、原始响应落盘、usage未知、正常/未知结局结算；验证失败调用不因关系事务回滚而消失，归一调用同账。
+- [x] T018 实现唯一重试层：各阶段最多3次、1s/2s退避、不可重试配置错误、连续5最终失败块停止；自动恢复不重置计数，asynq MaxRetry(0)。
+- [x] T019 实现500不同item/3000调用/7200s活跃预算、单次60s、12000输入rune/2048输出token/64KiB响应限制；先写边界测试，检查别名输入和输出也受控。
+- [x] T020 实现成功item/人物/关系/证据/计数同事务、空结果成功、原始响应回放；验证重复消息/提交后丢ACK/响应落盘后崩溃不重复发模型，未知结果窗口如实记账。
+- [x] T021 实现ReconcileRelationExtractions和asynq handlers；cmd/hify/config/wire注册，每分钟分页扫描待处理/丢入队/过期lease；重启和Redis失效恢复，不自动恢复用户暂停/预算耗尽。
+- [x] T022 实现模型/源版本固定、superseded与删除守卫；锁document→job→item。数据库故障注入覆盖PG发布后未建job、删除期间响应返回、旧epoch晚到写入。
+- [x] T023 实现清理与账目归档：失效派生记录分批清理、attempt30天归档后删除；聚合/游标同事务，不重复累计、不让文档费用因清理归零。
 
 ## Phase 4：关系与别名
 
-- [ ] T024 先写严格JSON/引用校验测试，再实现extract_prompt.go；覆盖重复key、尾随JSON、未知字段、空/过大/截断输出、非法ref/type、quote occurrence与原文不匹配、空合法数组。
-- [ ] T025 实现mentions与关系候选源位置映射，保留多证据，overlap按原文区间去重；按契约生成有限输入，不把网页版权模板当正文进入实验。
-- [ ] T026 先写别名反例再实现alias.go：两侧身份支持、明确别名new_group、候选上限32/每人2条证据、同名/泛称歧义、阿贵否定例、跨书不合；禁止只按surface合并。
-- [ ] T027 实现已存第一阶段响应复用、独立归一重试、模型配置不变、合法ambiguous保存独立人物；归一非法不部分发布。无提案/候选不发第二次调用。
-- [ ] T028 验证FR-014依据可查询、同一响应回放稳定、同章关系变化不覆盖、章节可空、倒叙按原文排序；固定正反例验证归一成功与零误合并，真实误差另算。
+- [x] T024 先写严格JSON/引用校验测试，再实现extract_prompt.go；覆盖重复key、尾随JSON、未知字段、空/过大/截断输出、非法ref/type、quote occurrence与原文不匹配、空合法数组。
+- [x] T025 实现mentions与关系候选源位置映射，保留多证据，overlap按原文区间去重；按契约生成有限输入，不把网页版权模板当正文进入实验。
+- [x] T026 先写别名反例再实现alias.go：两侧身份支持、明确别名new_group、候选上限32/每人2条证据、同名/泛称歧义、阿贵否定例、跨书不合；禁止只按surface合并。
+- [x] T027 实现已存第一阶段响应复用、独立归一重试、模型配置不变、合法ambiguous保存独立人物；归一非法不部分发布。无提案/候选不发第二次调用。
+- [x] T028 验证FR-014依据可查询、同一响应回放稳定、同章关系变化不覆盖、章节可空、倒叙按原文排序；固定正反例验证归一成功与零误合并，真实误差另算。
 
 ## Phase 5：操作接口与聊天
 
-- [ ] T029 Service→dto/handler/wire实现extraction状态、enable/disable/pause/resume/restart接口，真实HTTP校验写权限、路径归属、400/409、幂等键重放与body冲突。
-- [ ] T030 实现追加预算/重试轮次记录、disabled再enable不自动启动、restart原子替换run；同时resume只能一个worker，历史账目不重置。
-- [ ] T031 实现QueryRelations：Agent范围服务端下推，空KB不是全库、DocumentIDs空仅在KB内放宽；当前doc/version/job验证、名称多候选澄清、同实体别名回复、无记录与故障区分。
-- [ ] T032 先写selection/budget测试，再实现按源顺序多类型/跨章选证据、候选200/引用12、LIMIT+1截断提示；仅用一份既有RAG预算，不伪造相似度；验证极小ContextWindow与无证据可容纳。
-- [ ] T033 对话领域选项→Service→dto/handler接入：普通StreamMessage零选项不变；关系分支停query rewrite/tool循环，固定无结果/歧义/故障文本，有证据才受限生成。
-- [ ] T034 引用来源PG批量核验+入模前MySQL复检，实际引用与message_citations一致；删除/新run并发变化停止本轮，刷新后消息/覆盖/截断提示可重放。
+- [x] T029 Service→dto/handler/wire实现extraction状态、enable/disable/pause/resume/restart接口，真实HTTP校验写权限、路径归属、400/409、幂等键重放与body冲突。
+- [x] T030 实现追加预算/重试轮次记录、disabled再enable不自动启动、restart原子替换run；同时resume只能一个worker，历史账目不重置。
+- [x] T031 实现QueryRelations：Agent范围服务端下推，空KB不是全库、DocumentIDs空仅在KB内放宽；当前doc/version/job验证、名称多候选澄清、同实体别名回复、无记录与故障区分。
+- [x] T032 先写selection/budget测试，再实现按源顺序多类型/跨章选证据、候选200/引用12、LIMIT+1截断提示；仅用一份既有RAG预算，不伪造相似度；验证极小ContextWindow与无证据可容纳。
+- [x] T033 对话领域选项→Service→dto/handler接入：普通StreamMessage零选项不变；关系分支停query rewrite/tool循环，固定无结果/歧义/故障文本，有证据才受限生成。
+- [x] T034 引用来源PG批量核验+入模前MySQL复检，实际引用与message_citations一致；删除/新run并发变化停止本轮，刷新后消息/覆盖/截断提示可重放。
 - [x] T035 前端knowledge.ts/conversations.ts及两个页面接入：上传开关、状态/暂停/续跑、同一聊天页关系选项/书目/两人输入/歧义选择；提示不出现epoch/hash等内部术语。
 - [x] T036 真实HTTP/UI冒烟：普通对话、禁用/未开始/部分/完成/故障/歧义、两章关系变化、范围外文档、跨书同名、默认关闭回归；确认操作和提示均符合契约。证据见 `evidence/phase5-smoke/README.md`。
 
@@ -67,14 +66,14 @@ T014～T023保持未勾选，具体缺口及复审顺序见 [review-fixes 第六
 
 - [ ] T037 按annotation-guideline对全9章AI稿人工逐段补漏/纠错/裁定，记录真实审阅人和范围。Codex当前已交AI候选，但此项人工验收尚未完成；不得把初稿搬进truth就打勾。
 - [ ] T038 冻结人工语料/口径/标注哈希和开发/验收隔离声明；若用验收答案调prompt则改为开发集并另设未用于调优的验收范围。未审阅只跑AI一致性，FR-016保持未完成。
-- [ ] T039 先用构造预测测试计分：章节单位、一对一TP、无向规范化、重复引用、失败块FN、空分母N/A、额外错误引用率；身份归一端到端与人工别名条件指标分报。
-- [ ] T040 实现cmd/narrativeeval与Makefile目标：受控本地运行/读取原始响应和账目快照/纯指标重算；禁止调用模型裁判替代人工真值。配置/价格版本与hash写报告。
-- [ ] T041 先用独立开发短样本预检14B/7B模型可用性、实际吞吐、usage返回与60s上限；不从本机硬件猜性能。额度不足由用户显式追加，不能自动绕过预算。
+- [x] T039 先用构造预测测试计分：章节单位、一对一TP、无向规范化、重复引用、失败块FN、空分母N/A、额外错误引用率；身份归一端到端与人工别名条件指标分报。
+- [x] T040 实现cmd/narrativeeval与Makefile目标：受控本地运行/读取原始响应和账目快照/纯指标重算；禁止调用模型裁判替代人工真值。配置/价格版本与hash写报告。
+- [x] T041 先用独立开发短样本预检14B/7B模型可用性、实际吞吐、usage返回与60s上限；不从本机硬件猜性能。额度不足由用户显式追加，不能自动绕过预算。
 - [ ] T042 对阿Q完整9章跑14B、7B，分别归档模型digest、分块配置、原始响应、账目和精确率/召回率/误归一/有效引用率；同时得到完整小说成本口径，缺usage/人工标注如实未验收。
 - [ ] T043 可补西游1～20回长文本实验，明确节选；成本包含重试/归一/失败并分墙钟/活跃/模型时间，本地金钱成本不填0；不冒称全100回或生产规模。
-- [ ] T044 纯重算同快照指标一致；针对校验、epoch/版本、范围、预算、归一做最小变异，确认已有测试能抓到去掉守卫的失败，不为变异新增范围外架构。
-- [ ] T045 依次跑go test ./... -race -count=1、go vet ./...、make check-deps、两条既有确定性门禁及smoke；比对Phase1规范化行为产物（不比时间戳/耗时等运行噪声）。数据库skip=未验证。
-- [ ] T046 产出docs/eval-phase17-narrative-relation-extraction-report.md，分实现、工程证据、真实效果、已知边界；逐条FR/SC覆盖与未验证项。不自动commit/push。
+- [x] T044 纯重算同快照指标一致；针对校验、epoch/版本、范围、预算、归一做最小变异，确认已有测试能抓到去掉守卫的失败，不为变异新增范围外架构。
+- [x] T045 依次跑go test ./... -race -count=1、go vet ./...、make check-deps、两条既有确定性门禁及smoke；比对Phase1规范化行为产物（不比时间戳/耗时等运行噪声）。数据库skip=未验证。
+- [x] T046 产出docs/eval-phase17-narrative-relation-extraction-report.md，分实现、工程证据、真实效果、已知边界；逐条FR/SC覆盖与未验证项。不自动commit/push。
 
 ## 覆盖映射
 

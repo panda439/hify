@@ -65,6 +65,14 @@ func TestHypotheticalQuoteCannotSupportAlias(t *testing.T) {
 	}
 }
 
+func TestAliasInstructionEnumeratesEveryAcceptedReasonCode(t *testing.T) {
+	for _, code := range aliasReasonCodes {
+		if !strings.Contains(aliasInstruction, code) {
+			t.Fatalf("alias instruction omits accepted reason_code %q", code)
+		}
+	}
+}
+
 // TestSameSurfaceAloneIsNotIdentity——⭐ **只凭同名不合并**。
 //
 // 两条规则各挡一半：

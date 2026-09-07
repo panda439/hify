@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "reference_kind": "ai_draft_unreviewed",
+  "truth_sha256": "c4219d8df8fb2cafa7fa2bbf8646dc1a1bf23244a8a60be37dc57fe80faea2bc",
+  "prediction_sha256": "84d95052fa6920b8ec0a27e58a9e30bc30771f3304320f6eebc67448973b2309",
+  "aliases_sha256": "f392d156d46c2333296276d136206653c14a03f43771940991c0732e8ff33bb5",
+  "model": {
+    "name": "qwen2.5:7b",
+    "digest": "845dbda0ea48ed749caafd9e6037047aa19acfcfd82e704d7ca97d631a0b697e"
+  },
+  "metrics": {
+    "end_to_end": {
+      "tp": 0,
+      "fp": 0,
+      "fn": 58,
+      "precision": null,
+      "recall": 0
+    },
+    "alias_conditional": {
+      "tp": 0,
+      "fp": 0,
+      "fn": 58,
+      "precision": null,
+      "recall": 0
+    },
+    "by_type": {
+      "亲属": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 21,
+        "precision": null,
+        "recall": 0
+      },
+      "冲突": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 8,
+        "precision": null,
+        "recall": 0
+      },
+      "同乡邻里": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 2,
+        "precision": null,
+        "recall": 0
+      },
+      "同伙": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 2,
+        "precision": null,
+        "recall": 0
+      },
+      "权势压迫": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 12,
+        "precision": null,
+        "recall": 0
+      },
+      "欺凌": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 11,
+        "precision": null,
+        "recall": 0
+      },
+      "雇佣": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 2,
+        "precision": null,
+        "recall": 0
+      }
+    },
+    "citations": {
+      "valid": 0,
+      "total": 0,
+      "rate": null
+    }
+  }
+}

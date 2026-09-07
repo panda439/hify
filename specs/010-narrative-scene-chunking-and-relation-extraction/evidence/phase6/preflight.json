@@ -1,0 +1,26 @@
+[
+  {
+    "model": "qwen2.5:14b",
+    "ok": true,
+    "wall_ms": 16239,
+    "prompt_eval_count": 146,
+    "eval_count": 79,
+    "prompt_eval_duration_ns": 1461181000,
+    "eval_duration_ns": 6282517000,
+    "load_duration_ns": 8452342167,
+    "response": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"赵太爷\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"阿Q\",\"occurrence\":1}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"权势压迫\",\"evidence\":[{\"quote\":\"给了阿Q一个嘴巴\",\"occurrence\":1}]}],\"alias_proposals\":[]}",
+    "done_reason": "stop"
+  },
+  {
+    "model": "qwen2.5:7b",
+    "ok": true,
+    "wall_ms": 6762,
+    "prompt_eval_count": 146,
+    "eval_count": 86,
+    "prompt_eval_duration_ns": 728228000,
+    "eval_duration_ns": 3494971000,
+    "load_duration_ns": 2533151958,
+    "response": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"赵太爷\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"阿Q\",\"occurrence\":0}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"权势压迫\",\"evidence\":[{\"quote\":\"赵太爷跳过去，给了阿Q一个嘴巴。\",\"occurrence\":0}]}],\"alias_proposals\":[]}",
+    "done_reason": "stop"
+  }
+]

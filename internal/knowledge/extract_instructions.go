@@ -84,7 +84,11 @@ var aliasInstruction = strings.Join([]string{
 	"- supports 是支持这条判断的正文原句，必须是正文的**精确子串**，",
 	"  occurrence 是它在正文里第几次出现（从 0 开始）。",
 	"  仅仅同名、或者两个称呼出现在相近位置，都**不是**依据。",
-	"- reason_code 用一个简短的英文小写标识说明判据来源，例如 same_name_and_role。",
+	"- reason_code 只能取下面这个封闭集合中的一个：" + strings.Join(aliasReasonCodes, "、") + "。",
+	"  explicit_alias 表示原文明说两个称呼是同一人；context_identity 表示上下文能确定身份；",
+	"  insufficient 表示依据不足；contradictory 表示证据互相冲突。不要自造 reason_code。",
 	"",
-	"正文与候选：",
+	"输入末尾依次给出正文、当前片段称呼（mention_ref 与原文称呼）和已有候选人物",
+	"（character_id 与展示名）。mention_ref 必须取自当前片段称呼的第一列；",
+	"character_id 只在 action=link 时取自已有候选人物的第一列。",
 }, "\n")

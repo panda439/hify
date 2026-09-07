@@ -103,3 +103,17 @@ eval-retrieval-gate:
 eval-context-gate:
 	HIFY_CONTEXT_GATE_REPORT_PATH=$(CURDIR)/eval/runs/phase16-context-gate-latest.json \
 		go test -v -race -count=1 -run TestContextGate ./internal/conversation/
+
+# 010：对同一预测快照做纯指标重算，不调用模型。reference 当前可以是 AI
+# 初标，但只有人工复核冻结后才能把结果称为人工真值上的 Precision/Recall。
+NARRATIVE_REFERENCE ?= $(CURDIR)/eval/annotations/aq-ai-v1/relations.jsonl
+NARRATIVE_ALIASES ?= $(CURDIR)/eval/annotations/aq-ai-v1/aliases.json
+NARRATIVE_PREDICTION ?=
+NARRATIVE_REPORT ?= $(CURDIR)/eval/runs/narrative-eval-latest.json
+narrative-eval:
+	test -n "$(NARRATIVE_PREDICTION)"
+	go run ./cmd/narrativeeval \
+		-reference "$(NARRATIVE_REFERENCE)" \
+		-aliases "$(NARRATIVE_ALIASES)" \
+		-prediction "$(NARRATIVE_PREDICTION)" \
+		-output "$(NARRATIVE_REPORT)"

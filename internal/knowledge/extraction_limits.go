@@ -72,8 +72,18 @@ func fitExtractionInput(instruction, chunk string) (string, error) {
 //
 // 返回被删掉的候选数量，调用方据此在响应里标 candidate_truncated——
 // ⚠️ 不标的话，一次因为候选被删而没能归一的结果，会被读成模型判断失误。
-func fitAliasInput(instruction, chunk string, candidates []string) (string, int, error) {
-	base := instruction + "\n\n" + chunk
+func fitAliasInput(instruction, chunk string, mentions, candidates []string) (string, int, error) {
+	var prefix strings.Builder
+	prefix.WriteString(instruction)
+	prefix.WriteString("\n\n正文：\n")
+	prefix.WriteString(chunk)
+	prefix.WriteString("\n\n当前片段称呼：")
+	for _, mention := range mentions {
+		prefix.WriteString("\n")
+		prefix.WriteString(mention)
+	}
+	prefix.WriteString("\n\n已有候选人物：")
+	base := prefix.String()
 	baseLen := len([]rune(base))
 	if baseLen > maxInputRunes {
 		// 正文加固定指令本身就超限：这个 item 失败。

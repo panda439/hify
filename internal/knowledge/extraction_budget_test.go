@@ -149,7 +149,7 @@ func TestAliasInputDropsCandidatesNotTheChunk(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		cands = append(cands, strings.Repeat("候", 1000))
 	}
-	rendered, dropped, err := fitAliasInput("指令", chunk, cands)
+	rendered, dropped, err := fitAliasInput("指令", chunk, nil, cands)
 	if err != nil {
 		t.Fatalf("fitAliasInput: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestAliasInputDropsCandidatesNotTheChunk(t *testing.T) {
 // 这个 item 失败。⚠️ 不能靠"那就把正文也截一点"来兜底，理由同上。
 func TestAliasInputFailsWhenChunkAloneIsTooLarge(t *testing.T) {
 	huge := strings.Repeat("正", maxInputRunes)
-	if _, _, err := fitAliasInput("指令", huge, []string{"候选"}); !errors.Is(err, ErrExtractionInputTooLarge) {
+	if _, _, err := fitAliasInput("指令", huge, nil, []string{"候选"}); !errors.Is(err, ErrExtractionInputTooLarge) {
 		t.Fatalf("err = %v, want ErrExtractionInputTooLarge", err)
 	}
 }
@@ -181,7 +181,7 @@ func TestAliasInputFailsWhenChunkAloneIsTooLarge(t *testing.T) {
 // ⚠️ 无谓地删候选会让人物归一变差，而那会体现成"误归一率低但碎片化高"，
 // 很容易被读成模型能力问题。
 func TestAliasInputKeepsEverythingWhenItFits(t *testing.T) {
-	rendered, dropped, err := fitAliasInput("指令", "短正文", []string{"甲", "乙", "丙"})
+	rendered, dropped, err := fitAliasInput("指令", "短正文", nil, []string{"甲", "乙", "丙"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,5 +192,24 @@ func TestAliasInputKeepsEverythingWhenItFits(t *testing.T) {
 		if !strings.Contains(rendered, c) {
 			t.Errorf("候选 %q 丢了", c)
 		}
+	}
+}
+
+func TestFitAliasInputIncludesCurrentMentionRefsBeforeCandidates(t *testing.T) {
+	rendered, dropped, err := fitAliasInput("指令", "阿Q走进酒店。", []string{"m1\t阿Q"}, []string{"char-uuid\t阿Q"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dropped != 0 {
+		t.Fatalf("dropped = %d, want 0", dropped)
+	}
+	if !strings.Contains(rendered, "当前片段称呼：\nm1\t阿Q") {
+		t.Fatalf("alias input omitted current mention ref: %q", rendered)
+	}
+	if !strings.Contains(rendered, "已有候选人物：\nchar-uuid\t阿Q") {
+		t.Fatalf("alias input omitted candidate: %q", rendered)
+	}
+	if strings.Index(rendered, "m1\t阿Q") > strings.Index(rendered, "char-uuid\t阿Q") {
+		t.Fatalf("mentions must be rendered before candidates: %q", rendered)
 	}
 }

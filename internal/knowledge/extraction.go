@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -140,14 +141,38 @@ type extractionJobSpec struct {
 
 // newExtractionJobSpec 造一个用默认预算的 spec。
 func newExtractionJobSpec(jobID, documentID string, version int64, modelID string) extractionJobSpec {
+	configSnapshot, configHash := defaultExtractionConfig()
 	return extractionJobSpec{
 		JobID: jobID, DocumentID: documentID, DocumentVersion: version, ModelID: modelID,
 		KnowledgeBaseID: "kb-x", RunNumber: 1,
-		ConfigHash: make([]byte, 32), ConfigSnapshot: []byte("{}"),
+		ConfigHash: configHash, ConfigSnapshot: configSnapshot,
 		ApprovedItemLimit: defaultApprovedItemLimit,
 		CallLimit:         defaultCallLimit,
 		ActiveMsLimit:     defaultActiveMsLimit,
 	}
+}
+
+func defaultExtractionConfig() ([]byte, []byte) {
+	// This snapshot contains every limit and prompt revision that can change a
+	// run's output or cost. Keep it explicit so an archived run is reproducible.
+	config := struct {
+		SchemaVersion       int    `json:"schema_version"`
+		PromptVersion       string `json:"prompt_version"`
+		CallTimeoutSeconds  int    `json:"call_timeout_seconds"`
+		MaxAttemptsPerPhase int    `json:"max_attempts_per_phase"`
+		MaxInputRunes       int    `json:"max_input_runes"`
+		MaxOutputTokens     int    `json:"max_output_tokens"`
+		ApprovedItemLimit   int    `json:"approved_item_limit"`
+		CallLimit           int    `json:"call_limit"`
+		ActiveMSLimit       int64  `json:"active_ms_limit"`
+	}{1, "narrative-extraction-v1", int(extractionCallTimeout / time.Second), maxAttemptsPerPhase,
+		maxInputRunes, maxOutputTokens, defaultApprovedItemLimit, defaultCallLimit, defaultActiveMsLimit}
+	b, err := json.Marshal(config)
+	if err != nil {
+		panic("knowledge: marshal static extraction config: " + err.Error())
+	}
+	sum := sha256.Sum256(b)
+	return b, sum[:]
 }
 
 // initializeExtractionJob 枚举语料、建作业与全部待处理项，并把文档指向它。

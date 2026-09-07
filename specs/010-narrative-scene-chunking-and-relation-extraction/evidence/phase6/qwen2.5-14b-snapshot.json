@@ -1,0 +1,988 @@
+{
+  "schema_version": 1,
+  "reference_kind": "ai_draft_unreviewed",
+  "corpus_sha256": "157d80e383a35f43b8c572e45e891389caf85f96341e7c1092da54e1cac34484",
+  "config_sha256": "b22ee54446b87162df65f922b86a3aee93755039a8398fa5d0fefdc9598b2a69",
+  "model": {
+    "name": "qwen2.5:14b",
+    "digest": "7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6"
+  },
+  "timing": {
+    "started_at": "2026-09-07T07:33:04.133000Z",
+    "finished_at": "2026-09-07T07:48:43.324000Z",
+    "wall_ms": 939191,
+    "active_ms": 887078,
+    "model_ms": 887078
+  },
+  "ledger": {
+    "confirmed_calls": 24,
+    "possible_calls": 30,
+    "unknown_usage_attempts": 6,
+    "prompt_tokens": null,
+    "output_tokens": null,
+    "cost_kind": "not_applicable",
+    "cost_amount": null
+  },
+  "relations": [],
+  "raw_responses": [
+    {
+      "phase": "extract",
+      "state": "completed",
+      "item_id": "01a07ac8-f008-74d2-81a0-ccdb826bd2d4",
+      "attempt_id": "01a07ac9-56da-79a0-a97e-b0b3d8a357dd",
+      "elapsed_ms": 13195,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 590,
+      "raw_response": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"?Q\",\"occurrence\":0}],\n \"relations\":[],\n \"alias_proposals\":[]}",
+      "finish_reason": "stop",
+      "output_tokens": 29,
+      "attempt_number": 1,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "extract",
+      "state": "completed",
+      "item_id": "01a07ac8-f009-78b2-bc49-adabbf2b93ee",
+      "attempt_id": "01a07ac9-8aae-7280-b8ae-371a180738e4",
+      "elapsed_ms": 4400,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 874,
+      "raw_response": "{\"mentions\":[],\"relations\":[],\"alias_proposals\":[]}",
+      "finish_reason": "stop",
+      "output_tokens": 13,
+      "attempt_number": 1,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "extract",
+      "state": "completed",
+      "item_id": "01a07ac8-f00a-7b5a-a4df-9835210becef",
+      "attempt_id": "01a07ac9-9c20-7678-bd90-039fd00c7c6f",
+      "elapsed_ms": 52713,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 772,
+      "raw_response": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"?Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"???\",\"occurrence\":1},{\"ref\":\"m3\",\"surface\":\"???\",\"occurrence\":2},{\"ref\":\"m4\",\"surface\":\"???\",\"occurrence\":3},{\"ref\":\"m5\",\"surface\":\"???\",\"occurrence\":4},{\"ref\":\"m6\",\"surface\":\"???\",\"occurrence\":5},{\"ref\":\"m7\",\"surface\":\"???\",\"occurrence\":6},{\"ref\":\"m8\",\"surface\":\"???\",\"occurrence\":7},{\"ref\":\"m9\",\"surface\":\"???\",\"occurrence\":8},{\"ref\":\"m10\",\"surface\":\"???\",\"occurrence\":9},{\"ref\":\"m11\",\"surface\":\"???\",\"occurrence\":10},{\"ref\":\"m12\",\"surface\":\"???\",\"occurrence\":11},{\"ref\":\"m13\",\"surface\":\"???\",\"occurrence\":12},{\"ref\":\"m14\",\"surface\":\"???\",\"occurrence\":13},{\"ref\":\"m15\",\"surface\":\"???\",\"occurrence\":14},{\"ref\":\"m16\",\"surface\":\"???\",\"occurrence\":15},{\"ref\":\"m17\",\"surface\":\"???\",\"occurrence\":16},{\"ref\":\"m18\",\"surface\":\"???\",\"occurrence\":17},{\"ref\":\"m19\",\"surface\":\"???\",\"occurrence\":18},{\"ref\":\"m20\",\"surface\":\"???\",\"occurrence\":19},{\"ref\":\"m21\",\"surface\":\"???\",\"occurrence\":20},{\"ref\":\"m22\",\"surface\":\"???\",\"occurrence\":21},{\"ref\":\"m23\",\"surface\":\"???\",\"occurrence\":22},{\"ref\":\"m24\",\"surface\":\"???\",\"occurrence\":23},{\"ref\":\"m25\",\"surface\":\"???\",\"occurrence\":24},{\"ref\":\"m26\",\"surface\":\"???\",\"occurrence\":25},{\"ref\":\"m27\",\"surface\":\"???\",\"occurrence\":26},{\"ref\":\"m28\",\"surface\":\"???\",\"occurrence\":27},{\"ref\":\"m29\",\"surface\":\"???\",\"occurrence\":28},{\"ref\":\"m30\",\"surface\":\"???\",\"occurrence\":29},{\"ref\":\"m31\",\"surface\":\"???\",\"occurrence\":30},{\"ref\":\"m32\",\"surface\":\"???\",\"occurrence\":31}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"??\",\"evidence\":[{\"quote\":\"?Q?????????????????\",\"occurrence\":11}]}],\"alias_proposals\":[]}",
+      "finish_reason": "stop",
+      "output_tokens": 615,
+      "attempt_number": 1,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "extract",
+      "state": "completed",
+      "item_id": "01a07ac8-f00a-7b5a-a4df-9835210becef",
+      "attempt_id": "01a07aca-6e16-7436-9dcd-cb2aa81a65b7",
+      "elapsed_ms": 50858,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 772,
+      "raw_response": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"?Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"???\",\"occurrence\":1},{\"ref\":\"m3\",\"surface\":\"???\",\"occurrence\":2},{\"ref\":\"m4\",\"surface\":\"???\",\"occurrence\":3},{\"ref\":\"m5\",\"surface\":\"???\",\"occurrence\":4},{\"ref\":\"m6\",\"surface\":\"???\",\"occurrence\":5},{\"ref\":\"m7\",\"surface\":\"???\",\"occurrence\":6},{\"ref\":\"m8\",\"surface\":\"???\",\"occurrence\":7},{\"ref\":\"m9\",\"surface\":\"???\",\"occurrence\":8},{\"ref\":\"m10\",\"surface\":\"???\",\"occurrence\":9},{\"ref\":\"m11\",\"surface\":\"???\",\"occurrence\":10},{\"ref\":\"m12\",\"surface\":\"???\",\"occurrence\":11},{\"ref\":\"m13\",\"surface\":\"???\",\"occurrence\":12},{\"ref\":\"m14\",\"surface\":\"???\",\"occurrence\":13},{\"ref\":\"m15\",\"surface\":\"???\",\"occurrence\":14},{\"ref\":\"m16\",\"surface\":\"???\",\"occurrence\":15},{\"ref\":\"m17\",\"surface\":\"???\",\"occurrence\":16},{\"ref\":\"m18\",\"surface\":\"???\",\"occurrence\":17},{\"ref\":\"m19\",\"surface\":\"???\",\"occurrence\":18},{\"ref\":\"m20\",\"surface\":\"???\",\"occurrence\":19},{\"ref\":\"m21\",\"surface\":\"???\",\"occurrence\":20},{\"ref\":\"m22\",\"surface\":\"???\",\"occurrence\":21},{\"ref\":\"m23\",\"surface\":\"???\",\"occurrence\":22},{\"ref\":\"m24\",\"surface\":\"???\",\"occurrence\":23},{\"ref\":\"m25\",\"surface\":\"???\",\"occurrence\":24},{\"ref\":\"m26\",\"surface\":\"???\",\"occurrence\":25},{\"ref\":\"m27\",\"surface\":\"???\",\"occurrence\":26},{\"ref\":\"m28\",\"surface\":\"???\",\"occurrence\":27},{\"ref\":\"m29\",\"surface\":\"???\",\"occurrence\":28},{\"ref\":\"m30\",\"surface\":\"???\",\"occurrence\":29},{\"ref\":\"m31\",\"surface\":\"???\",\"occurrence\":30},{\"ref\":\"m32\",\"surface\":\"???\",\"occurrence\":31}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"??\",\"evidence\":[{\"quote\":\"?Q?????????????????\",\"occurrence\":11}]}],\"alias_proposals\":[]}",
+      "finish_reason": "stop",
+      "output_tokens": 615,
+      "attempt_number": 2,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "extract",
+      "state": "completed",
+      "item_id": "01a07ac8-f00a-7b5a-a4df-9835210becef",
+      "attempt_id": "01a07acb-3cd4-7772-9476-6fde8b94910a",
+      "elapsed_ms": 56793,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 772,
+      "raw_response": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"?Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"???\",\"occurrence\":1},{\"ref\":\"m3\",\"surface\":\"???\",\"occurrence\":2},{\"ref\":\"m4\",\"surface\":\"???\",\"occurrence\":3},{\"ref\":\"m5\",\"surface\":\"???\",\"occurrence\":4},{\"ref\":\"m6\",\"surface\":\"???\",\"occurrence\":5},{\"ref\":\"m7\",\"surface\":\"???\",\"occurrence\":6},{\"ref\":\"m8\",\"surface\":\"???\",\"occurrence\":7},{\"ref\":\"m9\",\"surface\":\"???\",\"occurrence\":8},{\"ref\":\"m10\",\"surface\":\"???\",\"occurrence\":9},{\"ref\":\"m11\",\"surface\":\"???\",\"occurrence\":10},{\"ref\":\"m12\",\"surface\":\"???\",\"occurrence\":11},{\"ref\":\"m13\",\"surface\":\"???\",\"occurrence\":12},{\"ref\":\"m14\",\"surface\":\"???\",\"occurrence\":13},{\"ref\":\"m15\",\"surface\":\"???\",\"occurrence\":14},{\"ref\":\"m16\",\"surface\":\"???\",\"occurrence\":15},{\"ref\":\"m17\",\"surface\":\"???\",\"occurrence\":16},{\"ref\":\"m18\",\"surface\":\"???\",\"occurrence\":17},{\"ref\":\"m19\",\"surface\":\"???\",\"occurrence\":18},{\"ref\":\"m20\",\"surface\":\"???\",\"occurrence\":19},{\"ref\":\"m21\",\"surface\":\"???\",\"occurrence\":20},{\"ref\":\"m22\",\"surface\":\"???\",\"occurrence\":21},{\"ref\":\"m23\",\"surface\":\"???\",\"occurrence\":22},{\"ref\":\"m24\",\"surface\":\"???\",\"occurrence\":23},{\"ref\":\"m25\",\"surface\":\"???\",\"occurrence\":24},{\"ref\":\"m26\",\"surface\":\"???\",\"occurrence\":25},{\"ref\":\"m27\",\"surface\":\"???\",\"occurrence\":26},{\"ref\":\"m28\",\"surface\":\"???\",\"occurrence\":27},{\"ref\":\"m29\",\"surface\":\"???\",\"occurrence\":28},{\"ref\":\"m30\",\"surface\":\"???\",\"occurrence\":29},{\"ref\":\"m31\",\"surface\":\"???\",\"occurrence\":30},{\"ref\":\"m32\",\"surface\":\"???\",\"occurrence\":31}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"??\",\"evidence\":[{\"quote\":\"?Q?????????????????\",\"occurrence\":11}]}],\"alias_proposals\":[]}",
+      "finish_reason": "stop",
+      "output_tokens": 615,
+      "attempt_number": 3,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "extract",
+      "state": "completed",
+      "item_id": "01a07ac8-f00b-78e1-a181-bc469d7e873c",
+      "attempt_id": "01a07acc-1afa-7334-822d-7f64f9c2f85c",
+      "elapsed_ms": 16120,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 602,
+      "raw_response": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"?Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"??\",\"occurrence\":0},{\"ref\":\"m3\",\"surface\":\"???\",\"occurrence\":0}],\n \"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"??\",\n               \"evidence\":[{\"quote\":\"???????????\",\"occurrence\":1}]},\n              {\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"??\",\n               \"evidence\":[{\"quote\":\"????????????????\",\"occurrence\":2}]}],\n \"alias_proposals\":[]}",
+      "finish_reason": "stop",
+      "output_tokens": 144,
+      "attempt_number": 1,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "extract",
+      "state": "completed",
+      "item_id": "01a07ac8-f00b-78e1-a181-bc469d7e873c",
+      "attempt_id": "01a07acc-5dfc-7470-93c2-47cafba7ed41",
+      "elapsed_ms": 11857,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 602,
+      "raw_response": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"?Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"??\",\"occurrence\":0},{\"ref\":\"m3\",\"surface\":\"???\",\"occurrence\":0}],\n \"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"??\",\n               \"evidence\":[{\"quote\":\"???????????\",\"occurrence\":1}]},\n              {\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"??\",\n               \"evidence\":[{\"quote\":\"????????????????\",\"occurrence\":2}]}],\n \"alias_proposals\":[]}",
+      "finish_reason": "stop",
+      "output_tokens": 144,
+      "attempt_number": 2,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "extract",
+      "state": "completed",
+      "item_id": "01a07ac8-f00b-78e1-a181-bc469d7e873c",
+      "attempt_id": "01a07acc-9453-7893-a4c1-e6d3b434d860",
+      "elapsed_ms": 12015,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 602,
+      "raw_response": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"?Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"??\",\"occurrence\":0},{\"ref\":\"m3\",\"surface\":\"???\",\"occurrence\":0}],\n \"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"??\",\n               \"evidence\":[{\"quote\":\"???????????\",\"occurrence\":1}]},\n              {\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"??\",\n               \"evidence\":[{\"quote\":\"????????????????\",\"occurrence\":2}]}],\n \"alias_proposals\":[]}",
+      "finish_reason": "stop",
+      "output_tokens": 144,
+      "attempt_number": 3,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "extract",
+      "state": "completed",
+      "item_id": "01a07ac8-f00c-74ba-ae70-d8ca589e2f06",
+      "attempt_id": "01a07acc-c393-74c6-9e47-22b708927601",
+      "elapsed_ms": 22922,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 883,
+      "raw_response": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"?Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"???\",\"occurrence\":1},{\"ref\":\"m3\",\"surface\":\"????\",\"occurrence\":2}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"??\",\"evidence\":[{\"quote\":\"???????????????????????????????????????????????????????????????????\",\"occurrence\":1}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"??\",\"evidence\":[{\"quote\":\"???????????????????????????????????????????????????????????????????\",\"occurrence\":1}]}],\"alias_proposals\":[]}",
+      "finish_reason": "stop",
+      "output_tokens": 234,
+      "attempt_number": 1,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "extract",
+      "state": "completed",
+      "item_id": "01a07ac8-f00c-74ba-ae70-d8ca589e2f06",
+      "attempt_id": "01a07acd-2127-7f07-b241-e8c60a01c0ff",
+      "elapsed_ms": 20407,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 883,
+      "raw_response": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"?Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"???\",\"occurrence\":1},{\"ref\":\"m3\",\"surface\":\"????\",\"occurrence\":2}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"??\",\"evidence\":[{\"quote\":\"???????????????????????????????????????????????????????????????????\",\"occurrence\":1}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"??\",\"evidence\":[{\"quote\":\"???????????????????????????????????????????????????????????????????\",\"occurrence\":1}]}],\"alias_proposals\":[]}",
+      "finish_reason": "stop",
+      "output_tokens": 234,
+      "attempt_number": 2,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "extract",
+      "state": "completed",
+      "item_id": "01a07ac8-f00c-74ba-ae70-d8ca589e2f06",
+      "attempt_id": "01a07acd-78d6-7261-ae36-eed345ebb311",
+      "elapsed_ms": 19473,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 883,
+      "raw_response": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"?Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"???\",\"occurrence\":1},{\"ref\":\"m3\",\"surface\":\"????\",\"occurrence\":2}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"??\",\"evidence\":[{\"quote\":\"???????????????????????????????????????????????????????????????????\",\"occurrence\":1}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"??\",\"evidence\":[{\"quote\":\"???????????????????????????????????????????????????????????????????\",\"occurrence\":1}]}],\"alias_proposals\":[]}",
+      "finish_reason": "stop",
+      "output_tokens": 234,
+      "attempt_number": 3,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "extract",
+      "state": "completed",
+      "item_id": "01a07ac8-f00d-71b9-b5ae-be3672360e67",
+      "attempt_id": "01a07acd-c51e-7ec1-9313-946f5e06e8eb",
+      "elapsed_ms": 4193,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 706,
+      "raw_response": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"?Q\",\"occurrence\":0}],\n \"relations\":[],\n \"alias_proposals\":[]}",
+      "finish_reason": "stop",
+      "output_tokens": 29,
+      "attempt_number": 1,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "alias",
+      "state": "completed",
+      "item_id": "01a07ac8-f00d-71b9-b5ae-be3672360e67",
+      "attempt_id": "01a07acd-d5a8-78e1-8c35-dd9b0d28ded7",
+      "elapsed_ms": 12925,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 726,
+      "raw_response": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ac9-8a95-7aa2-a9b5-698a86fdcd1a\",\"new_group\":0,\"reason_code\":\"context_identity\",\"supports\":[{\"source_ref\":\"m1\",\"quote\":\"?????Q?????\",\"occurrence\":0}]}]}",
+      "finish_reason": "stop",
+      "output_tokens": 89,
+      "attempt_number": 1,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "extract",
+      "state": "unknown",
+      "item_id": "01a07ac8-f00e-71dc-ab29-455088495693",
+      "attempt_id": "01a07ace-086f-74ed-bf2f-34a780004e6d",
+      "elapsed_ms": 60000,
+      "error_code": "timeout",
+      "usage_known": 0,
+      "input_tokens": null,
+      "raw_response": null,
+      "finish_reason": null,
+      "output_tokens": null,
+      "attempt_number": 1,
+      "dispatch_confirmed": 0
+    },
+    {
+      "phase": "extract",
+      "state": "unknown",
+      "item_id": "01a07ac8-f00e-71dc-ab29-455088495693",
+      "attempt_id": "01a07ace-f6d1-7524-892d-9836412ec827",
+      "elapsed_ms": 60002,
+      "error_code": "timeout",
+      "usage_known": 0,
+      "input_tokens": null,
+      "raw_response": null,
+      "finish_reason": null,
+      "output_tokens": null,
+      "attempt_number": 2,
+      "dispatch_confirmed": 0
+    },
+    {
+      "phase": "extract",
+      "state": "unknown",
+      "item_id": "01a07ac8-f00e-71dc-ab29-455088495693",
+      "attempt_id": "01a07acf-e939-7a0a-a0dc-caadbf18e4b7",
+      "elapsed_ms": 60001,
+      "error_code": "timeout",
+      "usage_known": 0,
+      "input_tokens": null,
+      "raw_response": null,
+      "finish_reason": null,
+      "output_tokens": null,
+      "attempt_number": 3,
+      "dispatch_confirmed": 0
+    },
+    {
+      "phase": "extract",
+      "state": "completed",
+      "item_id": "01a07ac8-f00f-713c-a0dc-cbb72bd75b32",
+      "attempt_id": "01a07ad0-d3f7-7b90-a0f7-d72ad1c9fefe",
+      "elapsed_ms": 29342,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 741,
+      "raw_response": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"?Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"???\",\"occurrence\":1},{\"ref\":\"m3\",\"surface\":\"???\",\"occurrence\":1},{\"ref\":\"m4\",\"surface\":\"??\",\"occurrence\":1}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"??\",\"evidence\":[{\"quote\":\"??Q??????????????????????????\",\"occurrence\":2}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"??\",\"evidence\":[{\"quote\":\"??Q??????????????????????????\",\"occurrence\":2}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m4\",\"type\":\"??\",\"evidence\":[{\"quote\":\"??Q??????????????????????????\",\"occurrence\":2}]}],\"alias_proposals\":[]}",
+      "finish_reason": "stop",
+      "output_tokens": 237,
+      "attempt_number": 1,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "extract",
+      "state": "completed",
+      "item_id": "01a07ac8-f00f-713c-a0dc-cbb72bd75b32",
+      "attempt_id": "01a07ad1-4a97-7dcf-96e6-9d77f2219417",
+      "elapsed_ms": 27673,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 741,
+      "raw_response": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"?Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"???\",\"occurrence\":1},{\"ref\":\"m3\",\"surface\":\"???\",\"occurrence\":1},{\"ref\":\"m4\",\"surface\":\"??\",\"occurrence\":1}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"??\",\"evidence\":[{\"quote\":\"??Q??????????????????????????\",\"occurrence\":2}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"??\",\"evidence\":[{\"quote\":\"??Q??????????????????????????\",\"occurrence\":2}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m4\",\"type\":\"??\",\"evidence\":[{\"quote\":\"??Q??????????????????????????\",\"occurrence\":2}]}],\"alias_proposals\":[]}",
+      "finish_reason": "stop",
+      "output_tokens": 237,
+      "attempt_number": 2,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "extract",
+      "state": "completed",
+      "item_id": "01a07ac8-f00f-713c-a0dc-cbb72bd75b32",
+      "attempt_id": "01a07ad1-beb9-79df-865d-c0472bb1a9eb",
+      "elapsed_ms": 28369,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 741,
+      "raw_response": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"?Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"???\",\"occurrence\":1},{\"ref\":\"m3\",\"surface\":\"???\",\"occurrence\":1},{\"ref\":\"m4\",\"surface\":\"??\",\"occurrence\":1}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"??\",\"evidence\":[{\"quote\":\"??Q??????????????????????????\",\"occurrence\":2}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"??\",\"evidence\":[{\"quote\":\"??Q??????????????????????????\",\"occurrence\":2}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m4\",\"type\":\"??\",\"evidence\":[{\"quote\":\"??Q??????????????????????????\",\"occurrence\":2}]}],\"alias_proposals\":[]}",
+      "finish_reason": "stop",
+      "output_tokens": 237,
+      "attempt_number": 3,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "extract",
+      "state": "unknown",
+      "item_id": "01a07ac8-f00f-7e50-94e4-21f0cd5a2bac",
+      "attempt_id": "01a07ad2-2dce-7f26-b13d-5c1df9ed7a8b",
+      "elapsed_ms": 60000,
+      "error_code": "timeout",
+      "usage_known": 0,
+      "input_tokens": null,
+      "raw_response": null,
+      "finish_reason": null,
+      "output_tokens": null,
+      "attempt_number": 1,
+      "dispatch_confirmed": 0
+    },
+    {
+      "phase": "extract",
+      "state": "unknown",
+      "item_id": "01a07ac8-f00f-7e50-94e4-21f0cd5a2bac",
+      "attempt_id": "01a07ad3-1c42-7631-94f3-f843acb77c49",
+      "elapsed_ms": 60002,
+      "error_code": "timeout",
+      "usage_known": 0,
+      "input_tokens": null,
+      "raw_response": null,
+      "finish_reason": null,
+      "output_tokens": null,
+      "attempt_number": 2,
+      "dispatch_confirmed": 0
+    },
+    {
+      "phase": "extract",
+      "state": "unknown",
+      "item_id": "01a07ac8-f00f-7e50-94e4-21f0cd5a2bac",
+      "attempt_id": "01a07ad4-0eb7-751c-a30f-e478d8843a52",
+      "elapsed_ms": 60001,
+      "error_code": "timeout",
+      "usage_known": 0,
+      "input_tokens": null,
+      "raw_response": null,
+      "finish_reason": null,
+      "output_tokens": null,
+      "attempt_number": 3,
+      "dispatch_confirmed": 0
+    },
+    {
+      "phase": "extract",
+      "state": "completed",
+      "item_id": "01a07ac8-f010-7b3b-99e6-ad59dec73e9f",
+      "attempt_id": "01a07ad4-f989-7f07-a633-543473445eb3",
+      "elapsed_ms": 15195,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 829,
+      "raw_response": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"?Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"??\",\"occurrence\":0}],\n \"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"??\",\n               \"evidence\":[{\"quote\":\"???????????????????Q???????????????????????????????????????????Q????????????????????????????��?\",\"occurrence\":0}]}],\n \"alias_proposals\":[]}",
+      "finish_reason": "stop",
+      "output_tokens": 156,
+      "attempt_number": 1,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "alias",
+      "state": "completed",
+      "item_id": "01a07ac8-f010-7b3b-99e6-ad59dec73e9f",
+      "attempt_id": "01a07ad5-3522-73c8-a368-fa3d0638469f",
+      "elapsed_ms": 24105,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 855,
+      "raw_response": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ac9-8a95-7aa2-a9b5-698a86fdcd1a\",\"new_group\":0,\"reason_code\":\"context_identity\",\"supports\":[{\"source_ref\":\"m1\",\"quote\":\"?Q?????????????????????????\",\"occurrence\":1},{\"source_ref\":\"m1\",\"quote\":\"????Q????????????????Q????????????????????????????\",\"occurrence\":2}]},{\"mention_ref\":\"m2\",\"action\":\"ambiguous\",\"character_id\":null,\"new_group\":0,\"reason_code\":\"insufficient\",\"supports\":[{\"source_ref\":\"m2\",\"quote\":\"??????????????\",\"occurrence\":0},{\"source_ref\":\"m2\",\"quote\":\"??????????????????????????????????????\",\"occurrence\":1}]}]}",
+      "finish_reason": "stop",
+      "output_tokens": 263,
+      "attempt_number": 1,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "alias",
+      "state": "completed",
+      "item_id": "01a07ac8-f010-7b3b-99e6-ad59dec73e9f",
+      "attempt_id": "01a07ad5-9761-7ae5-8414-cade9df9f258",
+      "elapsed_ms": 20767,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 855,
+      "raw_response": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ac9-8a95-7aa2-a9b5-698a86fdcd1a\",\"new_group\":0,\"reason_code\":\"context_identity\",\"supports\":[{\"source_ref\":\"m1\",\"quote\":\"?Q?????????????????????????\",\"occurrence\":1},{\"source_ref\":\"m1\",\"quote\":\"????Q????????????????Q????????????????????????????\",\"occurrence\":2}]},{\"mention_ref\":\"m2\",\"action\":\"ambiguous\",\"character_id\":null,\"new_group\":0,\"reason_code\":\"insufficient\",\"supports\":[{\"source_ref\":\"m2\",\"quote\":\"??????????????\",\"occurrence\":0},{\"source_ref\":\"m2\",\"quote\":\"??????????????????????????????????????\",\"occurrence\":1}]}]}",
+      "finish_reason": "stop",
+      "output_tokens": 263,
+      "attempt_number": 2,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "alias",
+      "state": "completed",
+      "item_id": "01a07ac8-f010-7b3b-99e6-ad59dec73e9f",
+      "attempt_id": "01a07ad5-f095-71f4-8f6d-2c8376f2dee5",
+      "elapsed_ms": 20775,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 855,
+      "raw_response": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ac9-8a95-7aa2-a9b5-698a86fdcd1a\",\"new_group\":0,\"reason_code\":\"context_identity\",\"supports\":[{\"source_ref\":\"m1\",\"quote\":\"?Q?????????????????????????\",\"occurrence\":1},{\"source_ref\":\"m1\",\"quote\":\"????Q????????????????Q????????????????????????????\",\"occurrence\":2}]},{\"mention_ref\":\"m2\",\"action\":\"ambiguous\",\"character_id\":null,\"new_group\":0,\"reason_code\":\"insufficient\",\"supports\":[{\"source_ref\":\"m2\",\"quote\":\"??????????????\",\"occurrence\":0},{\"source_ref\":\"m2\",\"quote\":\"??????????????????????????????????????\",\"occurrence\":1}]}]}",
+      "finish_reason": "stop",
+      "output_tokens": 263,
+      "attempt_number": 3,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "extract",
+      "state": "completed",
+      "item_id": "01a07ac8-f012-756a-b380-8359ec9cb5ad",
+      "attempt_id": "01a07ad6-421d-74af-8319-ef2e54fa672c",
+      "elapsed_ms": 12978,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 869,
+      "raw_response": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"?Q\",\"occurrence\":0},{\"ref\":\"m2\",\"surface\":\"??\",\"occurrence\":0}],\n \"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"??\",\n               \"evidence\":[{\"quote\":\"????????????????????????????????????????Q??????????\",\"occurrence\":0}]}],\n \"alias_proposals\":[]}",
+      "finish_reason": "stop",
+      "output_tokens": 125,
+      "attempt_number": 1,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "alias",
+      "state": "completed",
+      "item_id": "01a07ac8-f012-756a-b380-8359ec9cb5ad",
+      "attempt_id": "01a07ad6-7503-7e7e-ae9a-d3314ebea9ab",
+      "elapsed_ms": 19016,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 897,
+      "raw_response": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ac9-8a95-7aa2-a9b5-698a86fdcd1a\",\"new_group\":0,\"reason_code\":\"context_identity\",\"supports\":[{\"source_ref\":\"m1\",\"quote\":\"?Q???????????????????????????????????????????????????????????????\",\"occurrence\":0}]},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":null,\"new_group\":1,\"reason_code\":\"insufficient\",\"supports\":[{\"source_ref\":\"m2\",\"quote\":\"?????????????????\",\"occurrence\":1}]}]}",
+      "finish_reason": "stop",
+      "output_tokens": 196,
+      "attempt_number": 1,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "alias",
+      "state": "completed",
+      "item_id": "01a07ac8-f012-756a-b380-8359ec9cb5ad",
+      "attempt_id": "01a07ad6-c35c-7aaa-ac54-735ee3f242a0",
+      "elapsed_ms": 15517,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 897,
+      "raw_response": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ac9-8a95-7aa2-a9b5-698a86fdcd1a\",\"new_group\":0,\"reason_code\":\"context_identity\",\"supports\":[{\"source_ref\":\"m1\",\"quote\":\"?Q???????????????????????????????????????????????????????????????\",\"occurrence\":0}]},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":null,\"new_group\":1,\"reason_code\":\"insufficient\",\"supports\":[{\"source_ref\":\"m2\",\"quote\":\"?????????????????\",\"occurrence\":1}]}]}",
+      "finish_reason": "stop",
+      "output_tokens": 196,
+      "attempt_number": 2,
+      "dispatch_confirmed": 1
+    },
+    {
+      "phase": "alias",
+      "state": "completed",
+      "item_id": "01a07ac8-f012-756a-b380-8359ec9cb5ad",
+      "attempt_id": "01a07ad7-0812-7cf4-9194-d166816a5f4a",
+      "elapsed_ms": 15464,
+      "error_code": null,
+      "usage_known": 1,
+      "input_tokens": 897,
+      "raw_response": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ac9-8a95-7aa2-a9b5-698a86fdcd1a\",\"new_group\":0,\"reason_code\":\"context_identity\",\"supports\":[{\"source_ref\":\"m1\",\"quote\":\"?Q???????????????????????????????????????????????????????????????\",\"occurrence\":0}]},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":null,\"new_group\":1,\"reason_code\":\"insufficient\",\"supports\":[{\"source_ref\":\"m2\",\"quote\":\"?????????????????\",\"occurrence\":1}]}]}",
+      "finish_reason": "stop",
+      "output_tokens": 196,
+      "attempt_number": 3,
+      "dispatch_confirmed": 1
+    }
+  ],
+  "metadata": {
+    "job_id": "01a07ac8-eff6-7505-9ed2-51afb0605727",
+    "run_state": "failed",
+    "stop_reason": "too_many_consecutive_failures",
+    "total_items": 61,
+    "succeeded_items": 3,
+    "failed_items": 8,
+    "remaining_items": 50,
+    "source_hash_from_job": "f9a9f22f9230aca4cb34d3180dcf80dde58dc7487b5a56790033844dd680fabe",
+    "db_config_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "effective_config": {
+      "chunk_size_runes": 500,
+      "chunk_overlap_runes": 100,
+      "document_scope": "aq_9_chapters_314_paragraphs",
+      "timeout_seconds": 60,
+      "max_attempts_per_phase": 3
+    },
+    "reference_warning": "AI draft has not been frozen by a human reviewer; scores are diagnostic only.",
+    "item_outcomes": [
+      {
+        "state": "succeeded",
+        "item_id": "01a07ac8-f008-74d2-81a0-ccdb826bd2d4",
+        "chunk_index": 0,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 1
+      },
+      {
+        "state": "succeeded",
+        "item_id": "01a07ac8-f009-78b2-bc49-adabbf2b93ee",
+        "chunk_index": 1,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 1
+      },
+      {
+        "state": "failed",
+        "item_id": "01a07ac8-f00a-7b5a-a4df-9835210becef",
+        "chunk_index": 2,
+        "last_error_code": "response_invalid",
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 3
+      },
+      {
+        "state": "failed",
+        "item_id": "01a07ac8-f00b-78e1-a181-bc469d7e873c",
+        "chunk_index": 3,
+        "last_error_code": "response_invalid",
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 3
+      },
+      {
+        "state": "failed",
+        "item_id": "01a07ac8-f00c-74ba-ae70-d8ca589e2f06",
+        "chunk_index": 4,
+        "last_error_code": "response_invalid",
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 3
+      },
+      {
+        "state": "succeeded",
+        "item_id": "01a07ac8-f00d-71b9-b5ae-be3672360e67",
+        "chunk_index": 5,
+        "last_error_code": null,
+        "alias_attempt_count": 1,
+        "extract_attempt_count": 1
+      },
+      {
+        "state": "failed",
+        "item_id": "01a07ac8-f00e-71dc-ab29-455088495693",
+        "chunk_index": 6,
+        "last_error_code": "item_failed",
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 3
+      },
+      {
+        "state": "failed",
+        "item_id": "01a07ac8-f00f-713c-a0dc-cbb72bd75b32",
+        "chunk_index": 7,
+        "last_error_code": "response_invalid",
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 3
+      },
+      {
+        "state": "failed",
+        "item_id": "01a07ac8-f00f-7e50-94e4-21f0cd5a2bac",
+        "chunk_index": 8,
+        "last_error_code": "item_failed",
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 3
+      },
+      {
+        "state": "failed",
+        "item_id": "01a07ac8-f010-7b3b-99e6-ad59dec73e9f",
+        "chunk_index": 9,
+        "last_error_code": "response_invalid",
+        "alias_attempt_count": 3,
+        "extract_attempt_count": 1
+      },
+      {
+        "state": "failed",
+        "item_id": "01a07ac8-f012-756a-b380-8359ec9cb5ad",
+        "chunk_index": 10,
+        "last_error_code": "response_invalid",
+        "alias_attempt_count": 3,
+        "extract_attempt_count": 1
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f013-714c-b074-b4e5d8839b40",
+        "chunk_index": 11,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f013-7d1b-885a-36496d80094c",
+        "chunk_index": 12,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f014-7785-99a0-28537e3bfc79",
+        "chunk_index": 13,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f015-7278-84a3-f7739fc13545",
+        "chunk_index": 14,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f015-7eb1-94ec-40d68dbabea4",
+        "chunk_index": 15,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f017-7036-9b28-1de49d11fd83",
+        "chunk_index": 16,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f018-71d0-af8e-e1654345ebd8",
+        "chunk_index": 17,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f019-707d-908f-d525b45e646e",
+        "chunk_index": 18,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f01a-724d-9ca3-8953866d65fa",
+        "chunk_index": 19,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f01b-715f-bc31-589e7eee0458",
+        "chunk_index": 20,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f01b-7ebd-8ce1-2b3d9907be8c",
+        "chunk_index": 21,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f01c-7cf8-8040-5fa52f4c4c5a",
+        "chunk_index": 22,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f01e-7cf4-b4c3-06eebe181237",
+        "chunk_index": 23,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f020-705d-9103-e284683917bf",
+        "chunk_index": 24,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f022-7347-9cbf-b51296b601bc",
+        "chunk_index": 25,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f023-76c2-b666-8a340415901a",
+        "chunk_index": 26,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f024-7678-bf0f-43419ced8fa3",
+        "chunk_index": 27,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f025-747c-bacc-907f2773248b",
+        "chunk_index": 28,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f026-730d-887f-7cdd06d0b7c5",
+        "chunk_index": 29,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f027-71dc-8400-f4af4b7eb130",
+        "chunk_index": 30,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f028-7163-99cf-44efeaaf1e09",
+        "chunk_index": 31,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f029-7069-8479-a21e2ea379c9",
+        "chunk_index": 32,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f02a-7134-bad4-30e44c1fa5e0",
+        "chunk_index": 33,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f02b-736b-b975-edcd5371c939",
+        "chunk_index": 34,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f02c-73cc-86e7-92f8fc52c558",
+        "chunk_index": 35,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f02d-710d-8f7f-759710ae2a5b",
+        "chunk_index": 36,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f02d-7ccd-a985-4182884684f7",
+        "chunk_index": 37,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f02e-79bc-8a32-b677c8ea5307",
+        "chunk_index": 38,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f02f-7743-b7f5-e3ad973814d0",
+        "chunk_index": 39,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f030-766c-8204-b2ed298e5681",
+        "chunk_index": 40,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f031-7651-8d0d-bedc285d30ba",
+        "chunk_index": 41,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f032-7a31-a2ac-e9f26d59bf07",
+        "chunk_index": 42,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f033-7b65-9575-e0e393f55511",
+        "chunk_index": 43,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f034-7c77-b32c-af3015508430",
+        "chunk_index": 44,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f035-7b89-9d82-40c2fd7ea2b9",
+        "chunk_index": 45,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f036-7cfc-9eb8-f774349ff932",
+        "chunk_index": 46,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f037-7c11-baab-b26e315d27cc",
+        "chunk_index": 47,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f038-7d52-8921-58b02d54f5f9",
+        "chunk_index": 48,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f03a-7d46-9e2f-42820ce20eeb",
+        "chunk_index": 49,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f03b-7c83-9049-3bcd6cf386a3",
+        "chunk_index": 50,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f03c-7d71-8c55-49c504a25fc6",
+        "chunk_index": 51,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f03e-7023-9d80-98b962bffb76",
+        "chunk_index": 52,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f03e-7ad9-90e5-9bebc7d15f74",
+        "chunk_index": 53,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f03f-7572-a040-c8a30729dd22",
+        "chunk_index": 54,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f040-7324-ab8f-b25ba1d59f49",
+        "chunk_index": 55,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f040-7e77-bacf-f4d62398f4e7",
+        "chunk_index": 56,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f041-7aec-8504-be69bcfedf2f",
+        "chunk_index": 57,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f042-7989-ba23-0288af840ee4",
+        "chunk_index": 58,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f043-7806-83cf-477097dcf1f4",
+        "chunk_index": 59,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      },
+      {
+        "state": "pending",
+        "item_id": "01a07ac8-f044-76ba-9549-206d64067aa2",
+        "chunk_index": 60,
+        "last_error_code": null,
+        "alias_attempt_count": 0,
+        "extract_attempt_count": 0
+      }
+    ]
+  }
+}

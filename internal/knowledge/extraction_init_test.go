@@ -1,7 +1,10 @@
 package knowledge
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -60,6 +63,22 @@ func seedNarrativeDocument(t *testing.T, repo *Repository, docID string, chunks 
 		t.Fatal(err)
 	}
 	return ids
+}
+
+func TestNewExtractionJobSpecFreezesEffectiveConfiguration(t *testing.T) {
+	spec := newExtractionJobSpec("job-config", "doc-config", 1, "model-config")
+	if len(spec.ConfigHash) != sha256.Size || bytes.Equal(spec.ConfigHash, make([]byte, sha256.Size)) {
+		t.Fatalf("config hash must be a non-zero SHA-256 digest: %x", spec.ConfigHash)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(spec.ConfigSnapshot, &got); err != nil {
+		t.Fatalf("config snapshot is not JSON: %v", err)
+	}
+	for _, key := range []string{"schema_version", "prompt_version", "call_timeout_seconds", "max_attempts_per_phase", "max_input_runes", "max_output_tokens", "approved_item_limit", "call_limit", "active_ms_limit"} {
+		if _, ok := got[key]; !ok {
+			t.Errorf("config snapshot missing %q: %s", key, spec.ConfigSnapshot)
+		}
+	}
 }
 
 func chineseOrdinal(n int) string {
