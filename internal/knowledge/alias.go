@@ -153,6 +153,65 @@ func selectAliasCandidates(pool []aliasCandidate, surfaces []string) ([]aliasCan
 	return ranked, truncated
 }
 
+// buildAliasInstruction 拼归一阶段的固定指令。
+//
+// ⭐ 指令里**明写四个 reason_code 的含义**，而不是让模型自由发挥一句理由。
+// 一个自报的 0.87 confidence 无法核对；四个封闭理由每一个都对应
+// resolveAliasDecisions 里可以检查的输入条件。
+func buildAliasInstruction(in aliasInput) string {
+	var sb strings.Builder
+	sb.WriteString(`下面是一段中文小说原文，以及其中出现的人物称呼。
+请判断每一个称呼指的是谁。
+
+输出一个 JSON 对象，不要任何解释、不要 Markdown 代码围栏：
+{"decisions":[{"mention_ref","action","character_id","new_group","supports","reason_code"}]}
+每个称呼恰好一条决策，不能多也不能少。
+
+action 三选一：
+  link  —— 就是下面候选人物中的某一个，character_id 填那个人的 id，new_group 留空;
+  new   —— 本段里新出现的人物，character_id 留空，new_group 填一个你自定的组号;
+  ambiguous —— 拿不准，character_id 留空，new_group 填一个**只属于它自己**的组号。
+只有原文明确写出是同一个人的称呼，才可以填同一个 new_group。
+
+supports 给 1～4 条依据，每条 {"source_ref","quote","occurrence"}：
+  source_ref 填 "chunk" 表示引自上面的原文，或填某个候选依据的 ref；
+  quote 逐字复制，occurrence 是它在原文中的第几次出现，从 0 开始数，重叠也算一次。
+link 需要两侧都有依据（当前原文一条 + 候选依据一条），
+或者当前原文里有一句同时写出两个称呼、明确说明是同一个人的话。
+
+reason_code 四选一：
+  explicit_alias —— 原文明写"某某就是某某";
+  context_identity —— 上下文足以确定;
+  insufficient —— 依据不足;
+  contradictory —— 原文里有相互矛盾的说法。
+拿不准就用 ambiguous，不要猜。`)
+	sb.WriteString("\n\n称呼：")
+	for _, m := range in.Mentions {
+		sb.WriteString(fmt.Sprintf("\n- %s（ref=%s）", m.Surface, m.Ref))
+	}
+	if len(in.Candidates) > 0 {
+		sb.WriteString("\n\n候选人物：")
+	}
+	sb.WriteString("\n\n原文：")
+	return sb.String()
+}
+
+// renderAliasCandidates 把候选渲染成可以逐条删尾的行（见 fitAliasInput）。
+// ⚠️ 一个候选**一行**：删候选是按行删的，一个候选跨多行会被删成半截，
+// 那半截仍然会被模型当成一个可以链接的对象。
+func renderAliasCandidates(candidates []aliasCandidate) []string {
+	out := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("- %s（id=%s）", c.DisplayName, c.CharacterID))
+		for _, ev := range c.Evidence {
+			sb.WriteString(fmt.Sprintf("；依据 %s：%s", ev.Ref, ev.Quote))
+		}
+		out = append(out, sb.String())
+	}
+	return out
+}
+
 // --- 响应（契约 §2）---
 
 type aliasResponse struct {

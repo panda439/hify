@@ -692,6 +692,117 @@ func (q *Queries) GetRelationExtractionJobPayload(ctx context.Context, id string
 	return i, err
 }
 
+const listJobCharacters = `-- name: ListJobCharacters :many
+SELECT id, display_name, first_source_order,
+       CAST(identity_evidence AS CHAR) AS identity_evidence
+FROM narrative_characters
+WHERE job_id = ?
+ORDER BY first_source_order, id
+LIMIT ?
+`
+
+type ListJobCharactersParams struct {
+	JobID string `json:"job_id"`
+	Limit int32  `json:"limit"`
+}
+
+type ListJobCharactersRow struct {
+	ID               string      `json:"id"`
+	DisplayName      string      `json:"display_name"`
+	FirstSourceOrder int64       `json:"first_source_order"`
+	IdentityEvidence interface{} `json:"identity_evidence"`
+}
+
+// 归一：本作业内已经建立的人物，作为候选池。
+//
+// ⭐ 只在**同一个 job** 内选候选（plan §6）。跨 job 会把上一次实验、
+// 甚至另一本书的人物拉进来：同名的"太爷""老爷"在中文小说里到处都是，
+// 而一次跨书误合并会同时污染两本书的关系。
+// 排序 first_source_order, id 是确定的（宪法第 V 条），不按名字相似度。
+// ⚠️ identity_evidence 用 CAST(... AS CHAR)：可空 JSON 列 sqlc 映射成
+// json.RawMessage 而它扫不了 NULL，而一个刚建出来、还没有身份依据的人物
+// 正常就是 NULL。
+func (q *Queries) ListJobCharacters(ctx context.Context, arg ListJobCharactersParams) ([]ListJobCharactersRow, error) {
+	rows, err := q.db.QueryContext(ctx, listJobCharacters, arg.JobID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListJobCharactersRow{}
+	for rows.Next() {
+		var i ListJobCharactersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DisplayName,
+			&i.FirstSourceOrder,
+			&i.IdentityEvidence,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenExtractionItems = `-- name: ListOpenExtractionItems :many
+SELECT id, chunk_id, chunk_index
+FROM relation_extraction_items
+WHERE job_id = ? AND state IN ('pending', 'running') AND chunk_index > ?
+ORDER BY chunk_index, id
+LIMIT ?
+`
+
+type ListOpenExtractionItemsParams struct {
+	JobID      string `json:"job_id"`
+	ChunkIndex int32  `json:"chunk_index"`
+	Limit      int32  `json:"limit"`
+}
+
+type ListOpenExtractionItemsRow struct {
+	ID         string `json:"id"`
+	ChunkID    string `json:"chunk_id"`
+	ChunkIndex int32  `json:"chunk_index"`
+}
+
+// 运行：按 chunk_index 游标取下一页还没有结局的 item。
+//
+// ⚠️ 白名单里带着 'running'：worker 崩在半路留下的 running 行必须被接手，
+// 否则那些 item 永远停在 running，而作业的完成数永远差几个——表现是
+// 一个跑不完的作业，没有任何错误。
+// 恢复安全由 item 事务和 FindReplayableAttempt 保证，不靠这里挑状态。
+// ⚠️ **不选 extract_response / alias_response**：sqlc 把可空 JSON 映射成
+// json.RawMessage，而它扫不了 NULL——而这两列在 item 跑完之前正常就是 NULL
+// （GetRelationExtractionJob 上面记着同一个坑）。回放要用的原始响应在
+// relation_extraction_attempts 里，见 FindReplayableAttempt。
+func (q *Queries) ListOpenExtractionItems(ctx context.Context, arg ListOpenExtractionItemsParams) ([]ListOpenExtractionItemsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenExtractionItems, arg.JobID, arg.ChunkIndex, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListOpenExtractionItemsRow{}
+	for rows.Next() {
+		var i ListOpenExtractionItemsRow
+		if err := rows.Scan(&i.ID, &i.ChunkID, &i.ChunkIndex); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRecoverableExtractionJobs = `-- name: ListRecoverableExtractionJobs :many
 SELECT id, document_id, document_version, epoch, state, initialization_complete
 FROM relation_extraction_jobs
@@ -840,6 +951,27 @@ type MarkItemFailedParams struct {
 
 func (q *Queries) MarkItemFailed(ctx context.Context, arg MarkItemFailedParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, markItemFailed, arg.LastErrorCode, arg.ID, arg.JobID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const markItemRunning = `-- name: MarkItemRunning :execrows
+UPDATE relation_extraction_items
+SET state = 'running', updated_at = CURRENT_TIMESTAMP(3)
+WHERE id = ? AND job_id = ? AND state = 'pending'
+`
+
+type MarkItemRunningParams struct {
+	ID    string `json:"id"`
+	JobID string `json:"job_id"`
+}
+
+// ⚠️ 守卫 state = 'pending'：已经 running 的行不再改 updated_at，
+// 免得恢复时把它的"卡了多久"抹掉。
+func (q *Queries) MarkItemRunning(ctx context.Context, arg MarkItemRunningParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markItemRunning, arg.ID, arg.JobID)
 	if err != nil {
 		return 0, err
 	}

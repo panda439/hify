@@ -212,6 +212,16 @@ type Querier interface {
 	// 日志、诊断和测试断言可复现，不依赖 MySQL 的返回顺序（宪法第 V 条）。
 	ListDocumentIDsByAgent(ctx context.Context, agentID string) ([]string, error)
 	ListDocumentsByKnowledgeBase(ctx context.Context, arg ListDocumentsByKnowledgeBaseParams) ([]Document, error)
+	// 归一：本作业内已经建立的人物，作为候选池。
+	//
+	// ⭐ 只在**同一个 job** 内选候选（plan §6）。跨 job 会把上一次实验、
+	// 甚至另一本书的人物拉进来：同名的"太爷""老爷"在中文小说里到处都是，
+	// 而一次跨书误合并会同时污染两本书的关系。
+	// 排序 first_source_order, id 是确定的（宪法第 V 条），不按名字相似度。
+	// ⚠️ identity_evidence 用 CAST(... AS CHAR)：可空 JSON 列 sqlc 映射成
+	// json.RawMessage 而它扫不了 NULL，而一个刚建出来、还没有身份依据的人物
+	// 正常就是 NULL。
+	ListJobCharacters(ctx context.Context, arg ListJobCharactersParams) ([]ListJobCharactersRow, error)
 	ListKnowledgeBaseIDsByAgent(ctx context.Context, agentID string) ([]string, error)
 	ListKnowledgeBases(ctx context.Context, arg ListKnowledgeBasesParams) ([]KnowledgeBase, error)
 	// reconciliation 扫描用：processing 状态且租约已过期，大概率是 worker
@@ -231,6 +241,17 @@ type Querier interface {
 	// inside a tuple comparison (it silently generated a 2-arg function for a
 	// 4-placeholder query when tried), so this is the safe form.
 	ListMessagesByConversationBeforeCursor(ctx context.Context, arg ListMessagesByConversationBeforeCursorParams) ([]Message, error)
+	// 运行：按 chunk_index 游标取下一页还没有结局的 item。
+	//
+	// ⚠️ 白名单里带着 'running'：worker 崩在半路留下的 running 行必须被接手，
+	// 否则那些 item 永远停在 running，而作业的完成数永远差几个——表现是
+	// 一个跑不完的作业，没有任何错误。
+	// 恢复安全由 item 事务和 FindReplayableAttempt 保证，不靠这里挑状态。
+	// ⚠️ **不选 extract_response / alias_response**：sqlc 把可空 JSON 映射成
+	// json.RawMessage，而它扫不了 NULL——而这两列在 item 跑完之前正常就是 NULL
+	// （GetRelationExtractionJob 上面记着同一个坑）。回放要用的原始响应在
+	// relation_extraction_attempts 里，见 FindReplayableAttempt。
+	ListOpenExtractionItems(ctx context.Context, arg ListOpenExtractionItemsParams) ([]ListOpenExtractionItemsRow, error)
 	ListProviderModelsByProvider(ctx context.Context, providerID string) ([]ProviderModel, error)
 	ListProviders(ctx context.Context, arg ListProvidersParams) ([]ModelProvider, error)
 	// Most recent N messages, newest first. Used both for context assembly
@@ -309,6 +330,9 @@ type Querier interface {
 	// 而且表现是"用户看不到提示"，没有任何报错。变异测试专门盯着这一条。
 	MarkDocumentReady(ctx context.Context, arg MarkDocumentReadyParams) (int64, error)
 	MarkItemFailed(ctx context.Context, arg MarkItemFailedParams) (int64, error)
+	// ⚠️ 守卫 state = 'pending'：已经 running 的行不再改 updated_at，
+	// 免得恢复时把它的"卡了多久"抹掉。
+	MarkItemRunning(ctx context.Context, arg MarkItemRunningParams) (int64, error)
 	// ⚠️ 守卫 state <> 'succeeded'：一个 item 只能成功一次，否则
 	// succeeded_items 会被重复累加，而它是覆盖率的分子。
 	MarkItemSucceeded(ctx context.Context, arg MarkItemSucceededParams) (int64, error)
