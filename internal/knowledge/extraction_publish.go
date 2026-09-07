@@ -43,6 +43,22 @@ type characterDraft struct {
 	FirstSourceOrder int64
 	IdentityEvidence []byte
 	HasAmbiguity     bool
+	// Aliases 是这个人物在本块里用到的**全部称呼**，DisplayName 只是其中
+	// 第一个。
+	//
+	// ⭐ 不存它们，查询就只能按正名命中：用户问"老Q和赵太爷什么关系"，
+	// 而库里那个人物叫"阿Q"——归一明明成功了，查询却说没找到，
+	// 且没有任何线索说明为什么。
+	Aliases []aliasDraft
+}
+
+// aliasDraft 是一个称呼到人物的映射。
+// ⚠️ State 只有 supported 才允许在查询时命中：proposed/ambiguous 指向的是
+// "我们还没敢下结论"，拿它当命中等于用一个未定的判断回答用户。
+type aliasDraft struct {
+	Surface  string
+	State    string
+	Evidence []byte
 }
 
 type evidenceDraft struct {
@@ -112,6 +128,23 @@ func (r *Repository) publishItemOutcome(ctx context.Context, in publishInput) er
 				HasAmbiguity:     c.HasAmbiguity,
 			}); err != nil {
 				return fmt.Errorf("knowledge: create character: %w", err)
+			}
+			for _, alias := range c.Aliases {
+				surfaceHash := sha256.Sum256([]byte(alias.Surface))
+				decisionKey := aliasDecisionKeyHash(in.JobID, id, alias)
+				if err := q.UpsertNarrativeAlias(ctx, gen.UpsertNarrativeAliasParams{
+					ID: platform.NewID(), JobID: in.JobID,
+					CharacterID: sql.NullString{String: id, Valid: alias.State == aliasStateSupported},
+					Surface:     alias.Surface, SurfaceHash: surfaceHash[:],
+					State:    alias.State,
+					Evidence: jsonOrEmptyArray(alias.Evidence),
+					// 与人物同一个首次出现位置：别名不是独立实体，
+					// 它的"第一次出现"说的是这个人物在本块里的位置。
+					FirstSourceOrder: c.FirstSourceOrder,
+					DecisionKeyHash:  decisionKey,
+				}); err != nil {
+					return fmt.Errorf("knowledge: create alias: %w", err)
+				}
 			}
 		}
 
@@ -274,6 +307,34 @@ func (r *Repository) findReplayableResponse(ctx context.Context, itemID, phase s
 // ⚠️ 零长度值不是合法 JSON，MySQL 会拒绝；而更要紧的是语义：
 // 这几列的 NULL 表示"没有这一段"（比如空结果的 item 没有 alias_response），
 // 写成 "" 或 "{}" 会让"没有"和"有但是空的"变得无法区分。
+const (
+	aliasStateSupported = "supported"
+	aliasStateAmbiguous = "ambiguous"
+)
+
+// aliasDecisionKeyHash 把"哪个作业、哪个人物、哪个称呼、什么结论"算成一个键。
+//
+// ⭐ 去重键**必须**包含人物与结论，不能只由 surface 组成：只按 surface 去重
+// 就是在按名字合并人，正是这张表要防的事（000017 的注释记着同一件事）。
+func aliasDecisionKeyHash(jobID, characterID string, alias aliasDraft) []byte {
+	h := sha256.New()
+	writeHashField(h, jobID)
+	writeHashField(h, characterID)
+	writeHashField(h, alias.Surface)
+	writeHashField(h, alias.State)
+	return h.Sum(nil)
+}
+
+// jsonOrEmptyArray：evidence 列是 NOT NULL 的，没有依据时写 []。
+// ⚠️ 不写 null 也不写 {}：读的一侧永远拿到数组，少一处分支就少一个
+// "有时候是 null" 的坑。
+func jsonOrEmptyArray(b []byte) json.RawMessage {
+	if len(b) == 0 {
+		return json.RawMessage("[]")
+	}
+	return json.RawMessage(b)
+}
+
 func jsonOrNull(b []byte) json.RawMessage {
 	if len(b) == 0 {
 		return nil

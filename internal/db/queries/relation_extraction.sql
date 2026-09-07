@@ -416,3 +416,66 @@ WHERE job_id = ? AND state IN ('completed', 'unknown') AND usage_known = 0;
 -- ⚠️ 与 active_ms 分开报：两者的差是排队和等待的时间，把它们混成一个
 -- "耗时"会让"模型很慢"和"作业一直没人接手"变得无法区分。
 SELECT started_at, finished_at FROM relation_extraction_jobs WHERE id = ?;
+
+-- name: UpsertNarrativeAlias :exec
+-- 一个人物的一个称呼。⚠️ INSERT IGNORE：与关系/证据同理，回放会把同一条
+-- 决策再写一遍，而 decision_key_hash 上的唯一键让第二次成为空操作。
+INSERT IGNORE INTO narrative_aliases
+    (id, job_id, character_id, surface, surface_hash, state, evidence,
+     first_source_order, decision_key_hash)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: FindCharactersBySurface :many
+-- 按称呼找人物：先精确命中 display_name，再走别名表。
+--
+-- ⭐ 两条路都要走，而且**不去重成一个**：一个称呼可能同时是甲的正名和乙的
+-- 别名（"太爷"这类称谓在中文小说里到处都是）。合并成一条会让"命中多个实体"
+-- 这个事实消失，而那正是应该向用户澄清、绝不替他猜的情形。
+--
+-- ⚠️ 只看 state='supported' 的别名。proposed/ambiguous/rejected 指向的是
+-- "我们还没敢下结论"，拿它当命中等于用一个未定的判断回答用户。
+SELECT c.id, c.display_name, c.first_source_order, c.has_ambiguity
+FROM narrative_characters c
+WHERE c.job_id = ? AND c.display_name = ?
+UNION
+SELECT c.id, c.display_name, c.first_source_order, c.has_ambiguity
+FROM narrative_characters c
+JOIN narrative_aliases a ON a.character_id = c.id
+WHERE a.job_id = ? AND a.surface_hash = ? AND a.state = 'supported'
+ORDER BY first_source_order, id
+LIMIT ?;
+
+-- name: CountAmbiguousAliasesBySurface :one
+-- 这个称呼有没有被标成歧义。⚠️ 有就必须向用户澄清：一个被我们自己判为
+-- 拿不准的称呼，不能在查询时被当成确定的某个人。
+SELECT COUNT(*) FROM narrative_aliases
+WHERE job_id = ? AND surface_hash = ? AND state = 'ambiguous';
+
+-- name: ListRelationsBetweenCharacters :many
+-- 两个人物之间的全部关系记录，两个方向都要。
+--
+-- ⭐ 不做"取最新一条"：关系随剧情变化，"第 3 回是师徒、第 57 回反目"两条
+-- 都要在。只给最后一个状态，恰恰是这类问题最没用的答案。
+--
+-- ⚠️ LIMIT 由调用方传 N+1：多出来的那一条不返回给用户，只用来说明
+-- "还有更多"。不这么做的话，截断和"正好这么多"在结果里长得一模一样。
+SELECT r.id, r.subject_id, r.object_id, r.relation_type, r.is_directed,
+       r.first_source_order, r.chapter_number, r.chapter_title,
+       s.display_name AS subject_name, o.display_name AS object_name
+FROM narrative_relations r
+JOIN narrative_characters s ON s.id = r.subject_id
+JOIN narrative_characters o ON o.id = r.object_id
+WHERE r.job_id = ?
+  AND ((r.subject_id = ? AND r.object_id = ?) OR (r.subject_id = ? AND r.object_id = ?))
+ORDER BY r.first_source_order, r.id
+LIMIT ?;
+
+-- name: ListEvidenceForRelations :many
+-- 一批关系的全部证据。⚠️ **批量**接口：逐条关系查一次是 Phase 7 邻接查询
+-- 踩过的同一个 N+1。
+SELECT e.id, e.relation_id, e.chunk_id, e.document_version, e.source_order,
+       e.source_start, e.source_end, e.quote
+FROM narrative_relation_evidence e
+WHERE e.job_id = ? AND e.relation_id IN (sqlc.slice('relation_ids'))
+ORDER BY e.source_order, e.id
+LIMIT ?;

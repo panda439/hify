@@ -52,6 +52,13 @@ type Service interface {
 	// ⚠️ 五个写操作都要幂等键：它们不是"设置成某个状态"，而是"做一次动作"，
 	// 而 resume 的追加额度是累加的——重试一次就多加一份。
 	GetExtractionStatus(ctx context.Context, kbID, documentID, userID, role string) (ExtractionStatus, error)
+
+	// QueryRelations 查两个称呼之间的关系（010 T031）。
+	//
+	// ⚠️ Scope 由**服务端调用者**（conversation 从 Agent 的配置里取）建立，
+	// 绝不接受客户端提交的范围：客户端能指定范围的话，"这个助手能查哪些书"
+	// 就变成了一个前端参数，而越权请求和正常请求在服务端看来完全一样。
+	QueryRelations(ctx context.Context, q RelationQuery) (RelationQueryResult, error)
 	SetExtractionEnabled(ctx context.Context, in ExtractionEnableInput) (ExtractionStatus, error)
 	PauseExtraction(ctx context.Context, in ExtractionControlInput) (ExtractionStatus, error)
 	ResumeExtraction(ctx context.Context, in ExtractionResumeInput) (ExtractionStatus, error)

@@ -73,6 +73,9 @@ type Querier interface {
 	// 的值——而它枚举的可能是另一个版本的 chunk，数字看起来完全正常。
 	CompleteJobInitialization(ctx context.Context, arg CompleteJobInitializationParams) (int64, error)
 	CountAgents(ctx context.Context) (int64, error)
+	// 这个称呼有没有被标成歧义。⚠️ 有就必须向用户澄清：一个被我们自己判为
+	// 拿不准的称呼，不能在查询时被当成确定的某个人。
+	CountAmbiguousAliasesBySurface(ctx context.Context, arg CountAmbiguousAliasesBySurfaceParams) (int64, error)
 	CountConversationsByUser(ctx context.Context, userID string) (int64, error)
 	CountDocumentsByKnowledgeBase(ctx context.Context, knowledgeBaseID string) (int64, error)
 	CountJobAttemptsByState(ctx context.Context, jobID string) ([]CountJobAttemptsByStateRow, error)
@@ -139,6 +142,15 @@ type Querier interface {
 	// ⚠️ 只在 job 还没结束时生效。已经 succeeded/failed 的 job 不该被一条迟到的
 	// 失败改写——那条失败属于一个早就被取代的 epoch。
 	FailRelationExtractionJob(ctx context.Context, arg FailRelationExtractionJobParams) (int64, error)
+	// 按称呼找人物：先精确命中 display_name，再走别名表。
+	//
+	// ⭐ 两条路都要走，而且**不去重成一个**：一个称呼可能同时是甲的正名和乙的
+	// 别名（"太爷"这类称谓在中文小说里到处都是）。合并成一条会让"命中多个实体"
+	// 这个事实消失，而那正是应该向用户澄清、绝不替他猜的情形。
+	//
+	// ⚠️ 只看 state='supported' 的别名。proposed/ambiguous/rejected 指向的是
+	// "我们还没敢下结论"，拿它当命中等于用一个未定的判断回答用户。
+	FindCharactersBySurface(ctx context.Context, arg FindCharactersBySurfaceParams) ([]FindCharactersBySurfaceRow, error)
 	// 回放：这个 item 的这个阶段是否已经有一次**成功且原始响应已落盘**的尝试。
 	//
 	// ⭐ 有的话，恢复的 worker 必须拿它接着算，**不能再打一次模型**。
@@ -222,6 +234,9 @@ type Querier interface {
 	// 日志、诊断和测试断言可复现，不依赖 MySQL 的返回顺序（宪法第 V 条）。
 	ListDocumentIDsByAgent(ctx context.Context, agentID string) ([]string, error)
 	ListDocumentsByKnowledgeBase(ctx context.Context, arg ListDocumentsByKnowledgeBaseParams) ([]Document, error)
+	// 一批关系的全部证据。⚠️ **批量**接口：逐条关系查一次是 Phase 7 邻接查询
+	// 踩过的同一个 N+1。
+	ListEvidenceForRelations(ctx context.Context, arg ListEvidenceForRelationsParams) ([]ListEvidenceForRelationsRow, error)
 	// 归一：本作业内已经建立的人物，作为候选池。
 	//
 	// ⭐ 只在**同一个 job** 内选候选（plan §6）。跨 job 会把上一次实验、
@@ -279,6 +294,14 @@ type Querier interface {
 	// 条件是"没人持有，或者持有者的租约已经过期"。id 收尾做游标分页，
 	// 避免一次扫描把成千上万行拉回来。
 	ListRecoverableExtractionJobs(ctx context.Context, arg ListRecoverableExtractionJobsParams) ([]ListRecoverableExtractionJobsRow, error)
+	// 两个人物之间的全部关系记录，两个方向都要。
+	//
+	// ⭐ 不做"取最新一条"：关系随剧情变化，"第 3 回是师徒、第 57 回反目"两条
+	// 都要在。只给最后一个状态，恰恰是这类问题最没用的答案。
+	//
+	// ⚠️ LIMIT 由调用方传 N+1：多出来的那一条不返回给用户，只用来说明
+	// "还有更多"。不这么做的话，截断和"正好这么多"在结果里长得一模一样。
+	ListRelationsBetweenCharacters(ctx context.Context, arg ListRelationsBetweenCharactersParams) ([]ListRelationsBetweenCharactersRow, error)
 	// reconciliation 扫描用：pending 状态停留超过阈值，大概率是入队失败（见
 	// UploadDocument 的注释）导致没有任何任务在处理它。pending 从没有 worker
 	// 持有过租约，"入队丢了"这个问题只能靠 updated_at 阈值判断。
@@ -446,6 +469,9 @@ type Querier interface {
 	// description/input_schema for tools that still exist and reactivates a
 	// tool that had previously disappeared and come back.
 	UpsertMCPTool(ctx context.Context, arg UpsertMCPToolParams) error
+	// 一个人物的一个称呼。⚠️ INSERT IGNORE：与关系/证据同理，回放会把同一条
+	// 决策再写一遍，而 decision_key_hash 上的唯一键让第二次成为空操作。
+	UpsertNarrativeAlias(ctx context.Context, arg UpsertNarrativeAliasParams) error
 	// ⚠️ INSERT IGNORE 而不是普通 INSERT：同一条关系可能因为回放（响应已落盘、
 	// 发布前崩溃）被再写一次。唯一键 (job_id, relation_key_hash) 让第二次成为
 	// 无操作，而不是让整个回放失败。

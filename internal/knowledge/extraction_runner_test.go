@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -100,6 +101,41 @@ const runnerAliasJSON = `{"decisions":[
 	 "supports":[{"source_ref":"chunk","quote":"阿Q回到土谷祠","occurrence":0}],"reason_code":"context_identity"},
 	{"mention_ref":"m2","action":"new","character_id":"","new_group":"g2",
 	 "supports":[{"source_ref":"chunk","quote":"赵太爷打了阿Q一个嘴巴","occurrence":0}],"reason_code":"context_identity"}]}`
+
+// linkingModel 是会**归一**的假模型：看到候选里有同名人物就 link 过去，
+// 否则新建。⚠️ 它顺带验证了候选确实被渲染进了提示词——link 需要引用
+// 候选自己的依据 ref，而那个 ref 只能从提示词里读到。
+func linkingModel() *fakeModel {
+	// 候选行形如：- 阿Q（id=xxx）；依据 xxx#0：……
+	candidateLine := regexp.MustCompile(`- ([^（\n]+)（id=([^）]+)）(?:；依据 ([^：]+)：)?`)
+	mentionLine := regexp.MustCompile(`- ([^（\n]+)（ref=([^）]+)）`)
+	return &fakeModel{byPhase: func(_ int, prompt string) provider.ChatAttemptResult {
+		if !strings.Contains(prompt, `{"decisions"`) {
+			return completedWith(runnerExtractJSON)
+		}
+		candidates := map[string][2]string{} // 名字 -> {id, 依据 ref}
+		for _, m := range candidateLine.FindAllStringSubmatch(prompt, -1) {
+			if _, seen := candidates[m[1]]; !seen {
+				candidates[m[1]] = [2]string{m[2], m[3]}
+			}
+		}
+		var decisions []string
+		for i, m := range mentionLine.FindAllStringSubmatch(prompt, -1) {
+			surface, ref := m[1], m[2]
+			cand, ok := candidates[surface]
+			if ok && cand[1] != "" {
+				decisions = append(decisions, fmt.Sprintf(
+					`{"mention_ref":%q,"action":"link","character_id":%q,"new_group":"",`+
+						`"supports":[{"source_ref":"chunk","quote":%q,"occurrence":0},`+
+						`{"source_ref":%q,"quote":"依据","occurrence":0}],"reason_code":"context_identity"}`,
+					ref, cand[0], surface, cand[1]))
+				continue
+			}
+			decisions = append(decisions, newDecision(ref, fmt.Sprintf("g%d", i), surface, 0))
+		}
+		return completedWith(`{"decisions":[` + strings.Join(decisions, ",") + `]}`)
+	}}
+}
 
 // happyModel 按提示词里出现的固定串区分两个阶段。
 func happyModel() *fakeModel {

@@ -160,7 +160,8 @@ func selectAliasCandidates(pool []aliasCandidate, surfaces []string) ([]aliasCan
 // resolveAliasDecisions 里可以检查的输入条件。
 func buildAliasInstruction(in aliasInput) string {
 	var sb strings.Builder
-	sb.WriteString(`下面是一段中文小说原文，以及其中出现的人物称呼。
+	sb.WriteString(`下面依次给出：这一段里出现的人物称呼、原文、以及已知的候选人物
+（在最末尾，每行一个；可能因为长度限制只列出其中一部分）。
 请判断每一个称呼指的是谁。
 
 输出一个 JSON 对象，不要任何解释、不要 Markdown 代码围栏：
@@ -168,16 +169,16 @@ func buildAliasInstruction(in aliasInput) string {
 每个称呼恰好一条决策，不能多也不能少。
 
 action 三选一：
-  link  —— 就是下面候选人物中的某一个，character_id 填那个人的 id，new_group 留空;
+  link  —— 就是末尾候选人物中的某一个，character_id 填那个人的 id，new_group 留空;
   new   —— 本段里新出现的人物，character_id 留空，new_group 填一个你自定的组号;
   ambiguous —— 拿不准，character_id 留空，new_group 填一个**只属于它自己**的组号。
 只有原文明确写出是同一个人的称呼，才可以填同一个 new_group。
 
 supports 给 1～4 条依据，每条 {"source_ref","quote","occurrence"}：
-  source_ref 填 "chunk" 表示引自上面的原文，或填某个候选依据的 ref；
+  source_ref 填 "chunk" 表示引自下面的原文，或填某个候选依据的 ref（形如 xxx#0）；
   quote 逐字复制，occurrence 是它在原文中的第几次出现，从 0 开始数，重叠也算一次。
-link 需要两侧都有依据（当前原文一条 + 候选依据一条），
-或者当前原文里有一句同时写出两个称呼、明确说明是同一个人的话。
+link 需要两侧都有依据（原文一条 + 该候选的依据一条），
+或者原文里有一句同时写出两个称呼、明确说明是同一个人的话。
 
 reason_code 四选一：
   explicit_alias —— 原文明写"某某就是某某";
@@ -189,10 +190,11 @@ reason_code 四选一：
 	for _, m := range in.Mentions {
 		sb.WriteString(fmt.Sprintf("\n- %s（ref=%s）", m.Surface, m.Ref))
 	}
-	if len(in.Candidates) > 0 {
-		sb.WriteString("\n\n候选人物：")
-	}
-	sb.WriteString("\n\n原文：")
+	// ⚠️ 这里必须以"原文："结尾：fitAliasInput 紧接着拼的就是正文，
+	// 再往后才是候选行（它们排在最末尾，才能按长度从尾部逐行删）。
+	// 指令里写的顺序和实际拼出来的顺序不一致，模型会去一个没有内容的
+	// 位置找候选，而这件事在日志里完全看不出来。
+	sb.WriteString("\n\n原文：\n")
 	return sb.String()
 }
 
@@ -415,6 +417,16 @@ func resolveAliasDecisions(in aliasInput, resp aliasResponse) (identityAssignmen
 			FirstSourceOrder: int64(in.Chunk.Meta.SourceOrder),
 			HasAmbiguity:     groupAmbiguous[group],
 		}
+		// 组里每一个称呼都要能被查到，不只是被选作正名的那一个。
+		aliasState := aliasStateSupported
+		if groupAmbiguous[group] {
+			aliasState = aliasStateAmbiguous
+		}
+		for _, ref := range members {
+			draft.Aliases = append(draft.Aliases, aliasDraft{
+				Surface: byRef[ref].Surface, State: aliasState,
+			})
+		}
 		evidence, err := json.Marshal(groupSupports[group])
 		if err != nil {
 			return identityAssignment{}, fmt.Errorf("knowledge: marshal identity evidence: %w", err)
@@ -577,10 +589,27 @@ func independentIdentities(in aliasInput) identityAssignment {
 		if !seen {
 			group = fmt.Sprintf("g%d", i)
 			byPosition[key] = group
+			// ⭐ 零调用路径也要留下身份依据，哪怕它很弱（"这个称呼出现在
+			// 这一段的这个位置"）。不留的话，**第一块里出现的人物永远无法
+			// 被后面的块链接**：link 要求两侧各有出处，而候选这一侧永远是空的。
+			// 表现是每一章都新建一个"阿Q"，然后每次查询都变成"命中多个实体"。
+			evidence, err := json.Marshal([]aliasSupport{{
+				SourceRef: aliasSourceRefCurrent, Quote: m.Surface,
+			}})
+			if err != nil {
+				// json.Marshal 对这个固定结构不会失败；真失败了就当没有依据，
+				// 保守方向（这个候选更难被链接），不让整个 item 失败。
+				evidence = nil
+			}
 			assign.Characters = append(assign.Characters, characterDraft{
+				IdentityEvidence: evidence,
 				LocalRef:         group,
 				DisplayName:      m.Surface,
 				FirstSourceOrder: int64(in.Chunk.Meta.SourceOrder),
+				// 零调用路径上每个人物只有一个称呼，但仍然要写进别名表：
+				// 查询只走"正名"和"别名表"两条路，少写这一条会让
+				// "这本书有没有走过归一阶段"决定同一个称呼能不能被查到。
+				Aliases: []aliasDraft{{Surface: m.Surface, State: aliasStateSupported}},
 			})
 		}
 		assign.MentionToGroup[m.Ref] = group

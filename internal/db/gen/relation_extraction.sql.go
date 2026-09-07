@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -219,6 +220,25 @@ func (q *Queries) CompleteJobInitialization(ctx context.Context, arg CompleteJob
 	return result.RowsAffected()
 }
 
+const countAmbiguousAliasesBySurface = `-- name: CountAmbiguousAliasesBySurface :one
+SELECT COUNT(*) FROM narrative_aliases
+WHERE job_id = ? AND surface_hash = ? AND state = 'ambiguous'
+`
+
+type CountAmbiguousAliasesBySurfaceParams struct {
+	JobID       string `json:"job_id"`
+	SurfaceHash []byte `json:"surface_hash"`
+}
+
+// 这个称呼有没有被标成歧义。⚠️ 有就必须向用户澄清：一个被我们自己判为
+// 拿不准的称呼，不能在查询时被当成确定的某个人。
+func (q *Queries) CountAmbiguousAliasesBySurface(ctx context.Context, arg CountAmbiguousAliasesBySurfaceParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countAmbiguousAliasesBySurface, arg.JobID, arg.SurfaceHash)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countJobAttemptsByState = `-- name: CountJobAttemptsByState :many
 SELECT state, COUNT(*) AS n FROM relation_extraction_attempts
 WHERE job_id = ? GROUP BY state ORDER BY state
@@ -403,6 +423,76 @@ func (q *Queries) FailRelationExtractionJob(ctx context.Context, arg FailRelatio
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const findCharactersBySurface = `-- name: FindCharactersBySurface :many
+SELECT c.id, c.display_name, c.first_source_order, c.has_ambiguity
+FROM narrative_characters c
+WHERE c.job_id = ? AND c.display_name = ?
+UNION
+SELECT c.id, c.display_name, c.first_source_order, c.has_ambiguity
+FROM narrative_characters c
+JOIN narrative_aliases a ON a.character_id = c.id
+WHERE a.job_id = ? AND a.surface_hash = ? AND a.state = 'supported'
+ORDER BY first_source_order, id
+LIMIT ?
+`
+
+type FindCharactersBySurfaceParams struct {
+	JobID       string `json:"job_id"`
+	DisplayName string `json:"display_name"`
+	JobID_2     string `json:"job_id_2"`
+	SurfaceHash []byte `json:"surface_hash"`
+	Limit       int32  `json:"limit"`
+}
+
+type FindCharactersBySurfaceRow struct {
+	ID               string `json:"id"`
+	DisplayName      string `json:"display_name"`
+	FirstSourceOrder int64  `json:"first_source_order"`
+	HasAmbiguity     bool   `json:"has_ambiguity"`
+}
+
+// 按称呼找人物：先精确命中 display_name，再走别名表。
+//
+// ⭐ 两条路都要走，而且**不去重成一个**：一个称呼可能同时是甲的正名和乙的
+// 别名（"太爷"这类称谓在中文小说里到处都是）。合并成一条会让"命中多个实体"
+// 这个事实消失，而那正是应该向用户澄清、绝不替他猜的情形。
+//
+// ⚠️ 只看 state='supported' 的别名。proposed/ambiguous/rejected 指向的是
+// "我们还没敢下结论"，拿它当命中等于用一个未定的判断回答用户。
+func (q *Queries) FindCharactersBySurface(ctx context.Context, arg FindCharactersBySurfaceParams) ([]FindCharactersBySurfaceRow, error) {
+	rows, err := q.db.QueryContext(ctx, findCharactersBySurface,
+		arg.JobID,
+		arg.DisplayName,
+		arg.JobID_2,
+		arg.SurfaceHash,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []FindCharactersBySurfaceRow{}
+	for rows.Next() {
+		var i FindCharactersBySurfaceRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DisplayName,
+			&i.FirstSourceOrder,
+			&i.HasAmbiguity,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const findReplayableAttempt = `-- name: FindReplayableAttempt :one
@@ -764,6 +854,78 @@ func (q *Queries) GetRelationExtractionJobPayload(ctx context.Context, id string
 	return i, err
 }
 
+const listEvidenceForRelations = `-- name: ListEvidenceForRelations :many
+SELECT e.id, e.relation_id, e.chunk_id, e.document_version, e.source_order,
+       e.source_start, e.source_end, e.quote
+FROM narrative_relation_evidence e
+WHERE e.job_id = ? AND e.relation_id IN (/*SLICE:relation_ids*/?)
+ORDER BY e.source_order, e.id
+LIMIT ?
+`
+
+type ListEvidenceForRelationsParams struct {
+	JobID       string   `json:"job_id"`
+	RelationIds []string `json:"relation_ids"`
+	Limit       int32    `json:"limit"`
+}
+
+type ListEvidenceForRelationsRow struct {
+	ID              string `json:"id"`
+	RelationID      string `json:"relation_id"`
+	ChunkID         string `json:"chunk_id"`
+	DocumentVersion int32  `json:"document_version"`
+	SourceOrder     int64  `json:"source_order"`
+	SourceStart     int32  `json:"source_start"`
+	SourceEnd       int32  `json:"source_end"`
+	Quote           string `json:"quote"`
+}
+
+// 一批关系的全部证据。⚠️ **批量**接口：逐条关系查一次是 Phase 7 邻接查询
+// 踩过的同一个 N+1。
+func (q *Queries) ListEvidenceForRelations(ctx context.Context, arg ListEvidenceForRelationsParams) ([]ListEvidenceForRelationsRow, error) {
+	query := listEvidenceForRelations
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.JobID)
+	if len(arg.RelationIds) > 0 {
+		for _, v := range arg.RelationIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:relation_ids*/?", strings.Repeat(",?", len(arg.RelationIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:relation_ids*/?", "NULL", 1)
+	}
+	queryParams = append(queryParams, arg.Limit)
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListEvidenceForRelationsRow{}
+	for rows.Next() {
+		var i ListEvidenceForRelationsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.RelationID,
+			&i.ChunkID,
+			&i.DocumentVersion,
+			&i.SourceOrder,
+			&i.SourceStart,
+			&i.SourceEnd,
+			&i.Quote,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listJobCharacters = `-- name: ListJobCharacters :many
 SELECT id, display_name, first_source_order,
        CAST(identity_evidence AS CHAR) AS identity_evidence
@@ -925,6 +1087,89 @@ func (q *Queries) ListRecoverableExtractionJobs(ctx context.Context, arg ListRec
 			&i.Epoch,
 			&i.State,
 			&i.InitializationComplete,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRelationsBetweenCharacters = `-- name: ListRelationsBetweenCharacters :many
+SELECT r.id, r.subject_id, r.object_id, r.relation_type, r.is_directed,
+       r.first_source_order, r.chapter_number, r.chapter_title,
+       s.display_name AS subject_name, o.display_name AS object_name
+FROM narrative_relations r
+JOIN narrative_characters s ON s.id = r.subject_id
+JOIN narrative_characters o ON o.id = r.object_id
+WHERE r.job_id = ?
+  AND ((r.subject_id = ? AND r.object_id = ?) OR (r.subject_id = ? AND r.object_id = ?))
+ORDER BY r.first_source_order, r.id
+LIMIT ?
+`
+
+type ListRelationsBetweenCharactersParams struct {
+	JobID       string `json:"job_id"`
+	SubjectID   string `json:"subject_id"`
+	ObjectID    string `json:"object_id"`
+	SubjectID_2 string `json:"subject_id_2"`
+	ObjectID_2  string `json:"object_id_2"`
+	Limit       int32  `json:"limit"`
+}
+
+type ListRelationsBetweenCharactersRow struct {
+	ID               string         `json:"id"`
+	SubjectID        string         `json:"subject_id"`
+	ObjectID         string         `json:"object_id"`
+	RelationType     string         `json:"relation_type"`
+	IsDirected       bool           `json:"is_directed"`
+	FirstSourceOrder int64          `json:"first_source_order"`
+	ChapterNumber    sql.NullInt32  `json:"chapter_number"`
+	ChapterTitle     sql.NullString `json:"chapter_title"`
+	SubjectName      string         `json:"subject_name"`
+	ObjectName       string         `json:"object_name"`
+}
+
+// 两个人物之间的全部关系记录，两个方向都要。
+//
+// ⭐ 不做"取最新一条"：关系随剧情变化，"第 3 回是师徒、第 57 回反目"两条
+// 都要在。只给最后一个状态，恰恰是这类问题最没用的答案。
+//
+// ⚠️ LIMIT 由调用方传 N+1：多出来的那一条不返回给用户，只用来说明
+// "还有更多"。不这么做的话，截断和"正好这么多"在结果里长得一模一样。
+func (q *Queries) ListRelationsBetweenCharacters(ctx context.Context, arg ListRelationsBetweenCharactersParams) ([]ListRelationsBetweenCharactersRow, error) {
+	rows, err := q.db.QueryContext(ctx, listRelationsBetweenCharacters,
+		arg.JobID,
+		arg.SubjectID,
+		arg.ObjectID,
+		arg.SubjectID_2,
+		arg.ObjectID_2,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListRelationsBetweenCharactersRow{}
+	for rows.Next() {
+		var i ListRelationsBetweenCharactersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.SubjectID,
+			&i.ObjectID,
+			&i.RelationType,
+			&i.IsDirected,
+			&i.FirstSourceOrder,
+			&i.ChapterNumber,
+			&i.ChapterTitle,
+			&i.SubjectName,
+			&i.ObjectName,
 		); err != nil {
 			return nil, err
 		}
@@ -1435,6 +1680,42 @@ func (q *Queries) SupersedeRelationExtractionJob(ctx context.Context, arg Supers
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const upsertNarrativeAlias = `-- name: UpsertNarrativeAlias :exec
+INSERT IGNORE INTO narrative_aliases
+    (id, job_id, character_id, surface, surface_hash, state, evidence,
+     first_source_order, decision_key_hash)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type UpsertNarrativeAliasParams struct {
+	ID               string          `json:"id"`
+	JobID            string          `json:"job_id"`
+	CharacterID      sql.NullString  `json:"character_id"`
+	Surface          string          `json:"surface"`
+	SurfaceHash      []byte          `json:"surface_hash"`
+	State            string          `json:"state"`
+	Evidence         json.RawMessage `json:"evidence"`
+	FirstSourceOrder int64           `json:"first_source_order"`
+	DecisionKeyHash  []byte          `json:"decision_key_hash"`
+}
+
+// 一个人物的一个称呼。⚠️ INSERT IGNORE：与关系/证据同理，回放会把同一条
+// 决策再写一遍，而 decision_key_hash 上的唯一键让第二次成为空操作。
+func (q *Queries) UpsertNarrativeAlias(ctx context.Context, arg UpsertNarrativeAliasParams) error {
+	_, err := q.db.ExecContext(ctx, upsertNarrativeAlias,
+		arg.ID,
+		arg.JobID,
+		arg.CharacterID,
+		arg.Surface,
+		arg.SurfaceHash,
+		arg.State,
+		arg.Evidence,
+		arg.FirstSourceOrder,
+		arg.DecisionKeyHash,
+	)
+	return err
 }
 
 const upsertNarrativeRelation = `-- name: UpsertNarrativeRelation :exec
