@@ -11,6 +11,27 @@ import (
 )
 
 type Querier interface {
+	// resume 时追加额度。⚠️ 只加不减，且 budget_operations 里另有记录：
+	// 追加过多少、由谁追加的，是账目的一部分。
+	AddJobBudget(ctx context.Context, arg AddJobBudgetParams) (int64, error)
+	// 预留一次调用额度。⚠️ 守卫 reserved_calls < call_limit：预算耗尽时返回 0 行，
+	// 调用方据此停手。把预算检查放在**同一条 UPDATE 的 WHERE 里**而不是先读后写，
+	// 是因为后者在两个 worker 之间必然超发——而超发的表现是账单超了，不报错。
+	//
+	// ⚠️ 光守 epoch 不够（010 R6-02）。epoch 只在**别人抢走租约**时才变，
+	// 而下面这两件事都不会动它：
+	//   - 用户点了暂停 / 作业已经停成终态 —— worker 手上的 epoch 照样有效，
+	//     于是它继续一次次花钱，而界面显示"已暂停"；
+	//   - 自己的租约已经过期但还没被别人抢 —— 同样继续花钱，
+	//     而下一个 worker 随时可能接手同一批 item，那部分钱花两遍。
+	// 所以必须同时要求：作业处在活着的状态、且**租约仍然在自己手上**。
+	AddJobCallReservation(ctx context.Context, arg AddJobCallReservationParams) (int64, error)
+	// ⚠️ 尝试次数落在**数据库**里，不在内存。放内存的表现是：worker 崩溃重启后
+	// 计数归零，于是一个永远会失败的 item 被无限重试下去，把预算烧光——
+	// 而每一轮看起来都正常。这是自动恢复最容易引入的一种死循环。
+	BumpItemAttemptCount(ctx context.Context, arg BumpItemAttemptCountParams) (int64, error)
+	// ⚠️ 守卫 epoch：过期 worker 的迟到发布不得改动计数。
+	BumpJobItemOutcome(ctx context.Context, arg BumpJobItemOutcomeParams) (int64, error)
 	// 以下都是文档处理状态机的 CAS 转换——见 knowledge/service.go 的
 	// ProcessDocument。每条都带 id+version+旧状态三重限定，0 行受影响是预期
 	// 内的常见结果（并发重复到达、任务已过期、租约续约被抢），不是错误。
@@ -37,12 +58,45 @@ type Querier interface {
 	// publishing、带着这份新租约，等它自己过期后才轮到下一轮 reconciliation
 	// 再抢，不会被同一轮或紧接着的下一轮重复认领。
 	ClaimExpiredPublishingRecovery(ctx context.Context, arg ClaimExpiredPublishingRecoveryParams) (int64, error)
+	// ⭐ 抢占：epoch + 1，写租约。守卫里的 lease_until 条件是「没人持有，或者
+	// 持有者的租约已经过期」。
+	//
+	// ⚠️ epoch 自增是**唯一**能区分"我还是当前持有者"的东西。worker 之后每次
+	// 写数据都要带上自己抢到的 epoch；租约过期后被别人抢走，旧 worker 迟到的写入
+	// 会因为 epoch 对不上被拒。⚠️ 它**只约束数据发布**——旧 worker 那次外部调用
+	// 该花的钱已经花了，账目照记，见 relation_extraction_attempts。
+	// ⚠️ 白名单里**必须有 pending**（010 R6-01）。pending 是 enable/upload 登记
+	// 的意图，它正等着有人来把它初始化成真正的作业。漏掉它的表现是：
+	// 用户开启抽取、界面显示"已开启"、恢复扫描每分钟把它排进队，
+	// 而 worker 每次都抢不到租约、直接返回——**一次调用都不会发生**，
+	// 没有报错，进度永远 0/0。这是同一类漏洞的第三处（前两处见 T030）。
+	//
+	// ⭐ 抢到一个 pending 意图就把它推进到 initializing：这一步不能省，
+	// CompleteJobInitialization 守的正是 state='initializing'，
+	// 停在 pending 上会让初始化事务在最后一步影响 0 行而整体回滚。
+	ClaimRelationExtractionJob(ctx context.Context, arg ClaimRelationExtractionJobParams) (int64, error)
+	// 预留被拒之后**再问一次**是哪一维用尽了。
+	//
+	// ⚠️ 两条语句之间理论上还能再变（另一个 worker 又花了一点），但用途只是
+	// 给用户一句准确的话（"调用额度用尽"还是"活跃时间用尽"），
+	// 而两者的下一步不同：前者追加调用额度，后者说明模型变慢了、追加时间
+	// 未必解决问题。把它做成一条语句的代价是每次预留都多算两个布尔值。
+	ClassifyJobBudgetState(ctx context.Context, id string) (ClassifyJobBudgetStateRow, error)
+	// ⭐ 初始化完成是一次**带守卫的**状态跃迁，不是无条件 UPDATE。
+	//
+	// 守卫 state='initializing' AND initialization_complete=0：
+	// 两个 worker 同时初始化同一个 job 时，只有一个能跃迁成功，另一个拿到 0 行
+	// 并放弃自己的整个事务。没有这个守卫，第二个会把 total_items 覆盖成自己数出来
+	// 的值——而它枚举的可能是另一个版本的 chunk，数字看起来完全正常。
+	CompleteJobInitialization(ctx context.Context, arg CompleteJobInitializationParams) (int64, error)
 	CountAgents(ctx context.Context) (int64, error)
 	CountConversationsByUser(ctx context.Context, userID string) (int64, error)
 	CountDocumentsByKnowledgeBase(ctx context.Context, knowledgeBaseID string) (int64, error)
+	CountJobAttemptsByState(ctx context.Context, jobID string) ([]CountJobAttemptsByStateRow, error)
 	CountKnowledgeBases(ctx context.Context) (int64, error)
 	CountMCPServers(ctx context.Context) (int64, error)
 	CountProviders(ctx context.Context) (int64, error)
+	CountRelationExtractionItems(ctx context.Context, jobID string) (int64, error)
 	CountUsers(ctx context.Context) (int64, error)
 	CountWorkflowRuns(ctx context.Context, workflowID string) (int64, error)
 	CountWorkflowRunsByCreator(ctx context.Context, arg CountWorkflowRunsByCreatorParams) (int64, error)
@@ -66,9 +120,29 @@ type Querier interface {
 	// 单条插入，由 repository.go 在写 assistant message 的同一个 MySQL 事务里
 	// 循环调用（一轮 turn 最多 maxTopK=50 条，批量不值得单独写一条多值 INSERT）。
 	CreateMessageCitation(ctx context.Context, arg CreateMessageCitationParams) error
+	// ⚠️ INSERT IGNORE：回放（响应已落盘、发布前崩溃）会再写一次同样的决策，
+	// 唯一键 (job_id, decision_key_hash) 让第二次成为无操作。
+	CreateNarrativeAlias(ctx context.Context, arg CreateNarrativeAliasParams) error
+	// ---------------------------------------------------------------------
+	// 成功结果的发布：人物 / 关系 / 证据 / item 状态 / 计数，同一个事务
+	// ---------------------------------------------------------------------
+	CreateNarrativeCharacter(ctx context.Context, arg CreateNarrativeCharacterParams) error
 	CreateProvider(ctx context.Context, arg CreateProviderParams) error
 	CreateProviderModel(ctx context.Context, arg CreateProviderModelParams) error
 	CreateRefreshToken(ctx context.Context, arg CreateRefreshTokenParams) error
+	CreateRelationExtractionItem(ctx context.Context, arg CreateRelationExtractionItemParams) error
+	// 010-narrative-scene-chunking-and-relation-extraction：抽取作业的编排与账目。
+	//
+	// ⚠️ 本文件里没有任何一条 SELECT * 或隐式列清单：这些表大半是账目，
+	// 加一列而某条查询没跟上，表现是"某个数字少算了一部分"，不报错。
+	// 建 job。source_hash 为 NULL 表示尚未枚举语料——不是"空文档"。
+	CreateRelationExtractionJob(ctx context.Context, arg CreateRelationExtractionJobParams) error
+	// 首次 enable 时登记的**意图**：文档可能还没 ready，items 由 reconcile 补。
+	//
+	// ⚠️ state='pending' 而不是 'initializing'：后者的意思是"正在枚举语料"，
+	// 而这时可能连语料都还没有。两者混用会让恢复扫描把一个什么都没开始的
+	// 意图当成"初始化到一半崩了"去接手。
+	CreateRelationExtractionJobIntent(ctx context.Context, arg CreateRelationExtractionJobIntentParams) error
 	CreateTraceSpan(ctx context.Context, arg CreateTraceSpanParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) error
 	CreateWorkflow(ctx context.Context, arg CreateWorkflowParams) error
@@ -83,18 +157,82 @@ type Querier interface {
 	// agent.Service's replace-all semantics for this association.
 	DeleteAgentKnowledgeBases(ctx context.Context, agentID string) error
 	DeleteAgentMCPTools(ctx context.Context, agentID string) error
+	// ⚠️ 谓词必须与 SumArchivableAttempts **逐字相同**。不同的话，求和覆盖的
+	// 行和删掉的行就不是同一批：多删的那些费用永远消失，少删的那些下一轮会被
+	// 再加一遍。两种偏差都不报错。
+	DeleteArchivableAttempts(ctx context.Context, arg DeleteArchivableAttemptsParams) (int64, error)
 	DeleteDocument(ctx context.Context, id string) error
 	DeleteExpiredRefreshTokens(ctx context.Context, revokedAt sql.NullTime) (int64, error)
+	DeleteJobAliases(ctx context.Context, jobID string) (int64, error)
+	DeleteJobCharacters(ctx context.Context, jobID string) (int64, error)
+	DeleteJobEvidence(ctx context.Context, jobID string) (int64, error)
+	DeleteJobRelations(ctx context.Context, jobID string) (int64, error)
+	// ⚠️ 只在 job 还没结束时生效。已经 succeeded/failed 的 job 不该被一条迟到的
+	// 失败改写——那条失败属于一个早就被取代的 epoch。
+	FailRelationExtractionJob(ctx context.Context, arg FailRelationExtractionJobParams) (int64, error)
+	// 按名字找人物：display_name 直接匹配，或者通过**已确认的别名**匹配。
+	//
+	// ⚠️ 只查 display_name 的话，「老Q」这种只以别名出现过的称呼查不到，
+	// 而系统明明记录过它指向谁。state='supported' 是边界：proposed/ambiguous
+	// 的别名不能用来解析用户的提问——那等于替用户做了一次没有依据的合并。
+	FindCharactersByNameInJob(ctx context.Context, arg FindCharactersByNameInJobParams) ([]FindCharactersByNameInJobRow, error)
+	// 两组人物之间的全部关系记录，**两个方向都查**。
+	//
+	// ⚠️ 只查一个方向的话，同一个问题换个语序就查不到了。方向信息保留在
+	// is_directed 和 subject/object 上，由上层决定怎么讲。
+	//
+	// ⭐ 按 first_source_order 排序而不是章节号：倒叙的书里两者不一致，
+	// 只有原文位置能还原叙述顺序。
+	FindRelationsBetweenCharacters(ctx context.Context, arg FindRelationsBetweenCharactersParams) ([]FindRelationsBetweenCharactersRow, error)
+	// 回放：这个 item 的这个阶段是否已经有一次**成功且原始响应已落盘**的尝试。
+	//
+	// ⭐ 有的话，恢复的 worker 必须拿它接着算，**不能再打一次模型**。
+	// 再打一次的后果不是"结果不一致"，是那笔钱白花第二遍，而账目上看起来
+	// 完全正常——两次都是真实发生的调用。
+	// ⚠️ 必须排除**被截断**的那些（010 R6-06）：64KiB 上限触发时只写了
+	// error_code='response_truncated'，state 仍然是 completed；finish_reason
+	// 为 length 时同理。不排除的表现是恢复之后把一份被截掉内容的响应当成
+	// 成功结果取回来，而它解析出的是**少了后半段**的结果——一条关系凭空消失，
+	// 而失败率显示为 0。
+	FindReplayableAttempt(ctx context.Context, arg FindReplayableAttemptParams) (FindReplayableAttemptRow, error)
 	FinishWorkflowRun(ctx context.Context, arg FinishWorkflowRunParams) error
+	// 文档当前指向的作业（读状态用）。
+	GetActiveExtractionJobForDocument(ctx context.Context, id string) (GetActiveExtractionJobForDocumentRow, error)
 	GetAgentByID(ctx context.Context, id string) (Agent, error)
 	GetConversationByID(ctx context.Context, id string) (Conversation, error)
 	GetDocumentByID(ctx context.Context, id string) (Document, error)
+	GetDocumentExtractionState(ctx context.Context, id string) (GetDocumentExtractionStateRow, error)
+	// ⭐ handler 用它核对 :docId 真的属于 :id 那个知识库。
+	// ⚠️ 不核对的话，知道文档 ID 的人可以借一个自己有权限的知识库去操作别人的
+	// 文档，而每一步鉴权看起来都做了——权限查的是那个"借来的"知识库。
+	GetDocumentWithKnowledgeBase(ctx context.Context, id string) (GetDocumentWithKnowledgeBaseRow, error)
+	GetExtractionAttempt(ctx context.Context, id string) (GetExtractionAttemptRow, error)
+	// 原始响应单独取：它最大 64 KiB，不该出现在任何列表或统计查询里。
+	GetExtractionAttemptRawResponse(ctx context.Context, id string) (sql.NullString, error)
+	GetItemAttemptCounts(ctx context.Context, id string) (GetItemAttemptCountsRow, error)
+	GetJobBudgetOperations(ctx context.Context, id string) (interface{}, error)
 	GetKnowledgeBaseByID(ctx context.Context, id string) (KnowledgeBase, error)
 	GetMCPServerByID(ctx context.Context, id string) (McpServer, error)
 	GetMCPToolByID(ctx context.Context, id string) (McpTool, error)
+	GetNarrativeCharacterInJob(ctx context.Context, arg GetNarrativeCharacterInJobParams) (string, error)
+	GetNarrativeRelationByKey(ctx context.Context, arg GetNarrativeRelationByKeyParams) (string, error)
 	GetProviderByID(ctx context.Context, id string) (ModelProvider, error)
 	GetProviderModelByID(ctx context.Context, id string) (ProviderModel, error)
 	GetRefreshTokenByHash(ctx context.Context, tokenHash string) (RefreshToken, error)
+	// ⚠️ **故意不选三个 JSON 列**（config_snapshot / archived_ledger_summary /
+	// budget_operations）。两个理由：
+	//  1. 这是热路径——租约心跳每 30 秒就要用它做一次"我还是不是当前作业"的
+	//     检查，没必要每次都把配置快照和账目归档整块拉回来；
+	//  2. sqlc 把可空 JSON 映射成 json.RawMessage，而它扫不了 NULL
+	//     （unsupported Scan, storing driver.Value type <nil>），
+	//     那两列在作业刚建好时**正常就是 NULL**。
+	// 需要它们的报表/预算路径走 GetRelationExtractionJobPayload。
+	GetRelationExtractionJob(ctx context.Context, id string) (GetRelationExtractionJobRow, error)
+	// 幂等键重放：同一个 start/restart 请求打第二次，返回已有的 run 而不是新开。
+	GetRelationExtractionJobByOperationKey(ctx context.Context, arg GetRelationExtractionJobByOperationKeyParams) (GetRelationExtractionJobByOperationKeyRow, error)
+	// 三个 JSON 列单独取。⚠️ 可空的两列在 Go 侧用 sql.NullString 承接
+	// （见上面的注释），由 repository 转成领域类型时再解析。
+	GetRelationExtractionJobPayload(ctx context.Context, id string) (GetRelationExtractionJobPayloadRow, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id string) (User, error)
 	GetWorkflowByID(ctx context.Context, id string) (Workflow, error)
@@ -105,6 +243,16 @@ type Querier interface {
 	ListAgentIDsByKnowledgeBase(ctx context.Context, knowledgeBaseID string) ([]string, error)
 	ListAgentIDsByMCPTool(ctx context.Context, mcpToolID string) ([]string, error)
 	ListAgents(ctx context.Context, arg ListAgentsParams) ([]Agent, error)
+	// 同一次作业里名字匹配的人物，作为归一阶段的候选。
+	//
+	// ⭐ job_id 的过滤是一条**边界**，不是优化：跨书的同名人物（两本书都有
+	// 「张三」）一旦合并，一本书的关系会出现在另一本书的查询结果里，
+	// 而用户完全无法解释那些记录从哪来。
+	//
+	// ⚠️ 按 first_source_order 排序，不按相关度：书里先出现的更可能是主要人物，
+	// 而"相关度"在这里没有可复现的定义。候选被截断时删的是排名靠后的，
+	// 顺序不确定的话每次截断的都不是同一批。
+	ListAliasCandidates(ctx context.Context, arg ListAliasCandidatesParams) ([]ListAliasCandidatesRow, error)
 	// 历史消息接口的批量加载入口——一次查询覆盖一页消息里所有 assistant
 	// message 的 citations，避免按每条消息各查一次（见 CLAUDE.md N+1 规则）。
 	// ORDER BY message_id 让调用方按 message_id 分组后，组内已经是 ref 的字符
@@ -119,6 +267,11 @@ type Querier interface {
 	// subquery return SQL NULL, and sqlc generates a plain non-nullable string
 	// field for it — scanning a real NULL into that panics at runtime.
 	ListConversationsByUser(ctx context.Context, arg ListConversationsByUserParams) ([]ListConversationsByUserRow, error)
+	// 被取代 / 失败的作业，其派生记录已经不可查询，可以清理。
+	//
+	// ⚠️ 只清 superseded / failed。succeeded 的**不清**：那是用户当前能查到的
+	// 关系数据。paused / budget_exhausted 也不清——它们随时可能被继续。
+	ListDeadJobsWithDerivedRows(ctx context.Context, arg ListDeadJobsWithDerivedRowsParams) ([]string, error)
 	// 009-evidence-boundary-awareness：批量取一组文档"有多少内容没能入库"。
 	//
 	// ⚠️ 只 SELECT 三列，不是整行。调用方（conversation 组装上下文时）要的是
@@ -138,6 +291,16 @@ type Querier interface {
 	// 日志、诊断和测试断言可复现，不依赖 MySQL 的返回顺序（宪法第 V 条）。
 	ListDocumentIDsByAgent(ctx context.Context, agentID string) ([]string, error)
 	ListDocumentsByKnowledgeBase(ctx context.Context, arg ListDocumentsByKnowledgeBaseParams) ([]Document, error)
+	ListEvidenceForRelations(ctx context.Context, relationIds []string) ([]ListEvidenceForRelationsRow, error)
+	// ---------------------------------------------------------------------
+	// 清理与账目归档
+	// ---------------------------------------------------------------------
+	// 哪些作业有过期的 attempt 可以归档。
+	//
+	// ⚠️ 分批的单位是**作业**，不是行。一个作业的 attempt 上限就是它的 call_limit
+	// （默认 3000），一次事务处理这么多行是可以接受的；而按行分批会让"求和"和
+	// "删除"必须对齐同一批行，多出一整套游标对齐的复杂度，换来的只是更小的事务。
+	ListJobsWithArchivableAttempts(ctx context.Context, arg ListJobsWithArchivableAttemptsParams) ([]string, error)
 	ListKnowledgeBaseIDsByAgent(ctx context.Context, agentID string) ([]string, error)
 	ListKnowledgeBases(ctx context.Context, arg ListKnowledgeBasesParams) ([]KnowledgeBase, error)
 	// reconciliation 扫描用：processing 状态且租约已过期，大概率是 worker
@@ -157,6 +320,15 @@ type Querier interface {
 	// inside a tuple comparison (it silently generated a 2-arg function for a
 	// 4-placeholder query when tried), so this is the safe form.
 	ListMessagesByConversationBeforeCursor(ctx context.Context, arg ListMessagesByConversationBeforeCursorParams) ([]Message, error)
+	// 工作循环要处理的下一批 item（010 R6-01）。
+	//
+	// ⭐ 只取 pending 和 running。⚠️ running 必须在列：一次崩溃会把 item 留在
+	// running 上，漏掉它的表现是那个 item 永远不再被处理，而作业的
+	// succeeded+failed 永远凑不满 total——用户看到进度条卡在 99%，
+	// 而没有任何东西说明为什么。
+	//
+	// 按 chunk_index 游标推进，顺序确定（宪法第 V 条），走 idx_rei_job_state。
+	ListPendingExtractionItems(ctx context.Context, arg ListPendingExtractionItemsParams) ([]ListPendingExtractionItemsRow, error)
 	ListProviderModelsByProvider(ctx context.Context, providerID string) ([]ProviderModel, error)
 	ListProviders(ctx context.Context, arg ListProvidersParams) ([]ModelProvider, error)
 	// Most recent N messages, newest first. Used both for context assembly
@@ -164,10 +336,36 @@ type Querier interface {
 	// the first page of a conversation's history in the UI — always bounded by
 	// conversation_id per CLAUDE.md's large-table rule (never an unfiltered scan).
 	ListRecentMessagesByConversation(ctx context.Context, arg ListRecentMessagesByConversationParams) ([]Message, error)
+	// 恢复扫描：需要有人接手的作业。
+	//
+	// ⭐ state 白名单里**故意没有** paused 和 budget_exhausted：
+	// 那两个是**用户或预算做出的决定**，不是故障。自动把它们捡回来跑，
+	// 等于系统擅自推翻了一次显式的停止——而用户会看到一个自己明明暂停过的
+	// 作业又开始花钱。
+	//
+	// 条件是"没人持有，或者持有者的租约已经过期"。id 收尾做游标分页，
+	// 避免一次扫描把成千上万行拉回来。
+	// ⚠️ pending 必须在列：那是 enable 登记的「等待文档就绪」意图，
+	// 正等着恢复扫描来补 items。漏掉它的表现是用户开启了抽取、界面显示已开启，
+	// 而那个作业永远不会开始——没有报错，没有进度，什么都不发生。
+	ListRecoverableExtractionJobs(ctx context.Context, arg ListRecoverableExtractionJobsParams) ([]ListRecoverableExtractionJobsRow, error)
+	// 对话里"能问关系的书目"（010 T035）。
+	//
+	// ⚠️ 只列 is_relation_extraction_enabled = 1 的文档。把开了叙事分块但
+	// 没开抽取的也列出来，用户选中之后必然得到"这份文档没做过关系抽取"——
+	// 一个本来就不该出现在列表里的选项。
+	//
+	// ⭐ 带上作业状态：书目本身要能说出"这本还没跑完"。前端据此提示，
+	// 而不是等用户问完一次才知道。LEFT JOIN 是必要的——意图刚登记、
+	// 作业行存在但还没开始的文档同样要出现在列表里。
+	ListRelationDocumentsInKnowledgeBases(ctx context.Context, arg ListRelationDocumentsInKnowledgeBasesParams) ([]ListRelationDocumentsInKnowledgeBasesRow, error)
 	// reconciliation 扫描用：pending 状态停留超过阈值，大概率是入队失败（见
 	// UploadDocument 的注释）导致没有任何任务在处理它。pending 从没有 worker
 	// 持有过租约，"入队丢了"这个问题只能靠 updated_at 阈值判断。
 	ListStalePendingDocuments(ctx context.Context, updatedAt time.Time) ([]Document, error)
+	// 恢复扫描：停留在 reserved 太久的尝试。⚠️ 它们**不是**没发生过——
+	// 进程在收到响应之前崩了，所以要改判 unknown 而不是删掉或标 failed。
+	ListStaleReservedAttempts(ctx context.Context, arg ListStaleReservedAttemptsParams) ([]ListStaleReservedAttemptsRow, error)
 	ListTraceSpansByConversation(ctx context.Context, conversationID string) ([]TraceSpan, error)
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error)
 	ListWorkflowRunSteps(ctx context.Context, workflowRunID string) ([]WorkflowRunStep, error)
@@ -177,6 +375,20 @@ type Querier interface {
 	// output, unlike the shared workflow definition itself).
 	ListWorkflowRunsByCreator(ctx context.Context, arg ListWorkflowRunsByCreatorParams) ([]WorkflowRun, error)
 	ListWorkflows(ctx context.Context, arg ListWorkflowsParams) ([]Workflow, error)
+	// ⭐ 锁顺序的第一环：document → job → item。
+	//
+	// ⚠️ 顺序不一致的表现是**偶发死锁**：两个 worker 各持一半的锁互相等，
+	// MySQL 超时后杀掉其中一个。它只在并发操作同一份文档时出现，
+	// 单元测试跑一百次可能一次都不复现，而生产上会周期性地丢掉一个 item
+	// 并留下一条难以归因的错误。所以每个涉及多张表的事务都从这里开始。
+	//
+	// ⚠️ active_relation_job_id 必须一起取（010 R6-02）：
+	// verifyJobSourceStillCurrent 声称核对"文档现在指向的还是这个作业吗"，
+	// 而这个列此前根本没被选出来——那句核对是**空话**。restart 换了 run
+	// 之后，旧 worker 的结果照样发布进去，与新 run 的结果混在一起，
+	// 而两边都不会报错。
+	LockDocumentForExtraction(ctx context.Context, id string) (LockDocumentForExtractionRow, error)
+	MarkAttemptUnknown(ctx context.Context, arg MarkAttemptUnknownParams) (int64, error)
 	// processing -> failed。发布阶段（publishing）的失败不走这条路——按设计
 	// 文档留在 publishing，交给 reconciliation 用幂等发布恢复，不转 failed。
 	MarkDocumentFailed(ctx context.Context, arg MarkDocumentFailedParams) (int64, error)
@@ -220,6 +432,10 @@ type Querier interface {
 	// 路径把 publishing 阶段刚写对的值清空——那正是 008 要修的缺陷，反而被固化，
 	// 而且表现是"用户看不到提示"，没有任何报错。变异测试专门盯着这一条。
 	MarkDocumentReady(ctx context.Context, arg MarkDocumentReadyParams) (int64, error)
+	MarkItemFailed(ctx context.Context, arg MarkItemFailedParams) (int64, error)
+	// ⚠️ 守卫 state <> 'succeeded'：一个 item 只能成功一次，否则
+	// succeeded_items 会被重复累加，而它是覆盖率的分子。
+	MarkItemSucceeded(ctx context.Context, arg MarkItemSucceededParams) (int64, error)
 	// 人工重试 API 用：pending/failed -> pending 且 version 前进一位，让旧
 	// version 的任何延迟到达的任务实例在后续 CAS 里天然被判定过期。pending/
 	// failed 从不持有租约，不需要touch lease_expires_at。
@@ -240,15 +456,111 @@ type Querier interface {
 	// 提交的一个能让 lease_expires_at 实际改变，后一个的 WHERE 条件在它执行
 	// 时已经不成立，天然 0 行受影响，不需要额外的分布式锁。
 	ReclaimStaleProcessingDocument(ctx context.Context, arg ReclaimStaleProcessingDocumentParams) (int64, error)
+	// 结算后把结局计进作业级账目。confirmed_dispatches 与 unknown_attempts
+	// 分开计：前者是"确定发生过"，后者是"可能发生过"，报告里必须分别呈现，
+	// 合并会让一个不确定的数字看起来像确定的。
+	RecordJobDispatchOutcome(ctx context.Context, arg RecordJobDispatchOutcomeParams) (int64, error)
+	// 退还一次**确定没发出去**的调用预留（限流/熔断/拿不到并发槽）。
+	// ⚠️ 只有 not_dispatched 能走这里。unknown 绝不退——那笔钱可能已经花了。
+	RefundJobCallReservation(ctx context.Context, id string) (int64, error)
+	ReleaseRelationExtractionLease(ctx context.Context, arg ReleaseRelationExtractionLeaseParams) (int64, error)
 	// worker 每完成一批 Embedding、每个关键阶段前都调它续租；status 作为参数
 	// 传入，processing/publishing 两个阶段复用同一条 SQL。0 行受影响 = 这个
 	// worker 已经被 reconciliation 判定卡死并取代（version 或 status 已经不
 	// 匹配），调用方必须立刻停手，不能再写 chunks 或发布。
 	RenewDocumentLease(ctx context.Context, arg RenewDocumentLeaseParams) (int64, error)
+	// 心跳续租，必须带 epoch：租约已经被别人抢走时返回 0 行，
+	// 持有者据此知道自己已经出局，必须停止调用模型。
+	// ⚠️ 同样要含 pending：抢占那一步已经把 pending 推成 initializing，
+	// 但文档还没就绪时 worker 会原样退出、状态留在 initializing，
+	// 而下一轮重新抢占之前的那段时间里心跳仍要能续上。
+	RenewRelationExtractionLease(ctx context.Context, arg RenewRelationExtractionLeaseParams) (int64, error)
+	// ---------------------------------------------------------------------
+	// attempt 账目：这张表是"成本数字可信"的全部依据
+	// ---------------------------------------------------------------------
+	// ⭐ **先记 reserved，再发外部调用**。顺序不可颠倒。
+	//
+	// 颠倒的后果：进程在"已发出、未收到"之间崩掉，这次调用不会留下任何痕迹，
+	// 而它的钱已经花了。恢复扫描把停留过久的 reserved 改判 unknown，
+	// 于是"可能花了"这件事被如实记下来——这正是 unknown 这个状态存在的理由。
+	ReserveExtractionAttempt(ctx context.Context, arg ReserveExtractionAttemptParams) error
+	// 抢到了但文档还没就绪时，把作业退回 pending（010 R6-01）。
+	//
+	// ⭐ 状态要说实话：initializing 的意思是"正在枚举语料"，而这会儿
+	// 语料根本还不存在。⚠️ 留在 initializing 上，状态接口会一直显示
+	// "正在初始化"，用户以为卡住了；而真实情况是文档还在解析队列里排队。
+	//
+	// 守 epoch：只有当前持有者能把它退回去。
+	ReturnJobToPending(ctx context.Context, arg ReturnJobToPendingParams) (int64, error)
 	RevokeAllUserRefreshTokens(ctx context.Context, userID string) error
 	RevokeRefreshToken(ctx context.Context, id string) error
+	// 把文档的 active_relation_job_id 指向新 run，并落下所选模型。
+	// ⚠️ 守卫 status='ready' AND version=?：文档在这中间改了版本，
+	// 这次开启就该失败，而不是把作业挂到一批已经不是真相的 chunk 上。
+	SetDocumentRelationJob(ctx context.Context, arg SetDocumentRelationJobParams) (int64, error)
+	// 把文档指向一个**还是 pending 意图**的作业（010 T035）。
+	//
+	// ⭐ 与 SetDocumentRelationJob 只差一条：不要求 status='ready'。
+	// 上传时就勾了抽取的文档这会儿还在排队解析，首次 enable 也可能发生在
+	// 文档就绪之前——那两种情况下要求 ready，UPDATE 影响 0 行，
+	// 文档永远不指向这个作业。⚠️ 后果不是报错：用户第二次开启时系统看到
+	// "没有作业"，于是再建一个 run_number=1 的，撞上唯一键变成 500；
+	// 而在唯一键之前，这是一条悄悄开出两个 run 同时花钱的路径。
+	//
+	// ⚠️ version 守卫保留。ready 这一条之所以可以去掉，是因为作业真正开始
+	// 之前还要过 initializeExtractionJob，那里会重新核对 ready 与版本——
+	// 挂到一批不是真相的 chunk 上这件事在那里被挡住，不靠这条 UPDATE。
+	SetDocumentRelationJobIntent(ctx context.Context, arg SetDocumentRelationJobIntentParams) (int64, error)
+	// ⚠️ 守卫 is_narrative：非叙事文档不得开启（与 000017 的 CHECK 同义，
+	// 在这里先挡一道好给中文提示）。关闭不需要这个守卫。
+	SetExtractionEnabled(ctx context.Context, arg SetExtractionEnabledParams) (int64, error)
+	SetJobBudgetOperations(ctx context.Context, arg SetJobBudgetOperationsParams) (int64, error)
+	// worker 收尾用的跃迁（010 R6-01）：按 epoch 守卫而不是按 from 状态白名单。
+	//
+	// ⭐ 守 epoch 而不是守 from：worker 是**当前持有者**，它有权把作业从
+	// pending/initializing/running 中的任何一个停到终态；而一个 epoch 已经
+	// 过期的旧 worker 无权改动任何东西。
+	// ⚠️ 用 SetJobState 那条（守 from）会漏掉一半情况：作业在 running，
+	// worker 想停成 failed 就得先知道自己现在是哪个状态，而它中间可能已经
+	// 被 pause 改过了——那时这条 UPDATE 影响 0 行，正是想要的结果。
+	//
+	// ⚠️ 顺带写 finished_at：账目归档按它判断作业是否已经结束，
+	// 不写的话一个已经跑完的作业会被当成"还活着"而永不归档。
+	SetJobFinalState(ctx context.Context, arg SetJobFinalStateParams) (int64, error)
+	// 状态跃迁，带 from 白名单。⚠️ 无条件改状态会让一条迟到的 pause 把已经
+	// 结束的作业改回 paused，恢复扫描随后又把它捡起来。
+	SetJobState(ctx context.Context, arg SetJobStateParams) (int64, error)
+	// 结算一次尝试。⚠️ 守卫 state='reserved'：一次尝试只能被结算一次，
+	// 重复结算会让 usage 和费用被重复累加进上层聚合。
+	SettleExtractionAttempt(ctx context.Context, arg SettleExtractionAttemptParams) (int64, error)
+	// 归档前先把这一批的账目求和。
+	//
+	// ⭐ token 只在 usage_known 时计入，并单独统计"有多少次调用是知道用量的"。
+	// ⚠️ 把未知当 0 相加，就是把"没测到"和"真的没花"混成一个数——而那正是
+	// 000017 的 CHECK 和整条账目链路一路在防的事。报告里必须能说出
+	// "token 数只覆盖 N/M 次调用"。
+	SumArchivableAttempts(ctx context.Context, arg SumArchivableAttemptsParams) (SumArchivableAttemptsRow, error)
+	// 未归档 attempt 的账目。⭐ 查询费用 = 本查询 + archived_ledger_summary。
+	//
+	// ⚠️ **不能**用 jobs 表上的 confirmed_dispatches / active_ms_used 再加归档汇总：
+	// 那两列是**全生命周期**计数，归档时并不减少，加上汇总就是把同一批调用
+	// 算了两遍。两条口径必须择一，这里择"活账 + 归档汇总"，因为它在
+	// 清理之后仍然成立。
+	SumLiveAttempts(ctx context.Context, jobID string) (SumLiveAttemptsRow, error)
+	// restart：把这份文档上此前的作业全部标为 superseded。
+	//
+	// ⚠️ 只把文档指针改到新作业是不够的：旧作业的 state 还是 running，
+	// 恢复扫描会把它当成"崩溃的作业"捡回来接着跑——于是两个 run 同时对同一份
+	// 文档花钱，而两者看起来都健康。
+	//
+	// ⚠️ paused / budget_exhausted 也一并取代。它们不该被**自动**恢复
+	// （见 ListRecoverableExtractionJobs），但用户显式 restart 就是在替换它们；
+	// 留着不动会让文档上挂着两个都不是 superseded 的历史作业，
+	// 账目查询分不清哪一个是当前 run。
+	SupersedePriorExtractionJobs(ctx context.Context, arg SupersedePriorExtractionJobsParams) (int64, error)
 	TouchConversation(ctx context.Context, arg TouchConversationParams) error
 	UpdateAgent(ctx context.Context, arg UpdateAgentParams) error
+	UpdateJobArchivedSummary(ctx context.Context, arg UpdateJobArchivedSummaryParams) (int64, error)
 	// embedding_model_id/chunk_size/chunk_overlap are deliberately not
 	// updatable here — see the "创建后不可修改" note in the plan's
 	// knowledge_bases design.
@@ -267,6 +579,19 @@ type Querier interface {
 	// description/input_schema for tools that still exist and reactivates a
 	// tool that had previously disappeared and come back.
 	UpsertMCPTool(ctx context.Context, arg UpsertMCPToolParams) error
+	// ⚠️ INSERT IGNORE 而不是普通 INSERT：同一条关系可能因为回放（响应已落盘、
+	// 发布前崩溃）被再写一次。唯一键 (job_id, relation_key_hash) 让第二次成为
+	// 无操作，而不是让整个回放失败。
+	//
+	// ⚠️ 这里的"重复"只指**同一处出处的同一条关系**。跨章、同章不同场景的
+	// 同类型关系 key 不同，会各自成行——关系历史不按当前状态覆盖，
+	// 那是这个功能的立论。
+	UpsertNarrativeRelation(ctx context.Context, arg UpsertNarrativeRelationParams) error
+	// ⚠️ 唯一键是 (relation_id, evidence_key_hash)，而 evidence_key 由
+	// **规范源区间 + quote hash** 算出，**不含 chunk_id**：相邻 chunk 因 overlap
+	// 会包含同一段原文，按 chunk_id 去重会把同一处出处记成两条证据，
+	// 虚增后面要写进报告的证据条数。
+	UpsertNarrativeRelationEvidence(ctx context.Context, arg UpsertNarrativeRelationEvidenceParams) error
 }
 
 var _ Querier = (*Queries)(nil)

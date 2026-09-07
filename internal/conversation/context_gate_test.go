@@ -92,7 +92,7 @@ func TestContextGate(t *testing.T) {
 		seedConversation(t, repo, convID, ag.ID, "u1")
 		seedHistory(t, repo, convID, 2, "历史消息内容", "用户的最新问题")
 
-		assembled, err := svc.assembleContext(context.Background(), convID, ag, smallWindowModel, "用户的最新问题", "trace-gate")
+		assembled, err := svc.assembleContext(context.Background(), convID, ag, smallWindowModel, "用户的最新问题", "trace-gate", relationTurn{})
 		if err != nil {
 			t.Fatalf("case %q: assembleContext: %v", name, err)
 		}
@@ -189,7 +189,7 @@ func TestContextGateIsDeterministic(t *testing.T) {
 	seedHistory(t, repo, "conv-det", 2, "历史", "问题")
 
 	render := func() string {
-		assembled, err := svc.assembleContext(context.Background(), "conv-det", ag, smallWindowModel, "问题", "trace-det")
+		assembled, err := svc.assembleContext(context.Background(), "conv-det", ag, smallWindowModel, "问题", "trace-det", relationTurn{})
 		if err != nil {
 			t.Fatalf("assembleContext: %v", err)
 		}

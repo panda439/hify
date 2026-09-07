@@ -25,6 +25,16 @@ type Message struct {
 	ToolCalls  []ToolCall
 	ToolCallID string
 	Usage      Usage
+
+	// FinishReason 是非流式响应里服务端给出的结束原因（"stop"/"length"/
+	// "tool_calls"/…）。⚠️ 空字符串表示**未知**，不表示正常结束——
+	// 供应商可以不返回它，和 Usage 一样是 best-effort。
+	//
+	// 010 需要它：结构化抽取里 finish_reason == "length" 意味着输出被截断，
+	// 那份 JSON 即使能解析出来也是残缺的（少了尾部的关系）。没有这个字段
+	// 就只能靠"解析失败"来发现截断，而**恰好在一个合法边界被截断**的输出
+	// 会安静地通过，少掉的关系没有任何迹象——正是会让召回率数字虚高的那类错。
+	FinishReason string
 }
 
 // Usage is best-effort: not every OpenAI-compatible provider returns token

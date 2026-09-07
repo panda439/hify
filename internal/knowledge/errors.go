@@ -110,17 +110,26 @@ var ErrNarrativeUnsupportedFileType = apperr.InvalidInput(
 	"knowledge.narrative_unsupported_file_type",
 	"按场景分块目前只支持 txt 和 md 文件")
 
-// ErrRelationExtractionUnavailable：关系抽取的作业编排尚未接入。
+// ErrRelationModelRequired：勾了关系抽取却没指定模型（010 T035）。
 //
-// ⚠️ 同样是"宁可报错也不静默接受"。接受并存下这个开关、却什么都不发生，
+// ⚠️ 同样是"宁可报错也不静默接受"。它替换了 Phase 3 之前那条
+// "抽取尚未开放"的硬拒绝——编排已经接上，缺的只是模型。
+// 接受并存下这个开关、却因为没有模型而什么作业都不建，
 // 用户会一直等一个永远不会开始的抽取，而系统不会说任何话。
-// Phase 3 接上作业编排后删掉这条守卫。
-var ErrRelationExtractionUnavailable = apperr.InvalidInput(
-	"knowledge.relation_extraction_unavailable",
-	"关系抽取功能尚未开放，请先只开启按场景分块")
+var ErrRelationModelRequired = apperr.InvalidInput(
+	"knowledge.relation_model_required",
+	"开启关系抽取必须指定一个可用的对话模型")
 
 // ErrRelationExtractionRequiresNarrative 与 000017 的 CHECK 约束同义，
 // 在 Service 层先挡一道，让用户拿到中文提示而不是数据库错误。
 var ErrRelationExtractionRequiresNarrative = apperr.InvalidInput(
 	"knowledge.relation_extraction_requires_narrative",
 	"关系抽取只能在开启按场景分块的文档上使用")
+
+// ErrDocumentVersionChanged：开启抽取的过程中文档改了版本（010 T035）。
+//
+// ⚠️ 静默忽略的后果是文档不指向新建的作业：用户第二次开启时系统看到
+// "没有作业"，于是再建一个 run_number=1 的，撞上唯一键变成 500。
+var ErrDocumentVersionChanged = apperr.Conflict(
+	"knowledge.document_version_changed",
+	"这份文档刚刚被重新处理过，请刷新后重试")

@@ -1,0 +1,27 @@
+    zz_phase3_review_test.go:23: 20ms request timeout did not bound concurrency wait: 201.213958ms
+--- FAIL: TestReviewP3TimeoutIncludesConcurrencyWait (0.20s)
+    zz_phase3_review_test.go:24: published after guard invalidated
+--- FAIL: TestReviewP3PublishGuards/inactive_run (1.30s)
+    zz_phase3_review_test.go:24: published after guard invalidated
+--- FAIL: TestReviewP3PublishGuards/disabled (0.05s)
+    zz_phase3_review_test.go:24: published after guard invalidated
+--- FAIL: TestReviewP3PublishGuards/paused (0.05s)
+    zz_phase3_review_test.go:24: published after guard invalidated
+--- FAIL: TestReviewP3PublishGuards/expired_lease (0.05s)
+--- FAIL: TestReviewP3PublishGuards (1.46s)
+    zz_phase3_review_test.go:37: paused job still allowed to reserve a model call
+--- FAIL: TestReviewP3PausedReservation (0.04s)
+    zz_phase3_review_test.go:47: initialization accepted metadata without source map/hash/coverage
+--- FAIL: TestReviewP3InitializationRejectsInvalidSource (0.03s)
+    zz_phase3_review_test.go:68: cannot resume committed reservation: calls=0 err=Error 1062 (23000): Duplicate entry '01a0758c-57f5-7efb-81a6-779ebfc3dcfc-extract-1' for key 'relation_extraction_attempts.uk_rea_item_phase_attempt'
+--- FAIL: TestReviewP3ReservationCrashCanResume (0.03s)
+    zz_phase3_review_test.go:87: known truncated response returned as replayable completed result
+--- FAIL: TestReviewP3OversizedResponseIsNotReplayable (0.05s)
+    zz_phase3_review_test.go:109: cleanup permanently stuck on empty first job: 2 characters remain
+--- FAIL: TestReviewP3CleanupProgressesPastEmptyJob (0.11s)
+    zz_phase3_review_test.go:118: reports 3 queued jobs with nil queue client and no worker
+--- FAIL: TestReviewP3ReconcileDoesNotPretendToEnqueue (0.04s)
+    zz_phase3_review_test.go:146: archived cost="[49 46 50 53 48 48 48 48 48 48]", expected 2.5 USD
+--- FAIL: TestReviewP3ArchivePreservesMoneyAcrossBatches (1.31s)
+    zz_phase3_review_test.go:164: keeper remains valid=true long after TTL while every renewal fails
+--- FAIL: TestReviewP3HeartbeatFailureEventuallyLosesLease (0.15s)

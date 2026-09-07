@@ -96,7 +96,18 @@ func (h *Handler) SendMessage(c *gin.Context) error {
 		return ErrInvalidRequest
 	}
 
-	events, err := h.service.StreamMessage(c.Request.Context(), middleware.UserIDFrom(c), c.Param("id"), req.Content)
+	var opts StreamOptions
+	if req.Relation != nil {
+		opts.Relation = &RelationQuery{
+			DocumentID: req.Relation.DocumentID,
+			Subject:    req.Relation.Subject,
+			Object:     req.Relation.Object,
+			SubjectID:  req.Relation.SubjectID,
+			ObjectID:   req.Relation.ObjectID,
+		}
+	}
+	events, err := h.service.StreamMessage(
+		c.Request.Context(), middleware.UserIDFrom(c), c.Param("id"), req.Content, opts)
 	if err != nil {
 		return err
 	}
@@ -125,5 +136,33 @@ func (h *Handler) SendMessage(c *gin.Context) error {
 		// after just that one frame.
 		return event.Type != EventDone && event.Type != EventError
 	})
+	return nil
+}
+
+// relationDocumentResponse 是书目的对外形态（010 T035）。
+//
+// ⛔ 只有用户看得懂的字段：没有 job_id、没有 epoch、没有 hash。
+type relationDocumentResponse struct {
+	DocumentID string `json:"document_id"`
+	FileName   string `json:"file_name"`
+	Ready      bool   `json:"ready"`
+	Remaining  int    `json:"remaining_chunks"`
+	Stopped    bool   `json:"stopped"`
+}
+
+func (h *Handler) ListRelationDocuments(c *gin.Context) error {
+	docs, err := h.service.ListRelationDocuments(
+		c.Request.Context(), middleware.UserIDFrom(c), c.Param("id"))
+	if err != nil {
+		return err
+	}
+	items := make([]relationDocumentResponse, 0, len(docs))
+	for _, d := range docs {
+		items = append(items, relationDocumentResponse{
+			DocumentID: d.DocumentID, FileName: d.FileName,
+			Ready: d.Ready, Remaining: d.RemainingItems, Stopped: d.Stopped,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items})
 	return nil
 }

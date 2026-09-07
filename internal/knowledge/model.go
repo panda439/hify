@@ -265,6 +265,12 @@ type UploadOptions struct {
 	// 花钱、可能失败。绑成一个开关，用户就无法选"只要场景分块、不要抽取"，
 	// 而那恰恰是默认想要的组合。
 	RelationExtraction bool
+	// RelationModelID 是这份文档做抽取要用的对话模型，开启抽取时必填。
+	//
+	// ⚠️ 不在上传时就要它、留到"以后再配"，等于让文档带着一个开着的开关
+	// 停在那里什么都不做——而界面显示的是"已开启"。抽取必须调模型，
+	// 没有模型就没有作业，这一点在开关打勾的那一刻就已经确定了。
+	RelationModelID string
 }
 
 type Document struct {

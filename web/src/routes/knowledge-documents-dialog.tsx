@@ -12,6 +12,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ApiError } from "@/lib/api";
+import { useChatModels } from "@/lib/agents";
+import { ExtractionPanel } from "@/routes/extraction-panel";
 import {
   useDeleteDocument,
   useDocuments,
@@ -133,6 +135,10 @@ export function KnowledgeDocumentsDialog({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   // ⚠️ 默认 false：不勾就是这个开关出现之前的行为。
   const [narrative, setNarrative] = useState(false);
+  // 010 T035：关系抽取是独立于场景切分的第二个开关。
+  const [extractRelations, setExtractRelations] = useState(false);
+  const [relationModelId, setRelationModelId] = useState("");
+  const { data: chatModels } = useChatModels();
 
   const documents = data?.items ?? [];
 
@@ -140,12 +146,23 @@ export function KnowledgeDocumentsDialog({
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-selecting the same file later
     if (!file) return;
+    // ⚠️ 勾了抽取却没选模型时**在这里就挡住**，不发请求。
+    // 后端也会拒（两处都挡），但这里挡住的是"用户看到一句能立刻照做的话"。
+    if (extractRelations && relationModelId === "") {
+      toast.error("开启人物关系抽取需要先选择一个对话模型");
+      return;
+    }
     try {
-      await uploadDocument.mutateAsync({ file, options: { narrative } });
+      await uploadDocument.mutateAsync({
+        file,
+        options: { narrative, extractRelations, relationModelId },
+      });
       toast.success(
-        narrative
-          ? `${file.name} 已上传，将按场景切分`
-          : `${file.name} 已上传，正在处理`,
+        extractRelations
+          ? `${file.name} 已上传，将按场景切分并抽取人物关系`
+          : narrative
+            ? `${file.name} 已上传，将按场景切分`
+            : `${file.name} 已上传，正在处理`,
       );
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "上传失败");
@@ -178,7 +195,8 @@ export function KnowledgeDocumentsDialog({
             <p className="text-sm text-muted-foreground">还没有上传任何文档</p>
           )}
           {documents.map((d) => (
-            <div key={d.id} className="flex items-center justify-between gap-2 rounded-md border p-2">
+            <div key={d.id} className="rounded-md border p-2">
+              <div className="flex items-center justify-between gap-2">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-sm font-medium">{d.file_name}</span>
@@ -204,6 +222,8 @@ export function KnowledgeDocumentsDialog({
               >
                 <Trash2 />
               </Button>
+              </div>
+              <ExtractionPanel kbId={kbId} doc={d} />
             </div>
           ))}
         </div>
@@ -232,6 +252,43 @@ export function KnowledgeDocumentsDialog({
               </span>
             </span>
           </label>
+          {/* ⭐ 关系抽取只在开了场景切分时才出现：它依赖场景坐标，
+              后端也有同样的约束。⚠️ 一直显示、点了才报错，
+              等于让用户先做一件注定失败的事。 */}
+          {narrative && (
+            <label className="mt-2 flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={extractRelations}
+                onChange={(e) => setExtractRelations(e.target.checked)}
+                disabled={uploadDocument.isPending}
+              />
+              <span className="min-w-0 flex-1">
+                同时抽取人物关系
+                <span className="block text-xs text-muted-foreground">
+                  逐段调用模型抽取人物与关系，会产生模型调用开销，可以随时暂停。
+                </span>
+                {/* ⚠️ 模型是**必选**，不是"以后再配"：没有模型就没有作业，
+                    而文档会带着一个"已开启"的开关停在那里什么都不做。 */}
+                {extractRelations && (
+                  <select
+                    className="mt-1 w-full rounded-md border bg-background px-2 py-1 text-xs"
+                    value={relationModelId}
+                    onChange={(e) => setRelationModelId(e.target.value)}
+                    disabled={uploadDocument.isPending}
+                  >
+                    <option value="">选择抽取用的对话模型…</option>
+                    {(chatModels?.items ?? []).map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.model_name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </span>
+            </label>
+          )}
           <Button
             className="w-full"
             variant="outline"

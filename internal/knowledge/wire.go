@@ -77,4 +77,14 @@ func RegisterRoutes(v1 *gin.RouterGroup, h *Handler, jwtSecret string) {
 	kbs.GET("/:id/documents/:docId", httperr.Wrap(h.GetDocument))
 	kbs.DELETE("/:id/documents/:docId", httperr.Wrap(h.DeleteDocument))
 	kbs.POST("/:id/documents/:docId/retry", httperr.Wrap(h.RetryDocument))
+
+	// 010：关系抽取的状态与操作。
+	// ⚠️ 每个 handler 内部都会核对 :docId 真的属于 :id——路由层的 :id
+	// 只是路径，不是授权依据。
+	kbs.GET("/:id/documents/:docId/extraction", httperr.Wrap(h.GetExtractionStatus))
+	kbs.POST("/:id/documents/:docId/extraction/enable", httperr.Wrap(h.EnableExtraction))
+	kbs.POST("/:id/documents/:docId/extraction/disable", httperr.Wrap(h.DisableExtraction))
+	kbs.POST("/:id/documents/:docId/extraction/pause", httperr.Wrap(h.PauseExtraction))
+	kbs.POST("/:id/documents/:docId/extraction/resume", httperr.Wrap(h.ResumeExtraction))
+	kbs.POST("/:id/documents/:docId/extraction/restart", httperr.Wrap(h.RestartExtraction))
 }

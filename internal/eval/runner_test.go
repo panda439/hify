@@ -52,7 +52,7 @@ func (f *fakeConvService) ListMessages(context.Context, string, string, *convers
 	return nil, nil, "", nil
 }
 
-func (f *fakeConvService) StreamMessage(_ context.Context, _, conversationID, _ string) (<-chan conversation.StreamEvent, error) {
+func (f *fakeConvService) StreamMessage(_ context.Context, _, conversationID, _ string, _ conversation.StreamOptions) (<-chan conversation.StreamEvent, error) {
 	agentID := strings.TrimPrefix(conversationID, "conv-")
 	fx := f.fixtures[agentID]
 	if fx.streamErr != nil {
@@ -79,6 +79,13 @@ func (f *fakeConvService) StreamMessage(_ context.Context, _, conversationID, _ 
 	}
 	close(ch)
 	return ch, nil
+}
+
+// ListRelationDocuments：010 T035 给 conversation.Service 新增的方法。
+// eval 不走关系分支，返回空即可——⚠️ 返回 nil 而不是造假数据，
+// 是为了让任何误用它的用例立刻表现为"没有书目"，而不是悄悄拿到一本不存在的书。
+func (f *fakeConvService) ListRelationDocuments(context.Context, string, string) ([]conversation.RelationDocument, error) {
+	return nil, nil
 }
 
 var _ conversation.Service = (*fakeConvService)(nil)

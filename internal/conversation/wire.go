@@ -50,4 +50,6 @@ func RegisterRoutes(v1 *gin.RouterGroup, h *Handler, jwtSecret string) {
 	conversations.GET("", httperr.Wrap(h.List))
 	conversations.GET("/:id/messages", httperr.Wrap(h.ListMessages))
 	conversations.POST("/:id/messages", httperr.Wrap(h.SendMessage))
+	// 010 T035：这个会话能问人物关系的书目。
+	conversations.GET("/:id/relation-documents", httperr.Wrap(h.ListRelationDocuments))
 }

@@ -161,8 +161,12 @@ func (h *Handler) UploadDocument(c *gin.Context) error {
 	// 返回，而这里想要的是"只有明确的 true 才算开，其余一律当没勾"。
 	// 表单字段缺失是最常见的情况（旧客户端），必须等于关闭。
 	opts := UploadOptions{
-		Narrative:          c.PostForm("is_narrative") == "true",
-		RelationExtraction: c.PostForm("is_relation_extraction_enabled") == "true",
+		// ⚠️ 字段名以 contracts/http-and-chat.md §1 为准。
+		// T012 实现时我用的是列名（is_narrative），与契约不一致——
+		// 请求字段和数据库列名本来就不必相同，而契约是对外的那一份。
+		Narrative:          c.PostForm("narrative_mode") == "true",
+		RelationExtraction: c.PostForm("extract_relations") == "true",
+		RelationModelID:    c.PostForm("relation_model_id"),
 	}
 
 	doc, err := h.service.UploadDocumentWithOptions(

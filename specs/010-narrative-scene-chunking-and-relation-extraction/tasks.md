@@ -30,6 +30,9 @@ AI初标交付单独记录，人工冻结仍未完成。共库任务不并行。
 
 ## Phase 3：任务、预算与恢复
 
+**2026-09-06 独立审核：未通过。** 审核对象 phase3-extraction@f046d59；既有868测试通过，新增10个顶层契约反例全部失败。
+T014～T023保持未勾选，具体缺口及复审顺序见 [review-fixes 第六轮](review-fixes.md)。Phase2修复尚未合入此分支。
+
 - [ ] T014 在provider先写单次dispatch契约测试，再实现Service.ChatOnce及ChatAttemptResult，复用限流/breaker但不自动重试；适配器/SDK/transport单次网络请求验证；旧Chat/Embed/Stream回归。
 - [ ] T015 编排初始化：ready当前版本创建job、枚举全体published chunks与item、校验数量及metadata；initialization_complete事务提交，失败不改变事实status。
 - [ ] T016 先写状态转换和并发测试，再实现claim/epoch/180s租约/30s心跳、每次发布版本和active job检查；goroutine等待退出、取消/失效不再调用模型。
@@ -57,8 +60,8 @@ AI初标交付单独记录，人工冻结仍未完成。共库任务不并行。
 - [ ] T032 先写selection/budget测试，再实现按源顺序多类型/跨章选证据、候选200/引用12、LIMIT+1截断提示；仅用一份既有RAG预算，不伪造相似度；验证极小ContextWindow与无证据可容纳。
 - [ ] T033 对话领域选项→Service→dto/handler接入：普通StreamMessage零选项不变；关系分支停query rewrite/tool循环，固定无结果/歧义/故障文本，有证据才受限生成。
 - [ ] T034 引用来源PG批量核验+入模前MySQL复检，实际引用与message_citations一致；删除/新run并发变化停止本轮，刷新后消息/覆盖/截断提示可重放。
-- [ ] T035 前端knowledge.ts/conversations.ts及两个页面接入：上传开关、状态/暂停/续跑、同一聊天页关系选项/书目/两人输入/歧义选择；提示不出现epoch/hash等内部术语。
-- [ ] T036 真实HTTP/UI冒烟：普通对话、禁用/未开始/部分/完成/故障/歧义、两章关系变化、范围外文档、跨书同名、默认关闭回归；确认操作和提示均符合契约。
+- [x] T035 前端knowledge.ts/conversations.ts及两个页面接入：上传开关、状态/暂停/续跑、同一聊天页关系选项/书目/两人输入/歧义选择；提示不出现epoch/hash等内部术语。
+- [x] T036 真实HTTP/UI冒烟：普通对话、禁用/未开始/部分/完成/故障/歧义、两章关系变化、范围外文档、跨书同名、默认关闭回归；确认操作和提示均符合契约。证据见 `evidence/phase5-smoke/README.md`。
 
 ## Phase 6：标注、真实模型与验收
 

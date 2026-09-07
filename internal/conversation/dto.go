@@ -93,4 +93,20 @@ func toMessageResponse(m Message, citations []Citation) messageResponse {
 
 type sendMessageRequest struct {
 	Content string `json:"content" binding:"required"`
+
+	// Relation 是「这一轮问的是人物关系」的显式选项（010 T035）。
+	//
+	// ⭐ 是**显式选项**而不是从提问里猜意图。⚠️ 猜错的两个方向后果都不小：
+	// 该走关系分支却走了普通 RAG，用户得到一个基于零散片段的含糊回答；
+	// 不该走却走了，一个普通问题被答成"没有找到这两个人的关系记录"。
+	// 而无论哪一种，用户都看不出系统做过一次判断。
+	Relation *relationQueryRequest `json:"relation"`
+}
+
+type relationQueryRequest struct {
+	DocumentID string `json:"document_id" binding:"required"`
+	Subject    string `json:"subject" binding:"required"`
+	Object     string `json:"object" binding:"required"`
+	SubjectID  string `json:"subject_character_id"`
+	ObjectID   string `json:"object_character_id"`
 }

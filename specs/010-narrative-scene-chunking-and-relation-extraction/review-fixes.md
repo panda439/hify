@@ -85,3 +85,200 @@
 设计取舍：放弃旧“4表/PG零改动”限制，不引入新基础设施；选择显式关系模式而非LLM自动路由。
 未运行数据库/模型/HTTP测试，所有tasks保持未勾选；人工真值仍待确认，初标身份保持AI。
 实施如需更改契约或增加范围，先更新同一套Spec Kit文档，再继续验证。
+
+
+## 第六轮：Phase 3 独立审核（2026-09-06）
+
+**结论：Phase 3 不通过，不能标为已完成。**
+本轮对象是新 worktree `phase3-extraction`，提交 `f046d59`，不是旧 `strange-driscoll-87a634` 的 `5409f58`。
+审核中新增的 Phase 4 提交 `2ce52a3` 仅含 extract_prompt，未纳入本轮。
+
+原有全量 `go test ./... -race -count=1` **868 个测试节点通过，无失败/跳过**；
+另加 **10 个顶层契约反例，10 个全部失败**（发布守卫另含4个子场景）。
+证据与可复制测试见 [phase3-review](evidence/phase3-review/README.md)。
+通过的测试证明已有组件的部分行为；不能代替不存在的生产工作循环，也不能排除未覆盖的崩溃窗口。
+
+### 集成状态
+
+- 第四、第五轮在旧 worktree 修复的 Phase 2 来源/Markdown/PDF/上传问题尚未合入本分支。
+  该部分历史见 `/Users/lishurong/go/src/hify/.claude/worktrees/strange-driscoll-87a634/specs/010-narrative-scene-chunking-and-relation-extraction/review-fixes.md`。
+- 新分支 narrative_metadata 仍是旧来源区间逻辑；不能继承第五轮“Phase 2 修复已验证”的当前分支结论。
+- tasks T014～T023 仍未勾选。应先合入并复验 Phase 2 修复，以下问题也需解决后再验收。
+
+### R6-01 [P1] 恢复扫描没有入队，也没有生产执行循环
+
+位置：`internal/knowledge/extraction_reconcile.go:101–108`、`service.go:1441–1442`、`tasks.go`。
+扫描 callback 只有 slog.Info，JobsRequeued 却累加；Service 直接返回 repository 结果，没有 asynqClient.Enqueue。
+只有 reconcile handler，没有 `{job_id}` 执行任务或 ProcessRelationExtraction。initializeExtractionJob、
+newPhaseRunner、findReplayableResponse、fitExtractionInput 等均没有生产调用方。
+也没有扫描“ready+开启但尚未建 job”的 documents；ready 后崩溃的持久意图没有恢复路径。
+
+复现：用 nil queue client 调真实 Service，仍返回 `JobsRequeued=3` 且无错误。
+`TestWorkLoopStopsCallingTheModelOnceInvalid` 的工作循环写在测试本身，不能证明生产 worker 已实现；
+ChatOnce 的 countingClient 也只是内层方法计数，不是 HTTP 接收计数。
+
+修复：完成 plan§4 的文档意图扫描→初始化→实际入队→worker→账目/校验/回放/发布链路，
+唯一重试层和预算限制在该链路真实生效；用真实 asynq 消费+Fake Provider 验丢消息、重启、空结果、预算停止。
+归一/模型解析可沿 Phase 4 接口继续，但不能用缺少 worker 的组件集合宣称 T015～T021 已交付。
+
+### R6-02 [P1] 发布与调用预留缺少状态/当前 run/lease 守卫
+
+位置：`extraction_publish.go:312–335`、`relation_extraction.sql:154–161,273–278,310–318`。
+verifyJobSourceStillCurrent 声称校验 active run，但锁文档查询根本不取 active_relation_job_id，
+实际仅检查版本/ready 与 job.State!=superseded。最终 BumpJobItemOutcome 只看 id+epoch。
+AddJobCallReservation 同样仅检查 epoch 和额度，不要求 job running、有效租约或文档启用。
+
+复现：分别替换 active_job_id、关闭抽取、暂停 job、使 lease 过期，**四种情况均能发布成功**；
+暂停 job 后仍能预留下一次调用。没有新 worker 抢占时，epoch 相同不能代表租约仍有效。
+
+修复：所有 dispatch admission / 业务发布用同一套 document→job→item 锁与当前状态校验；
+核对 enabled、active_job_id、version、epoch、lease、item所属及状态；锁定 job 后再锁 item。
+迟到调用的账目仍可结算，业务发布须拒绝，不能把“记账允许”混成“继续调用允许”。
+
+### R6-03 [P1] 预留和次数计数分开提交，崩溃后永久撞重复编号
+
+位置：`extraction_retry.go:173–185`、`extraction_ledger.go:94–144`。
+reserveExtractionAttempt 已提交 attempt_number=1 后，才单独 BumpItemAttemptCount；中间崩溃时
+attempt 已存在，item.extract_attempt_count 仍为0。恢复将旧 attempt 改判 unknown，也不会修复计数。
+
+复现：模拟此提交窗口后 runPhase 继续从1预留，MySQL返回 `uk_rea_item_phase_attempt` 重复键，
+新调用次数为0，自动恢复仍会反复撞相同错误。
+
+修复：同一事务锁 job/item、分配并递增阶段次数、预留额度、插入 attempt；恢复读取持久事实，
+不能把两条提交之间的空窗留给重新编号。补三阶段崩溃点与并发重复任务测试。
+
+### R6-04 [P1] 连续心跳失败超过 TTL，keeper 仍声称有效
+
+位置：`extraction_lease.go:170–190`。
+每次续租 error 都直接 continue，没有按最后一次成功续租计算失效期限；也没有给单次续租设置
+剩余租约期限内的超时。数据库长期故障时 Valid 可一直为true，旧 worker 仍可能继续调用。
+
+复现：TTL=20ms，续租每次报错，150ms后仍 `Valid=true`，Lost未关闭。
+
+修复：保存最近确认的到期时间，查询/续租不得越过该期限；到期立即标失效并取消工作 context。
+续租SQL也不能让已过期的旧 owner 在没有新claim时自行复活。验证短暂故障与超过TTL两种边界。
+
+### R6-05 [P1] 初始化只检查 schema 标号，坏来源也可建作业
+
+位置：`extraction.go:168–176`。
+decodeNarrativeMetadata 只解JSON并检查schema_version，没有调用覆盖/区间校验器或验证文档hash。
+因此“能解JSON”被当成了“每个chunk有可用来源”。
+
+复现：将两个已发布chunk的metadata改成 `{"schema_version":1}`，初始化仍成功。
+
+修复：按正文长度验证完整来源映射、合法结构顺序、hash一致性；缺失/损坏/跨文档不一致整批拒绝。
+须在合入上一轮精确来源修复后验证，不能只加schema字段或空对象兜底。
+
+### R6-06 [P1] 已明确截断的响应仍被当作成功回放
+
+位置：`extraction_ledger.go:155–168`、`relation_extraction.sql:286–290`。
+64KiB截断只写 error_code=response_truncated，state仍completed；FindReplayableAttempt完全不看
+error_code/finish_reason，返回被截掉内容的响应作为可回放结果。runPhase对原始completed响应也直接accept。
+
+复现：落盘64KiB+1字节响应，再查回放，found=true。
+
+修复：截断/finish_reason=length必须保留调用账目但标为不可接受结果；回放选择必须排除此类响应，
+首次与恢复路径共享同一校验，不因重启改判。测试应穿过完整worker而非仅测capRawResponse长度。
+
+### R6-07 [P2] 清理永远反复扫已空的第一批，后续作业饿死
+
+位置：`relation_extraction.sql:399–412`、`extraction_archive.go:236–278`。
+ListDeadJobsWithDerivedRows并未过滤“还有派生记录”的作业，没有游标/清理标记；清理后保留jobs账目是正确的，
+但下次扫描依然命中同一批最小ID，排序后面的job永久进不来。
+
+复现：两个到期superseded job，第一个无派生数据、第二个有2个人物，批大小1，连续清理3次仍剩2个人物。
+
+修复：按游标遍历或事务性记录清理完成，并在删除前锁定/复检仍可清理的状态，避免用户续跑与清理竞态。
+测试超过一批、空首批与并发恢复，不只验证单个job删完。
+
+### R6-08 [P1] 费用归档既覆盖旧金额，又把DECIMAL写成字节数组文本
+
+位置：`extraction_archive.go:159–168`。
+CostAmount直接 `fmt.Sprint(sum.CostAmount)`，没有加prev.CostAmount；MySQL驱动的DECIMAL返回[]byte，
+最终存成 `[49 46 ...]`，不是金额。jobLedgerTotals不返回金额，原“总费用不变”测试只比token/次数，漏过此错。
+
+复现：分两批各归档1.25 USD，预期2.50，实际 `CostAmount="[49 46 50 53 48 48 48 48 48 48]"`。
+
+修复：用精确decimal解析与累加，保留currency/pricing_version/cost_kind及未知口径；不得混币种相加。
+归档、汇总读取还需同一一致性快照/锁，避免并发归档时把同一批同时计入live与archive。
+本地Ollama不计金额不能掩盖契约中estimated/measured金额路径损坏。
+
+### R6-09 [P2] ChatOnce的timeout不包含并发槽/限流等待
+
+位置：`internal/provider/chatonce.go:88–112`。
+先 acquire(ctx)/checkRateLimit(ctx)，之后才创建callCtx并启动计时。并发槽占满时，
+调用方给20ms timeout也会等待外层context；ctx无deadline时没有这个参数承诺的上限，等待时间也不进账。
+
+复现：占住唯一并发槽，timeout=20ms、外层deadline=200ms，实际约201ms才返回。
+
+修复：从入口创建总deadline并贯穿排队/限流/dispatch，分别如实记录未dispatch与已dispatch时间；
+补真实HTTP单请求计数，检查超时后台goroutine仍占用适当资源且有等待/回收策略。
+
+### T014～T023 当前验收状态
+
+| 任务 | 本轮结论 |
+|---|---|
+| T014 | 部分：单次装饰器已有；等待超时错误，真实HTTP计数证据不足 |
+| T015 | 部分：初始化函数有；无生产入口，坏metadata可进入 |
+| T016 | 部分：lease CAS/心跳有；到期失效和调用前守卫不足，工作循环只在测试里 |
+| T017 | 部分：账目事务有；缺生产dispatch串联，预留/阶段计数非原子 |
+| T018 | 部分：retry helper有；崩溃恢复重复编号，连续失败停止未接入生产 |
+| T019 | 部分：预算/输入限制helper有；生产worker未接通，不能称实际调用受限 |
+| T020 | 部分：结果事务有；当前run/lease/暂停守卫缺失，截断响应误回放 |
+| T021 | 未交付：周期任务注册有，但无ready文档意图恢复/真正入队/执行handler |
+| T022 | 部分：版本/删除/显式superseded有；当前run和启用/租约检查不足 |
+| T023 | 部分：归档/删除有；扫描饿死和金额损坏已复现 |
+
+### 修复顺序与复审门槛
+
+1. 合入Phase2修复，完成真正的Phase3 worker与入队/恢复链路，不另建状态或绕过既定Spec Kit。
+2. 先修统一守卫、预留计数原子性和lease到期，再接模型调用；账目结算不受旧epoch丢弃。
+3. 修来源校验、响应回放、清理扫描及金额归档，把上述反例纳入正式回归。
+4. Fake Provider + 真实MySQL/PG/Redis验证丢消息、崩溃窗口、暂停/替换run、空结果、预算耗尽与重启。
+5. 再运行全量race、vet、双门禁；提供生产调用链和真实队列证据，不用测试内手写循环冒充。
+
+## 第七轮：Phase 3 修复复审与 Phase 4/5 新增内容审核（2026-09-06）
+
+本轮基于 `8a9e52f` 及当前未提交修复复审。R6-01、R6-02、R6-03、R6-04、R6-06 已有实现和针对性测试；本轮另直接修复 R6-07、R6-08、R6-09，并修复严格 JSON 尾随对象校验。对应 package 测试和 vet 已通过。
+
+### R7-01 [P1，已修复] Phase 4 的既有人物 link 无法发布
+
+位置：`extract_pipeline.go` 的 `buildOutcome` 与 `extraction_publish.go` 的 `publishItemOutcome`。
+归一结果为 `link` 时，pipeline 生成 `link:<character_id>` 端点，但 publish 只建立本 item 新建人物的 local-ref 映射；关系或别名引用该端点时会报 `not among created characters` 并回滚。因此跨 chunk 归一虽然能判定成功，却不能真正落库，T027/T028 不能验收。
+
+本轮已改为：发布事务内核对被链接人物属于同一 job，关系端点和 alias 可直接引用该已有 character_id，并保留每次 mention 的 FR-014 判定依据。跨 job ID 会被拒绝。
+
+### 本轮直接修复
+
+- R6-07：清理扫描只选择确实仍有派生记录的失败/被取代作业，空首批不再饿死后续作业。
+- R6-08：归档金额按十进制定点精确累加，兼容 MySQL DECIMAL 的 `[]byte` 返回，不再覆盖前一批。
+- R6-09：`ChatOnce` 总 deadline 从入口开始，覆盖并发槽和限流等待，并记录等待耗时。
+- T024：严格 JSON 解码用第二次 Decode 验 EOF，拒绝尾随第二个 JSON 对象。
+
+### 当前结论
+
+Phase 3 的九项问题均已有修复，R6-05 的 metadata 完整性修复也在当前未提交改动中通过全仓测试。Phase 4 新发现的 R7-01 已修复，但还缺真实模型效果验收，不能用工程测试代替。Phase 5 的状态/预算/关系查询/聊天分支后端已新增，但前端 T035、真实 HTTP/UI 冒烟 T036 尚未交付，因此 Phase 5 不能标完成。
+
+## 第八轮：Phase 5 前端复审（2026-09-06）
+
+审核提交 `86dc7d5`、`3b44e73`。知识库上传开关、抽取状态面板、关系书目和人物输入已经接入；生产构建及 conversation 回归测试通过。
+
+### R8-01 [P1，已修复] 未填完整的关系提问会静默退回普通对话
+
+关系开关打开但书目或人物未填完整时，发送按钮此前仍可用，`handleSend` 会省略 relation 参数并执行普通 RAG 对话。用户明确选择了关系查询，却会收到另一条链路的回答，界面没有任何提示。
+
+本轮已在按钮、Enter 发送和 handler 三处统一阻止不完整关系请求，并展示填写提示；切换/新建会话会清空上一会话的关系状态，后台书目失效时也会清除旧选择。
+
+### 当前结论
+
+T035 已补齐歧义选择：后端通过 SSE 返回带查询侧别的结构化候选，前端可点击回填；候选 ID 在当前 job 内重新核验，跨 job ID 会按未知人物处理。T036 的真实 HTTP/UI 场景矩阵尚无证据，因此 Phase 5 仍不能标完成。
+
+## 第九轮：Phase 5 真实 HTTP/UI 验收（2026-09-07）
+
+本轮用当前工作树启动服务，并连接隔离的真实 MySQL、PostgreSQL、Redis；生成成功和故障路径使用本地 Fake OpenAI-compatible SSE 服务。完整记录见 `evidence/phase5-smoke/README.md`。
+
+真实 UI 已验证关系模式默认关闭、不完整输入禁止发送、同名候选可点击选择、选择后按 character ID 消歧，以及切换会话不保留旧状态。真实 HTTP/SSE 已覆盖普通对话、禁用、未开始、部分完成、完成无记录、上游故障、同名歧义、两章关系变化与两条引用、范围外文档、跨书同名隔离。
+
+### 当前结论
+
+R8-01 与结构化歧义选择修复均通过回归。T035、T036 可标完成；Phase 5 的前端和冒烟缺口已收口。此结论只代表工程链路与固定测试数据通过，不替代 Phase 6 的真实模型效果和人工标注验收。

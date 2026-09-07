@@ -65,7 +65,7 @@ func TestIntegrationAssembleContextNoKnowledgeBasesChargesNothingForRAG(t *testi
 	seedHistory(t, repo, "conv-nokb", 3, strings.Repeat("h", 100), "最新问题")
 
 	ag := agent.Agent{ID: "ag-nokb", ModelID: "m1"} // no KnowledgeBaseIDs
-	assembled, err := svc.assembleContext(context.Background(), "conv-nokb", ag, smallWindowModel, "最新问题", "trace-1")
+	assembled, err := svc.assembleContext(context.Background(), "conv-nokb", ag, smallWindowModel, "最新问题", "trace-1", relationTurn{})
 	if err != nil {
 		t.Fatalf("assembleContext: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestIntegrationAssembleContextRetrievalErrorChargesNothingForRAG(t *testing
 	seedHistory(t, repo, "conv-kberr", 3, strings.Repeat("h", 100), "最新问题")
 
 	ag := agent.Agent{ID: "ag-kberr", ModelID: "m1", KnowledgeBaseIDs: []string{"kb-1"}}
-	assembled, err := svc.assembleContext(context.Background(), "conv-kberr", ag, smallWindowModel, "最新问题", "trace-1")
+	assembled, err := svc.assembleContext(context.Background(), "conv-kberr", ag, smallWindowModel, "最新问题", "trace-1", relationTurn{})
 	if err != nil {
 		t.Fatalf("assembleContext: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestIntegrationAssembleContextAllCandidatesBelowThresholdChargesNothingForR
 	seedHistory(t, repo, "conv-lowscore", 3, strings.Repeat("h", 100), "最新问题")
 
 	ag := agent.Agent{ID: "ag-lowscore", ModelID: "m1", KnowledgeBaseIDs: []string{"kb-1"}}
-	assembled, err := svc.assembleContext(context.Background(), "conv-lowscore", ag, smallWindowModel, "最新问题", "trace-1")
+	assembled, err := svc.assembleContext(context.Background(), "conv-lowscore", ag, smallWindowModel, "最新问题", "trace-1", relationTurn{})
 	if err != nil {
 		t.Fatalf("assembleContext: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestIntegrationAssembleContextShortEvidenceReturnsUnusedBudgetToHistory(t *
 	seedHistory(t, repo, "conv-short-ev", 3, strings.Repeat("h", 100), "最新问题")
 
 	ag := agent.Agent{ID: "ag-short-ev", ModelID: "m1", KnowledgeBaseIDs: []string{"kb-1"}}
-	assembled, err := svc.assembleContext(context.Background(), "conv-short-ev", ag, smallWindowModel, "最新问题", "trace-1")
+	assembled, err := svc.assembleContext(context.Background(), "conv-short-ev", ag, smallWindowModel, "最新问题", "trace-1", relationTurn{})
 	if err != nil {
 		t.Fatalf("assembleContext: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestIntegrationAssembleContextLatestUserMessageAlwaysKept(t *testing.T) {
 	seedHistory(t, repo, "conv-keeplatest", 20, strings.Repeat("h", 200), "这是最新的真实问题")
 
 	ag := agent.Agent{ID: "ag-keeplatest", ModelID: "m1", KnowledgeBaseIDs: []string{"kb-1"}}
-	assembled, err := svc.assembleContext(context.Background(), "conv-keeplatest", ag, smallWindowModel, "这是最新的真实问题", "trace-1")
+	assembled, err := svc.assembleContext(context.Background(), "conv-keeplatest", ag, smallWindowModel, "这是最新的真实问题", "trace-1", relationTurn{})
 	if err != nil {
 		t.Fatalf("assembleContext: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestIntegrationAssembleContextFinalEstimateNeverExceedsBudgetUnderSmallWind
 	// TestComputeFixedBudgetChargesOnlySystemPromptAndTools; what this
 	// test drives end-to-end is history+evidence+system-prompt staying
 	// within budget together, via the real assembleContext pipeline.
-	assembled, err := svc.assembleContext(context.Background(), "conv-estimate", ag, smallWindowModel, "最终真实问题是什么", "trace-1")
+	assembled, err := svc.assembleContext(context.Background(), "conv-estimate", ag, smallWindowModel, "最终真实问题是什么", "trace-1", relationTurn{})
 	if err != nil {
 		t.Fatalf("assembleContext: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestIntegrationAssembleContextOlderHistoryNotDroppedByLatestMessageDoubleCh
 
 	model := provider.Model{ContextWindow: iptr(3000)} // totalBudgetChars = (3000-1000)*4 = 8000
 	ag := agent.Agent{ID: "ag-doublecharge", ModelID: "m1"}
-	assembled, err := svc.assembleContext(ctx, "conv-doublecharge", ag, model, latest, "trace-1")
+	assembled, err := svc.assembleContext(ctx, "conv-doublecharge", ag, model, latest, "trace-1", relationTurn{})
 	if err != nil {
 		t.Fatalf("assembleContext: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestIntegrationAssembleContextHistoryBudgetIsRuneBasedNotByteBased(t *testi
 	// 放不下，会被裁掉——这正是本测试要抓的偏差。
 	model := provider.Model{ContextWindow: iptr(1152)} // totalBudgetChars = (1152-1000)*4 = 608
 	ag := agent.Agent{ID: "ag-runebudget", ModelID: "m1"}
-	assembled, err := svc.assembleContext(ctx, "conv-runebudget", ag, model, latest, "trace-1")
+	assembled, err := svc.assembleContext(ctx, "conv-runebudget", ag, model, latest, "trace-1", relationTurn{})
 	if err != nil {
 		t.Fatalf("assembleContext: %v", err)
 	}
@@ -388,7 +388,7 @@ func TestAssembleContextEmptyRetrievalTellsTheModel(t *testing.T) {
 	seedHistory(t, repo, "conv-009-empty", 2, "历史", "知识库里没有的问题")
 
 	ag := agent.Agent{ID: "ag-009", ModelID: "m1", KnowledgeBaseIDs: []string{"kb-009"}}
-	assembled, err := svc.assembleContext(context.Background(), "conv-009-empty", ag, smallWindowModel, "知识库里没有的问题", "trace-009")
+	assembled, err := svc.assembleContext(context.Background(), "conv-009-empty", ag, smallWindowModel, "知识库里没有的问题", "trace-009", relationTurn{})
 	if err != nil {
 		t.Fatalf("assembleContext: %v", err)
 	}
@@ -416,7 +416,7 @@ func TestAssembleContextNoKnowledgeBasesStaysSilent(t *testing.T) {
 	seedHistory(t, repo, "conv-009-nokb", 2, "历史", "随便问点什么")
 
 	ag := agent.Agent{ID: "ag-009-nokb", ModelID: "m1"} // 没有 KnowledgeBaseIDs
-	assembled, err := svc.assembleContext(context.Background(), "conv-009-nokb", ag, smallWindowModel, "随便问点什么", "trace-009")
+	assembled, err := svc.assembleContext(context.Background(), "conv-009-nokb", ag, smallWindowModel, "随便问点什么", "trace-009", relationTurn{})
 	if err != nil {
 		t.Fatalf("assembleContext: %v", err)
 	}
@@ -454,7 +454,7 @@ func TestAssembleContextIncompleteDocumentIsSurfaced(t *testing.T) {
 	seedHistory(t, repo, "conv-009-inc", 2, "历史", "签字页上的条款是什么")
 
 	ag := agent.Agent{ID: "ag-009-inc", ModelID: "m1", KnowledgeBaseIDs: []string{"kb-009"}}
-	assembled, err := svc.assembleContext(context.Background(), "conv-009-inc", ag, smallWindowModel, "签字页上的条款是什么", "trace-009")
+	assembled, err := svc.assembleContext(context.Background(), "conv-009-inc", ag, smallWindowModel, "签字页上的条款是什么", "trace-009", relationTurn{})
 	if err != nil {
 		t.Fatalf("assembleContext: %v", err)
 	}
@@ -487,7 +487,7 @@ func TestAssembleContextEmptyRetrievalSignalIsChargedToBudget(t *testing.T) {
 		seedConversation(t, repo, convID, ag.ID, "u1")
 		seedHistory(t, repo, convID, 200, strings.Repeat("h", 20), "最新问题")
 		svc := newAssembleTestService(db, ks)
-		assembled, err := svc.assembleContext(context.Background(), convID, ag, smallWindowModel, "最新问题", "trace-budget")
+		assembled, err := svc.assembleContext(context.Background(), convID, ag, smallWindowModel, "最新问题", "trace-budget", relationTurn{})
 		if err != nil {
 			t.Fatalf("assembleContext: %v", err)
 		}

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -32,6 +33,41 @@ type Service interface {
 	// 一个字都不用改，而"零值 = 旧行为"由 UploadOptions 的定义保证。
 	UploadDocument(ctx context.Context, kbID, userID, role, fileName, fileType string, content []byte) (Document, error)
 	UploadDocumentWithOptions(ctx context.Context, kbID, userID, role, fileName, fileType string, content []byte, opts UploadOptions) (Document, error)
+
+	// 抽取的操作接口（010 T029）。⚠️ 每一个都带 userID/role：
+	// 后台 worker 不伪造用户身份，它走的是另一条不需要身份的路径。
+	GetExtractionStatus(ctx context.Context, kbID, docID, userID, role string) (ExtractionStatus, error)
+	SetExtractionEnabled(ctx context.Context, kbID, docID, userID, role string, enabled bool, op ExtractionOperation) (ExtractionStatus, error)
+	PauseExtraction(ctx context.Context, kbID, docID, userID, role string, op ExtractionOperation) (ExtractionStatus, error)
+	ResumeExtraction(ctx context.Context, kbID, docID, userID, role string, op ExtractionOperation) (ExtractionStatus, error)
+	RestartExtraction(ctx context.Context, kbID, docID, userID, role string, op ExtractionOperation) (ExtractionStatus, error)
+
+	// QueryRelations 回答「A 和 B 是什么关系」（010 T031）。
+	//
+	// ⚠️ documentIDs 必须是调用方**已经下推过 Agent 范围**的列表；
+	// 空列表表示"没有任何可查的文档"，不是"不限定"。
+	// budgetRunes 是既有 RAG 预算里分给关系证据的那一份，不是另开的一份。
+	QueryRelations(ctx context.Context, documentIDs []string, subject, object string, budgetRunes int) (RelationAnswer, error)
+	QueryRelationsSelected(ctx context.Context, documentIDs []string, subject, object, subjectID, objectID string, budgetRunes int) (RelationAnswer, error)
+
+	// ListRelationDocuments 列出这些知识库里可以问人物关系的书目（010 T035）。
+	//
+	// ⚠️ kbIDs 必须是**调用方已经下推过 Agent 范围**的列表。
+	// 空列表表示"这个 Agent 没挂任何知识库"，不是"不限定"。
+	ListRelationDocuments(ctx context.Context, kbIDs []string) ([]RelationDocument, error)
+
+	// ReconcileRelationExtractions 是抽取作业的恢复扫描（010）。
+	// ⚠️ 它**不会**恢复用户暂停或预算耗尽的作业——那两个是显式决定，
+	// 不是故障；自动重启它们等于系统擅自推翻用户的选择，而用户会看到
+	// 一个自己明明暂停过的作业又开始花钱。
+	ReconcileRelationExtractions(ctx context.Context) (ReconcileResult, error)
+
+	// RunRelationExtraction 跑一个抽取作业（010 R6-01）。
+	//
+	// ⭐ 这是整条链路唯一真正调用模型的入口，由 asynq worker 触发，
+	// 不走 HTTP。⚠️ 返回 nil 不代表作业完成——抢不到租约、文档还没就绪、
+	// 租约中途丢失都是正常结局，由下一轮恢复扫描接手。
+	RunRelationExtraction(ctx context.Context, jobID string) error
 	ListDocuments(ctx context.Context, kbID string, limit, offset int) ([]Document, int, error)
 	GetDocument(ctx context.Context, id string) (Document, error)
 
@@ -166,6 +202,18 @@ type service struct {
 	// buildApp 从 config.Config.RAGMetadataFilterEnabled 透传进来。
 	// 关闭时为什么是"拒绝"而不是"静默降级"，见那个配置字段的文档注释。
 	metadataFilterEnabled bool
+
+	// beforeRelationRecheck 是 QueryRelations 在「读完记录」与「入模前复检」
+	// 之间的一个测试挂载点（010 T034），生产路径为 nil。
+	//
+	// ⚠️ 复检要守的是**这个窗口里发生的并发变化**：文档被删掉、改版，
+	// 或者用户重新发起了一次抽取。这种变化在测试里没有第二种造法——
+	// 从外部改数据库，两次读到的都是改后的值，窗口根本不存在，
+	// 于是这道守卫看起来永远不会触发，也就永远测不到它是不是真的在守。
+	//
+	// 同 findNeighborBatch/rerankScoreFn 的先例：未导出字段，不扩大
+	// Service 的对外面积，生产代码行为完全不变。
+	beforeRelationRecheck func(ctx context.Context)
 }
 
 func (s *service) CreateKnowledgeBase(ctx context.Context, input CreateKnowledgeBaseInput) (KnowledgeBase, error) {
@@ -309,6 +357,21 @@ func (s *service) UploadDocumentWithOptions(ctx context.Context, kbID, userID, r
 		return Document{}, err
 	}
 
+	// ⭐ 上传时就勾了抽取的话，**在这里**把作业意图登记下来（010 T035）。
+	//
+	// ⚠️ 只存下 is_relation_extraction_enabled 而不建意图，就是这个开关
+	// 上线前一直被硬拒绝的那个理由：文档带着一个"已开启"的开关停在那里，
+	// 而没有任何作业会开始。恢复扫描只捡**已存在**的作业，不会替一份
+	// 光有开关的文档凭空造一个。
+	//
+	// state 保持 pending：文档这会儿还在排队解析，items 由恢复扫描在
+	// 文档 ready 之后补上——这正是 pending 这个状态存在的理由。
+	if opts.RelationExtraction {
+		if err := s.repo.createUploadExtractionIntent(ctx, doc, opts.RelationModelID); err != nil {
+			return Document{}, err
+		}
+	}
+
 	// version starts at 1, matching the DB column's default — this task
 	// instance is authorized to process exactly this (as yet unclaimed)
 	// attempt.
@@ -334,9 +397,10 @@ func validateUploadOptions(fileType string, opts UploadOptions) error {
 		// 而不是一条数据库约束错误。
 		return ErrRelationExtractionRequiresNarrative
 	}
-	if opts.RelationExtraction {
-		// Phase 3 接上作业编排后删掉这条。
-		return ErrRelationExtractionUnavailable
+	if opts.RelationExtraction && strings.TrimSpace(opts.RelationModelID) == "" {
+		// ⚠️ 这条守卫替换了 Phase 3 之前那个"抽取暂不可用"的硬拒绝。
+		// 现在编排已经接上，缺的只是模型——而没有模型的开关等于没开关。
+		return ErrRelationModelRequired
 	}
 	if opts.Narrative && fileType != FileTypeTxt && fileType != FileTypeMD {
 		return ErrNarrativeUnsupportedFileType
@@ -1430,4 +1494,41 @@ func (s *service) DocumentCoverages(ctx context.Context, documentIDs []string) (
 		return nil, nil
 	}
 	return s.repo.documentCoverages(ctx, documentIDs)
+}
+
+func (s *service) ReconcileRelationExtractions(ctx context.Context) (ReconcileResult, error) {
+	// ⭐ 真正的**入队**在这一层，不在 repository：repository 不该知道
+	// asynq 的存在（CLAUDE.md 分层）。
+	//
+	// ⚠️ 这里原本是一句 `return s.repo.reconcileRelationExtractions(ctx)`，
+	// 而扫描回调只打了一行日志——于是 JobsRequeued 照样累加、扫描每分钟
+	// 报告"已重排 N 个"，**一个作业都不会被跑**。用 nil 队列客户端调它
+	// 也返回成功。这是 R6-01 的核心症状：每一层都认为自己工作正常。
+	res, err := s.repo.reconcileRelationExtractionsWith(ctx, func(job recoverableJob) {
+		if enqErr := s.enqueueRunExtraction(ctx, job.ID); enqErr != nil {
+			// ⚠️ 入队失败只记日志、不中断整轮扫描：一个作业排不进去
+			// 不该让其余几十个也排不进去。下一轮会再试。
+			slog.Error("knowledge: enqueue extraction job failed",
+				"err", enqErr, "job_id", job.ID, "state", job.State)
+		}
+	})
+	return res, err
+}
+
+// enqueueRunExtraction 把一个作业排进执行队列。
+//
+// ⚠️ MaxRetry(0)：重试是本模块自己那一层的事，asynq 再叠一层会让同一个
+// 作业被重复入队，而账目上看不出区别。
+func (s *service) enqueueRunExtraction(ctx context.Context, jobID string) error {
+	if s.asynqClient == nil {
+		// ⭐ 明确报错。⚠️ 静默跳过正是 R6-01 的形态：没有队列时扫描
+		// 仍然"成功"，而没有任何作业会开始。
+		return errors.New("knowledge: no task queue configured for relation extraction")
+	}
+	task, err := newRunRelationExtractionTask(jobID)
+	if err != nil {
+		return err
+	}
+	_, err = s.asynqClient.EnqueueContext(ctx, task, asynq.MaxRetry(0))
+	return err
 }

@@ -146,7 +146,20 @@ type assembledContext struct {
 // logged and the turn continues without that piece, rather than failing
 // outright — a RAG or MCP hiccup shouldn't take down a conversation that
 // would otherwise work.
-func (s *service) assembleContext(ctx context.Context, conversationID string, ag agent.Agent, model provider.Model, latestUserMessage, traceID string) (assembledContext, error) {
+// relationTurn 是关系提问这一轮**已经挑好的**证据与覆盖提示（010 T035）。
+//
+// ⭐ 零值等于改动前的行为：Evidence 为空时 assembleContext 走原来的检索
+// 路径，一个字节都不差——两条确定性门禁盯着这件事。
+type relationTurn struct {
+	// Evidence 已经由 knowledge 层挑选、核验、编号（见 relation_branch.go）。
+	// ⚠️ 非空时**不做检索**：关系提问不需要向量召回，而且两批证据都从 S1
+	// 编号，混在一起会有两个 S1，模型引用哪一个无从分辨。
+	Evidence []Evidence
+	// Notice 是"这不是全部记录"那句话，没有截断时为空。
+	Notice string
+}
+
+func (s *service) assembleContext(ctx context.Context, conversationID string, ag agent.Agent, model provider.Model, latestUserMessage, traceID string, rel relationTurn) (assembledContext, error) {
 	tools, toolNameToID := s.loadTools(ctx, ag.MCPToolIDs)
 
 	// The one hard failure mode in this function: if the Agent's system
@@ -192,7 +205,14 @@ func (s *service) assembleContext(ctx context.Context, conversationID string, ag
 	// "we never looked" and "looking failed" — see the assignment below.
 	retrievalSucceeded := false
 	var retrievedCount, filteredByScore, filteredByBudget int
-	if len(ag.KnowledgeBaseIDs) > 0 {
+	if len(rel.Evidence) > 0 {
+		// ⭐ 关系提问这一轮：证据已经挑好并核验过，**不做检索**。
+		// retrievalSucceeded 置真是如实的——我们确实查过、确实有结果，
+		// 只是查的是关系记录而不是向量近邻。
+		evidence = rel.Evidence
+		retrievalSucceeded = true
+		retrievedCount = len(evidence)
+	} else if len(ag.KnowledgeBaseIDs) > 0 {
 		// Query rewrite (US1, FR-001): turns an elliptical follow-up like
 		// "那它的上限呢" into a standalone question BEFORE Retrieve sees
 		// it. rewrite.SearchQuery is latestUserMessage unchanged on every
@@ -374,6 +394,12 @@ func (s *service) assembleContext(ctx context.Context, conversationID string, ag
 	}
 	if len(evidence) > 0 {
 		out = append(out, provider.Message{Role: provider.RoleUser, Content: evidenceMessageContent})
+		// ⭐ 覆盖提示紧跟证据发出去。⚠️ 不告诉模型的话，它会把手上这几条
+		// 当成全部，答出"他们之间只有这些关系"——而实际上还有更多没放进来。
+		// ⛔ 只陈述事实，不写"请说明这一点"之类的指令（009 口径）。
+		if rel.Notice != "" {
+			out = append(out, provider.Message{Role: provider.RoleUser, Content: rel.Notice})
+		}
 	}
 	if latest != nil {
 		out = append(out, provider.Message{Role: provider.Role(latest.Role), Content: latest.Content})

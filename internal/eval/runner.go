@@ -129,7 +129,10 @@ func runCase(ctx context.Context, convSvc conversation.Service, traceStore trace
 	var sc streamCollection
 	turns := caseTurns(tc)
 	for i, turn := range turns {
-		events, err := convSvc.StreamMessage(ctx, userID, conv.ID, turn)
+		events, err := convSvc.StreamMessage(ctx, userID, conv.ID, turn,
+			// ⭐ 零选项：eval 走的正是"改动前的那条路"，
+			// 两条确定性门禁靠它保持逐字节可比。
+			conversation.StreamOptions{})
 		if err != nil {
 			result.Err = fmt.Sprintf("send message (turn %d/%d): %v", i+1, len(turns), err)
 			return result
