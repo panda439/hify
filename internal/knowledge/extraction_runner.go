@@ -60,12 +60,17 @@ type extractionRunner struct {
 	repo   *Repository
 	model  singleAttemptModel
 	phases *phaseRunner
+	// aliasCandidateLimit 是归一阶段的候选窗口。生产恒为 maxAliasCandidates；
+	// ⚠️ 做成字段只为让实验能改它（见 selectAliasCandidatesN 的说明），
+	// 不要在生产路径上设成别的值——契约 §6 定的就是 32。
+	aliasCandidateLimit int
 	// now 是时间的接缝，测试用。
 	now func() time.Time
 }
 
 func newExtractionRunner(repo *Repository, model singleAttemptModel) *extractionRunner {
-	return &extractionRunner{repo: repo, model: model, phases: newPhaseRunner(repo), now: time.Now}
+	return &extractionRunner{repo: repo, model: model, phases: newPhaseRunner(repo),
+		now: time.Now, aliasCandidateLimit: maxAliasCandidates}
 }
 
 // runJobResult 是一次运行的结局，供日志与运维观察。
@@ -301,7 +306,7 @@ func (r *extractionRunner) runItem(ctx context.Context, job RelationExtractionJo
 	if err != nil {
 		return runItemResult{}, err
 	}
-	in.Candidates, in.CandidateTruncated = selectAliasCandidates(pool, surfaces)
+	in.Candidates, in.CandidateTruncated = selectAliasCandidatesN(pool, surfaces, r.aliasCandidateLimit)
 
 	var aliasRaw []byte
 	var assign identityAssignment

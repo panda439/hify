@@ -159,6 +159,17 @@ func needsAliasPhase(in aliasInput) bool {
 // 就替模型做了一次"长得像就是同一个人"的判断，而那正是要防的错误。
 // 名称只用来检索候选，不用来直接合并。
 func selectAliasCandidates(pool []aliasCandidate, surfaces []string) ([]aliasCandidate, int) {
+	return selectAliasCandidatesN(pool, surfaces, maxAliasCandidates)
+}
+
+// selectAliasCandidatesN 是把窗口大小做成参数的版本。
+//
+// ⚠️ 生产路径恒用 maxAliasCandidates（契约 §6 定的 32），**这个参数只给
+// 实验用**：run2 实测归一阶段 54 次调用里 16 次 60s 超时、成功的平均 43s，
+// 高度怀疑是输入太大（整块正文 + 32 个候选，每个还带 2 条依据）。
+// 要验证就得能改这个数，而在数据支持之前不该动契约里的常量——
+// 先拿实验数据说话，再决定改不改 32。
+func selectAliasCandidatesN(pool []aliasCandidate, surfaces []string, limit int) ([]aliasCandidate, int) {
 	exact := make(map[string]bool, len(surfaces))
 	for _, s := range surfaces {
 		exact[s] = true
@@ -175,9 +186,9 @@ func selectAliasCandidates(pool []aliasCandidate, surfaces []string) ([]aliasCan
 		return ranked[i].CharacterID < ranked[j].CharacterID
 	})
 	truncated := 0
-	if len(ranked) > maxAliasCandidates {
-		truncated = len(ranked) - maxAliasCandidates
-		ranked = ranked[:maxAliasCandidates]
+	if len(ranked) > limit {
+		truncated = len(ranked) - limit
+		ranked = ranked[:limit]
 	}
 	for i := range ranked {
 		if len(ranked[i].Evidence) > maxAliasCandidateEvidence {

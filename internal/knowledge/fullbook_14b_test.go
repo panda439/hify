@@ -5,7 +5,9 @@ package knowledge
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -23,9 +26,65 @@ import (
 type fullBookModel struct {
 	client  *http.Client
 	baseURL string
+	// rawDir 非空时，**每一次调用一结束就立刻把原始响应写盘**。
+	//
+	// ⭐ 这是 run2 的教训：原本的归档是跑完之后从 attempts 表统一导出的，
+	// 结果测试在 60 分钟墙钟上限处被 SIGINT 打断，导出从未执行——
+	// 44 个块的调用记录连同它们的原始响应一起没了（测试库还会被下一次
+	// go test 重建，等于二次销毁）。
+	//
+	// ⚠️ 一次长跑的归档不能依赖"跑完"这个前提：跑得越久越值钱，
+	// 而跑得越久被打断的概率也越大。边跑边写才是对的。
+	rawDir string
+	// seq 给文件名排序，让中断后也能看出调用发生的先后。
+	seq int
 }
 
-func (m *fullBookModel) ChatOnce(ctx context.Context, modelID string, req provider.ChatRequest, timeout time.Duration) (provider.ChatAttemptResult, error) {
+// archive 把一次调用的现场立刻落盘。任何写盘失败都只警告不中断——
+// ⚠️ 归档是观测手段，它自己不该有能力让一次真实的抽取跑失败。
+func (m *fullBookModel) archive(modelID string, req provider.ChatRequest, res provider.ChatAttemptResult, callErr error) {
+	if m.rawDir == "" {
+		return
+	}
+	m.seq++
+	prompt := ""
+	if len(req.Messages) > 0 {
+		prompt = req.Messages[0].Content
+	}
+	sum := sha256.Sum256([]byte(prompt))
+	rec := map[string]any{
+		"seq": m.seq, "model": modelID,
+		// ⚠️ 只记提示词的摘要和长度，不存正文：语料本身是 gitignore 的，
+		// 存一份等于把它复制进版本库。
+		"prompt_sha256": hex.EncodeToString(sum[:]),
+		"prompt_runes":  len([]rune(prompt)),
+		"outcome":       string(res.Outcome),
+		"elapsed_ms":    res.ElapsedMs,
+		"finish_reason": res.FinishReason,
+		"error_code":    res.ErrorCode,
+		"usage_known":   res.UsageKnown,
+		"input_tokens":  res.InputTokens,
+		"output_tokens": res.OutputTokens,
+		"content":       res.Message.Content,
+		"at":            time.Now().UTC().Format(time.RFC3339),
+	}
+	if callErr != nil {
+		rec["call_error"] = callErr.Error()
+	}
+	b, err := json.MarshalIndent(rec, "", "  ")
+	if err != nil {
+		return
+	}
+	name := fmt.Sprintf("%04d-%s.json", m.seq, string(res.Outcome))
+	if err := os.WriteFile(filepath.Join(m.rawDir, name), append(b, byte('\n')), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "归档写盘失败（不影响本次抽取）: %v\n", err)
+	}
+}
+
+func (m *fullBookModel) ChatOnce(ctx context.Context, modelID string, req provider.ChatRequest, timeout time.Duration) (res provider.ChatAttemptResult, err error) {
+	// ⭐ 单一出口归档：无论走哪条返回路径（超时、传输失败、正常完成），
+	// 这一次调用都会被写盘。漏掉任何一条，比率就是错的。
+	defer func() { m.archive(modelID, req, res, err) }()
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	body, err := json.Marshal(struct {
@@ -126,7 +185,17 @@ func TestFullBook14B(t *testing.T) {
 	if err := repo.db.QueryRowContext(ctx, `SELECT active_relation_job_id FROM documents WHERE id=?`, doc.ID).Scan(&jobID); err != nil {
 		t.Fatal(err)
 	}
-	res, runErr := runnerFor(t, repo, &fullBookModel{client: &http.Client{}, baseURL: envOr("HIFY_OLLAMA_BASE_URL", "http://127.0.0.1:11434")}).runJob(ctx, jobID)
+	runner := runnerFor(t, repo, &fullBookModel{client: &http.Client{}, baseURL: envOr("HIFY_OLLAMA_BASE_URL", "http://127.0.0.1:11434"), rawDir: filepath.Join(outDir, "raw")})
+	// ⚠️ 只有实验才设这个；不设就是契约里的 32。
+	if v := strings.TrimSpace(os.Getenv("HIFY_FULLBOOK_ALIAS_CANDIDATES")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			t.Fatalf("HIFY_FULLBOOK_ALIAS_CANDIDATES 不是正整数: %q", v)
+		}
+		runner.aliasCandidateLimit = n
+		t.Logf("实验：归一候选窗口设为 %d（契约默认 %d）", n, maxAliasCandidates)
+	}
+	res, runErr := runner.runJob(ctx, jobID)
 	writeFullBookArtifacts(t, repo, jobID, doc.ID, res, outDir, time.Since(started), modelID)
 	if runErr != nil && runErr != ErrExtractionCallBudgetExhausted && runErr != ErrExtractionActiveTimeExhausted {
 		t.Fatalf("runJob: %v", runErr)
