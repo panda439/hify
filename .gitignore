@@ -9,5 +9,7 @@ web/node_modules/
 .DS_Store
 eval/runs/*.json
 eval/baseline.json
+eval/cache/miracl-zh-mini/
+eval/cache/miracl-zh-upstream/
 .claude/settings.local.json
 .env.docker

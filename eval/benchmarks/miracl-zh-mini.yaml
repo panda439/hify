@@ -1,0 +1,15 @@
+dataset: miracl
+revision: v1.0
+language: zh
+split: dev
+license: Apache-2.0
+query_limit: 50
+target_documents: 800
+min_documents: 500
+max_documents: 1000
+selection_seed: 11
+k: [1, 3, 5, 10]
+cache_dir: eval/cache/miracl-zh-mini
+run_dir: eval/runs
+# Source URLs are recorded in the generated manifest; the large upstream corpus
+# and generated text are intentionally not checked into the repository.

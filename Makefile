@@ -7,7 +7,7 @@ export
 DOCKER_BUILDKIT ?= 0
 export DOCKER_BUILDKIT
 
-.PHONY: dev build test test-race migrate-up migrate-down sqlc check-deps db-up db-down web-dev web-build eval eval-retrieval-gate eval-context-gate app-build app-up app-down app-logs app-seed-admin
+.PHONY: dev build test test-race migrate-up migrate-down sqlc check-deps db-up db-down web-dev web-build eval eval-retrieval-gate eval-context-gate eval-retrieval-benchmark-prepare eval-retrieval-benchmark-ingest eval-retrieval-benchmark-run eval-retrieval-benchmark-score eval-retrieval-benchmark-compare app-build app-up app-down app-logs app-seed-admin
 
 dev:
 	air
@@ -92,6 +92,30 @@ eval:
 eval-retrieval-gate:
 	HIFY_RETRIEVAL_GATE_REPORT_PATH=$(CURDIR)/eval/runs/phase6-retrieval-gate-latest.json \
 		go test -v -race -count=1 -run TestRetrievalGatePhase6 ./internal/knowledge/
+
+# 011：MIRACL 中文 Mini 真实检索评测。默认路径可通过变量覆盖；ingest/run
+# 由应用侧 benchmark adapter 执行，命令入口保留为独立阶段以支持恢复。
+MIRACL_MINI_DIR ?= $(CURDIR)/eval/cache/miracl-zh-mini
+MIRACL_UPSTREAM_DIR ?= $(CURDIR)/eval/cache/miracl-zh-upstream
+MIRACL_TOPICS ?= $(MIRACL_UPSTREAM_DIR)/topics-dev.tsv
+MIRACL_QRELS ?= $(MIRACL_UPSTREAM_DIR)/qrels-dev.tsv
+MIRACL_CORPUS ?= $(MIRACL_UPSTREAM_DIR)/docs-0.jsonl.gz,$(MIRACL_UPSTREAM_DIR)/docs-1.jsonl.gz,$(MIRACL_UPSTREAM_DIR)/docs-2.jsonl.gz,$(MIRACL_UPSTREAM_DIR)/docs-3.jsonl.gz,$(MIRACL_UPSTREAM_DIR)/docs-4.jsonl.gz,$(MIRACL_UPSTREAM_DIR)/docs-5.jsonl.gz,$(MIRACL_UPSTREAM_DIR)/docs-6.jsonl.gz,$(MIRACL_UPSTREAM_DIR)/docs-7.jsonl.gz,$(MIRACL_UPSTREAM_DIR)/docs-8.jsonl.gz,$(MIRACL_UPSTREAM_DIR)/docs-9.jsonl.gz
+MIRACL_RUN ?= $(CURDIR)/eval/runs/miracl-zh-mini-latest.json
+MIRACL_REPORT ?= $(CURDIR)/eval/runs/miracl-zh-mini-report.json
+MIRACL_CONFIG_ENV = HIFY_MYSQL_DSN='$(subst ",,$(HIFY_MYSQL_DSN))' HIFY_POSTGRES_DSN='$(subst ",,$(HIFY_POSTGRES_DSN))' HIFY_REDIS_ADDR='$(subst ",,$(HIFY_REDIS_ADDR))' HIFY_REDIS_DB='$(subst ",,$(HIFY_REDIS_DB))' HIFY_ENCRYPTION_KEY='$(subst ",,$(HIFY_ENCRYPTION_KEY))'
+eval-retrieval-benchmark-prepare:
+	test -f $(MIRACL_TOPICS) || curl -fL https://huggingface.co/datasets/miracl/miracl/resolve/main/miracl-v1.0-zh/topics/topics.miracl-v1.0-zh-dev.tsv -o $(MIRACL_TOPICS)
+	test -f $(MIRACL_QRELS) || curl -fL https://huggingface.co/datasets/miracl/miracl/resolve/main/miracl-v1.0-zh/qrels/qrels.miracl-v1.0-zh-dev.tsv -o $(MIRACL_QRELS)
+	for i in $$(seq 0 9); do test -f $(MIRACL_UPSTREAM_DIR)/docs-$$i.jsonl.gz || curl -fL https://huggingface.co/datasets/miracl/miracl-corpus/resolve/main/miracl-corpus-v1.0-zh/docs-$$i.jsonl.gz -o $(MIRACL_UPSTREAM_DIR)/docs-$$i.jsonl.gz; done
+	go run ./cmd/retrievalbench prepare --queries $(MIRACL_TOPICS) --qrels $(MIRACL_QRELS) --corpus $(MIRACL_CORPUS) --output $(MIRACL_MINI_DIR)
+eval-retrieval-benchmark-ingest:
+	$(MIRACL_CONFIG_ENV) go run ./cmd/retrievalbench ingest --input $(MIRACL_MINI_DIR) --output $(MIRACL_MINI_DIR)/ingest.json
+eval-retrieval-benchmark-run:
+	$(MIRACL_CONFIG_ENV) go run ./cmd/retrievalbench run --input $(MIRACL_MINI_DIR) --output $(MIRACL_RUN)
+eval-retrieval-benchmark-score:
+	go run ./cmd/retrievalbench score --input $(MIRACL_RUN) --output $(MIRACL_REPORT)
+eval-retrieval-benchmark-compare:
+	go run ./cmd/retrievalbench compare --baseline $(BASELINE) --candidate $(CANDIDATE) --output $(COMPARISON_REPORT)
 
 # 009：上下文组装确定性门禁。守的是检索门禁**不覆盖**的那一段——从证据到"送给
 # 模型的完整消息序列"。上下文组装是整条对话链路上最容易被无声改坏的地方：改错了
