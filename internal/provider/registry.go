@@ -97,7 +97,7 @@ func (reg *registry) build(ctx context.Context, providerID string) (Client, erro
 	var client Client
 	switch p.AdapterType {
 	case AdapterOpenAICompatible:
-		client = newOpenAICompatClient(p.BaseURL, apiKey, p.ExtraHeaders, &http.Client{})
+		client = newOpenAICompatClientWithRerankFormat(p.BaseURL, apiKey, p.ExtraHeaders, &http.Client{}, p.ExtraConfig.RerankFormat)
 	default:
 		return nil, ErrUnsupportedType
 	}

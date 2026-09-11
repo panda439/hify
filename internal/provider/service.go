@@ -46,7 +46,17 @@ type service struct {
 	reg  *registry
 }
 
+func validateExtraConfig(cfg ExtraConfig) error {
+	if cfg.RerankFormat != "" && cfg.RerankFormat != RerankFormatVoyage {
+		return ErrInvalidRequest
+	}
+	return nil
+}
+
 func (s *service) CreateProvider(ctx context.Context, input CreateProviderInput) (Provider, error) {
+	if err := validateExtraConfig(input.ExtraConfig); err != nil {
+		return Provider{}, err
+	}
 	if input.AdapterType == "" {
 		input.AdapterType = AdapterOpenAICompatible
 	}
@@ -102,6 +112,9 @@ func (s *service) GetProvider(ctx context.Context, id string) (Provider, error) 
 }
 
 func (s *service) UpdateProvider(ctx context.Context, id string, input UpdateProviderInput) (Provider, error) {
+	if err := validateExtraConfig(input.ExtraConfig); err != nil {
+		return Provider{}, err
+	}
 	existing, err := s.repo.getProvider(ctx, id)
 	if err != nil {
 		return Provider{}, err
