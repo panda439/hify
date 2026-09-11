@@ -7,6 +7,10 @@ const (
 )
 
 const (
+	RerankFormatVoyage = "voyage"
+)
+
+const (
 	AuthTypeAPIKey = "api_key"
 	AuthTypeNone   = "none"
 )
@@ -33,9 +37,10 @@ const (
 // overrides, not a required config block: zero values mean "use the
 // registry's sane defaults" (see registry.go).
 type ExtraConfig struct {
-	IdleTimeoutSeconds int `json:"idle_timeout_seconds,omitempty"`
-	MaxConcurrent      int `json:"max_concurrent,omitempty"`
-	RateLimitPerMinute int `json:"rate_limit_per_minute,omitempty"`
+	IdleTimeoutSeconds int    `json:"idle_timeout_seconds,omitempty"`
+	MaxConcurrent      int    `json:"max_concurrent,omitempty"`
+	RateLimitPerMinute int    `json:"rate_limit_per_minute,omitempty"`
+	RerankFormat       string `json:"rerank_format,omitempty"`
 }
 
 // Provider is the domain type for a configured LLM provider connection.
