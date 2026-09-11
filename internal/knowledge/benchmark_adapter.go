@@ -19,6 +19,29 @@ type BenchmarkKnowledgeService interface {
 	Retrieve(context.Context, []string, string, int, RetrieveOptions) ([]RetrievedChunk, error)
 }
 
+// benchmarkRetrieveObserverKey and benchmarkRetrieveObserver are deliberately
+// package-private. BenchmarkAdapter can observe the concrete Service path
+// without widening Service's public API or changing normal callers.
+type benchmarkRetrieveObserverKey struct{}
+
+type benchmarkRetrieveObserver struct {
+	rerank rerankStats
+}
+
+func benchmarkObserverFromContext(ctx context.Context) *benchmarkRetrieveObserver {
+	if ctx == nil {
+		return nil
+	}
+	observer, _ := ctx.Value(benchmarkRetrieveObserverKey{}).(*benchmarkRetrieveObserver)
+	return observer
+}
+
+func (o *benchmarkRetrieveObserver) record(stats rerankStats) {
+	if o != nil {
+		o.rerank = stats
+	}
+}
+
 type BenchmarkDocumentInput struct {
 	SourceDocumentID string
 	FileName         string
@@ -39,10 +62,15 @@ type BenchmarkIngestReport struct {
 	Complete               bool              `json:"complete"`
 }
 type BenchmarkRetrievalResult struct {
-	QueryID   string
-	Result    RawBenchmarkRetrieval
-	Error     string
-	ElapsedMS int64
+	QueryID          string
+	Result           RawBenchmarkRetrieval
+	Error            string
+	ElapsedMS        int64
+	RerankEnabled    bool
+	RerankApplied    bool
+	RerankDegraded   bool
+	RerankInputCount int
+	RerankDurationMS int64
 }
 type RawBenchmarkRetrieval struct {
 	ChunkHits       []BenchmarkChunkHit
@@ -149,9 +177,16 @@ func (a *BenchmarkAdapter) Retrieve(ctx context.Context, query string, topK int)
 	if a.kbID == "" {
 		return out, fmt.Errorf("benchmark knowledge base id is required")
 	}
+	observer := &benchmarkRetrieveObserver{}
+	ctx = context.WithValue(ctx, benchmarkRetrieveObserverKey{}, observer)
 	started := time.Now()
 	hits, err := a.svc.Retrieve(ctx, []string{a.kbID}, query, topK, RetrieveOptions{})
 	out.ElapsedMS = time.Since(started).Milliseconds()
+	out.RerankEnabled = observer.rerank.Enabled
+	out.RerankApplied = observer.rerank.Applied
+	out.RerankDegraded = observer.rerank.Degraded
+	out.RerankInputCount = observer.rerank.InputCount
+	out.RerankDurationMS = observer.rerank.DurationMs
 	if err != nil {
 		out.Error = err.Error()
 		return out, err

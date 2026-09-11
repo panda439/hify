@@ -1053,6 +1053,7 @@ func classifyRetrieveErr(ctx context.Context, err error) error {
 // call chain is the context itself being cancelled or timed out — see
 // classifyRetrieveErr.
 func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query string, topK int, opts RetrieveOptions) ([]RetrievedChunk, error) {
+	benchmarkObserverFromContext(ctx).record(rerankStats{Enabled: s.rerankEnabled})
 	// 002-metadata-filter：过滤器闸门跑在**最前面**——在下面那个提前返回之前，
 	// 也在任何一次数据库调用之前。调用方要求了一个我们无法兑现的范围时，必须
 	// 明确告诉他，而不是把一个更宽范围的结果递给他。下面两个分支都是**拒绝**，
@@ -1180,6 +1181,7 @@ func (s *service) Retrieve(ctx context.Context, knowledgeBaseIDs []string, query
 	// 级、响应校验失败降级——任何一条都不让 Retrieve 失败，只是保持 fused
 	// 的融合排序继续（降级矩阵，plan.md）。
 	reranked, rStats := s.applyRerankStep(ctx, query, fused)
+	benchmarkObserverFromContext(ctx).record(rStats)
 	if len(reranked) > topK {
 		reranked = reranked[:topK]
 	}

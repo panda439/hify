@@ -84,6 +84,50 @@ type BenchmarkStages struct {
 	EmbeddingCost string     `json:"embedding_cost"`
 }
 
+type RerankModelIdentity struct {
+	ModelName  string            `json:"model_name"`
+	Revision   string            `json:"revision"`
+	Digest     string            `json:"digest"`
+	License    string            `json:"license"`
+	Runtime    map[string]string `json:"runtime"`
+	EndpointID string            `json:"endpoint_id"`
+	Ready      bool              `json:"ready"`
+}
+
+type RerankStatsSnapshot struct {
+	RequestCount        int       `json:"request_count"`
+	SuccessCount        int       `json:"success_count"`
+	FailureCount        int       `json:"failure_count"`
+	DegradedCount       int       `json:"degraded_count"`
+	CandidateCountTotal int       `json:"candidate_count_total"`
+	CurrentRSSBytes     int64     `json:"current_rss_bytes"`
+	PeakRSSBytes        int64     `json:"peak_rss_bytes"`
+	SwapUsedBytes       int64     `json:"swap_used_bytes"`
+	ColdStartMS         int64     `json:"cold_start_ms"`
+	SteadyLatencyMS     []float64 `json:"steady_latency_ms,omitempty"`
+}
+
+type RerankPhaseStats struct {
+	RequestCount        int                  `json:"request_count"`
+	SuccessCount        int                  `json:"success_count"`
+	FailureCount        int                  `json:"failure_count"`
+	DegradedCount       int                  `json:"degraded_count"`
+	CandidateCountTotal int                  `json:"candidate_count_total"`
+	ColdStartMS         int64                `json:"cold_start_ms"`
+	SteadyP50MS         float64              `json:"steady_p50_ms"`
+	SteadyP95MS         float64              `json:"steady_p95_ms"`
+	PeakRSSBytes        int64                `json:"peak_rss_bytes"`
+	SwapDeltaBytes      int64                `json:"swap_delta_bytes"`
+	HifyOutcome         string               `json:"hify_outcome,omitempty"`
+	HifyEnabledCount    int                  `json:"hify_enabled_count"`
+	HifyAppliedCount    int                  `json:"hify_applied_count"`
+	HifyDegradedCount   int                  `json:"hify_degraded_count"`
+	HifyInputCount      int                  `json:"hify_input_count"`
+	HifyDurationMS      int64                `json:"hify_duration_ms"`
+	StatsBefore         *RerankStatsSnapshot `json:"stats_before,omitempty"`
+	StatsAfter          *RerankStatsSnapshot `json:"stats_after,omitempty"`
+}
+
 type ChunkHit struct {
 	ChunkID    string `json:"chunk_id"`
 	DocumentID string `json:"document_id"`
@@ -113,16 +157,24 @@ type Fingerprint struct {
 	K                     []int    `json:"k"`
 	MetricVersion         string   `json:"metric_version"`
 	CodeRevision          string   `json:"code_revision,omitempty"`
+	RerankEnabled         bool     `json:"rerank_enabled,omitempty"`
+	RerankModelName       string   `json:"rerank_model_name,omitempty"`
+	RerankModelDigest     string   `json:"rerank_model_digest,omitempty"`
+	RerankCandidateLimit  int      `json:"rerank_candidate_limit,omitempty"`
+	RerankTimeoutMS       int64    `json:"rerank_timeout_ms,omitempty"`
+	RunMode               string   `json:"run_mode,omitempty"`
 }
 type RetrievalRun struct {
-	Fingerprint      Fingerprint      `json:"fingerprint"`
-	Queries          []BenchmarkQuery `json:"queries"`
-	Qrels            []Qrel           `json:"qrels"`
-	Results          []RawQueryResult `json:"results"`
-	Complete         bool             `json:"complete"`
-	QueryCount       int              `json:"query_count"`
-	FailedQueryCount int              `json:"failed_query_count"`
-	Stages           BenchmarkStages  `json:"stages"`
+	Fingerprint      Fingerprint          `json:"fingerprint"`
+	Queries          []BenchmarkQuery     `json:"queries"`
+	Qrels            []Qrel               `json:"qrels"`
+	Results          []RawQueryResult     `json:"results"`
+	Complete         bool                 `json:"complete"`
+	QueryCount       int                  `json:"query_count"`
+	FailedQueryCount int                  `json:"failed_query_count"`
+	Stages           BenchmarkStages      `json:"stages"`
+	RerankIdentity   *RerankModelIdentity `json:"rerank_identity,omitempty"`
+	RerankStats      *RerankPhaseStats    `json:"rerank_stats,omitempty"`
 }
 type QueryMetrics struct {
 	QueryID           string  `json:"query_id"`
@@ -145,13 +197,15 @@ type AggregateMetrics struct {
 	NDCG      float64 `json:"ndcg"`
 }
 type MetricReport struct {
-	Fingerprint      Fingerprint        `json:"fingerprint"`
-	Queries          []QueryMetrics     `json:"queries"`
-	Aggregates       []AggregateMetrics `json:"aggregates"`
-	QueryCount       int                `json:"query_count"`
-	FailedQueryCount int                `json:"failed_query_count"`
-	Complete         bool               `json:"complete"`
-	Stages           BenchmarkStages    `json:"stages"`
+	Fingerprint      Fingerprint          `json:"fingerprint"`
+	Queries          []QueryMetrics       `json:"queries"`
+	Aggregates       []AggregateMetrics   `json:"aggregates"`
+	QueryCount       int                  `json:"query_count"`
+	FailedQueryCount int                  `json:"failed_query_count"`
+	Complete         bool                 `json:"complete"`
+	Stages           BenchmarkStages      `json:"stages"`
+	RerankIdentity   *RerankModelIdentity `json:"rerank_identity,omitempty"`
+	RerankStats      *RerankPhaseStats    `json:"rerank_stats,omitempty"`
 }
 type QueryDelta struct {
 	QueryID     string  `json:"query_id"`
@@ -161,12 +215,13 @@ type QueryDelta struct {
 	NDCGDelta   float64 `json:"ndcg_delta"`
 }
 type ComparisonReport struct {
-	Status           string             `json:"status"`
-	NonComparable    bool               `json:"non_comparable"`
-	Deltas           []AggregateMetrics `json:"deltas,omitempty"`
-	ImprovedQueries  []string           `json:"improved_queries,omitempty"`
-	RegressedQueries []string           `json:"regressed_queries,omitempty"`
-	UnchangedQueries []string           `json:"unchanged_queries,omitempty"`
+	Status             string             `json:"status"`
+	NonComparable      bool               `json:"non_comparable"`
+	ExperimentVariable string             `json:"experiment_variable,omitempty"`
+	Deltas             []AggregateMetrics `json:"deltas,omitempty"`
+	ImprovedQueries    []string           `json:"improved_queries,omitempty"`
+	RegressedQueries   []string           `json:"regressed_queries,omitempty"`
+	UnchangedQueries   []string           `json:"unchanged_queries,omitempty"`
 }
 
 func (m DatasetManifest) Validate() error {

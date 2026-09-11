@@ -40,6 +40,8 @@ func RescoreRun(r RetrievalRun) (MetricReport, error) {
 	}
 	report.Fingerprint = r.Fingerprint
 	report.Stages = r.Stages
+	report.RerankIdentity = r.RerankIdentity
+	report.RerankStats = r.RerankStats
 	report.Complete = r.Complete && report.FailedQueryCount == 0
 	return report, nil
 }
