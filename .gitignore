@@ -9,5 +9,13 @@ web/node_modules/
 .DS_Store
 eval/runs/*.json
 eval/baseline.json
+eval/cache/miracl-zh-mini/
+eval/cache/miracl-zh-upstream/
+eval/rerank-service/.venv/
+eval/rerank-service/__pycache__/
+eval/rerank-service/.pytest_cache/
+eval/cache/rerank-models/
+eval/runs/miracl-zh-rerank-*.json
+eval/runs/miracl-zh-rerank-*.jsonl
 .claude/settings.local.json
 .env.docker

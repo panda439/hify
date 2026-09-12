@@ -22,6 +22,13 @@ func newTestRerankClient(t *testing.T, handler http.HandlerFunc) *openAICompatCl
 	return newOpenAICompatClient(srv.URL, "test-key", nil, srv.Client())
 }
 
+func newTestVoyageRerankClient(t *testing.T, handler http.HandlerFunc) *openAICompatClient {
+	t.Helper()
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	return newOpenAICompatClientWithRerankFormat(srv.URL, "test-key", nil, srv.Client(), RerankFormatVoyage)
+}
+
 func TestRerankRequestEncoding(t *testing.T) {
 	var captured map[string]any
 	client := newTestRerankClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -92,6 +99,90 @@ func TestRerankResponseDecoding(t *testing.T) {
 	}
 	if byIndex[0] != 0.94 || byIndex[1] != 0.71 {
 		t.Fatalf("scores by index = %v, want {0:0.94 1:0.71}", byIndex)
+	}
+}
+
+func TestVoyageRerankRequestEncoding(t *testing.T) {
+	var captured map[string]any
+	client := newTestVoyageRerankClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{"index": 0, "relevance_score": 0.9},
+				{"index": 1, "relevance_score": 0.1},
+			},
+		})
+	})
+
+	_, err := client.Rerank(context.Background(), RerankRequest{
+		Model: "rerank-3", Query: "问题", Documents: []string{"片段1", "片段2"},
+	})
+	if err != nil {
+		t.Fatalf("Rerank: %v", err)
+	}
+	if got, want := captured["top_k"], float64(2); got != want {
+		t.Fatalf("top_k = %v, want %v", got, want)
+	}
+	if _, exists := captured["top_n"]; exists {
+		t.Fatalf("Voyage request must not contain top_n: %v", captured)
+	}
+}
+
+func TestVoyageRerankResponseDecoding(t *testing.T) {
+	client := newTestVoyageRerankClient(t, func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{"index": 1, "relevance_score": 0.27},
+				{"index": 0, "relevance_score": 0.93},
+			},
+		})
+	})
+
+	got, err := client.Rerank(context.Background(), RerankRequest{
+		Model: "rerank-3", Query: "q", Documents: []string{"a", "b"},
+	})
+	if err != nil {
+		t.Fatalf("Rerank: %v", err)
+	}
+	if got.Scores[0].Index != 0 || got.Scores[0].Score != 0.93 || got.Scores[1].Index != 1 || got.Scores[1].Score != 0.27 {
+		t.Fatalf("scores = %#v, want scores mapped by original index", got.Scores)
+	}
+}
+
+func TestValidateExtraConfigRerankFormat(t *testing.T) {
+	for _, format := range []string{"", RerankFormatVoyage} {
+		if err := validateExtraConfig(ExtraConfig{RerankFormat: format}); err != nil {
+			t.Fatalf("format %q rejected: %v", format, err)
+		}
+	}
+	if err := validateExtraConfig(ExtraConfig{RerankFormat: "guess-by-url"}); err == nil {
+		t.Fatal("unsupported rerank_format must be rejected")
+	}
+}
+
+func TestCreateAndUpdateProviderRejectUnsupportedRerankFormat(t *testing.T) {
+	svc := &service{}
+	bad := ExtraConfig{RerankFormat: "guess-by-url"}
+	if _, err := svc.CreateProvider(context.Background(), CreateProviderInput{ExtraConfig: bad}); err == nil {
+		t.Fatal("CreateProvider must reject unsupported rerank_format before persistence")
+	}
+	if _, err := svc.UpdateProvider(context.Background(), "provider-id", UpdateProviderInput{ExtraConfig: bad}); err == nil {
+		t.Fatal("UpdateProvider must reject unsupported rerank_format before persistence")
+	}
+}
+
+func TestVoyageRerankResponseUntrustedWhenIncomplete(t *testing.T) {
+	client := newTestVoyageRerankClient(t, func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{{"index": 0, "relevance_score": 0.9}},
+		})
+	})
+	if _, err := client.Rerank(context.Background(), RerankRequest{
+		Model: "rerank-3", Query: "q", Documents: []string{"a", "b"},
+	}); err == nil {
+		t.Fatal("incomplete Voyage data must be rejected as a whole")
 	}
 }
 

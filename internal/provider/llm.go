@@ -132,6 +132,9 @@ type RerankRequest struct {
 // assume Scores[i] corresponds to Documents[i].
 type RerankResult struct {
 	Scores []RerankScore
+	// TotalTokens 是 provider 上报的本次调用处理 token 数（014：Voyage 响应的
+	// usage.total_tokens）。best-effort：零值表示未上报，不是错误。
+	TotalTokens int
 }
 
 // RerankScore.Index addresses RerankRequest.Documents (0-based). Score's

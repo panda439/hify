@@ -51,6 +51,10 @@ type rerankStats struct {
 	Degraded   bool
 	InputCount int
 	DurationMs int64
+	// TotalTokens 是 provider 上报的本次 rerank 处理 token 数（014 托管 Rerank
+	// 计费证据），只是一个聚合计数；零值表示未上报。
+	TotalTokens int
+	FailureKind provider.RerankFailureKind
 }
 
 // applyRerank 是 FR-007/FR-009/FR-011 的纯函数落点：按 rerank 分数重排

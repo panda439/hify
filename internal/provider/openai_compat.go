@@ -190,12 +190,17 @@ type openAICompatClient struct {
 	// Rerank gets the identical Retry-After capture and extra_headers
 	// injection as Chat/Embed for free, per T021's "复用既有 classifyError
 	// 与 retry-after 采集".
-	baseURL    string
-	apiKey     string
-	httpClient *http.Client
+	baseURL      string
+	apiKey       string
+	httpClient   *http.Client
+	rerankFormat string
 }
 
 func newOpenAICompatClient(baseURL, apiKey string, extraHeaders map[string]string, httpClient *http.Client) *openAICompatClient {
+	return newOpenAICompatClientWithRerankFormat(baseURL, apiKey, extraHeaders, httpClient, "")
+}
+
+func newOpenAICompatClientWithRerankFormat(baseURL, apiKey string, extraHeaders map[string]string, httpClient *http.Client, rerankFormat string) *openAICompatClient {
 	cfg := openai.DefaultConfig(apiKey)
 	cfg.BaseURL = baseURL
 
@@ -217,11 +222,12 @@ func newOpenAICompatClient(baseURL, apiKey string, extraHeaders map[string]strin
 	cfg.HTTPClient = wrapped
 
 	return &openAICompatClient{
-		client:     openai.NewClientWithConfig(cfg),
-		retryAfter: holder,
-		baseURL:    baseURL,
-		apiKey:     apiKey,
-		httpClient: wrapped,
+		client:       openai.NewClientWithConfig(cfg),
+		retryAfter:   holder,
+		baseURL:      baseURL,
+		apiKey:       apiKey,
+		httpClient:   wrapped,
+		rerankFormat: rerankFormat,
 	}
 }
 
@@ -386,10 +392,9 @@ func (c *openAICompatClient) Embed(ctx context.Context, req EmbedRequest) (Embed
 	return EmbedResult{Embeddings: embeddings, Dimension: dimension}, nil
 }
 
-// rerankWireRequest/rerankWireResponse mirror contracts/rerank-http-api.md's
-// wire shapes exactly — kept private to this file, never exposed as the
-// provider.RerankRequest/Result domain types (same "adapter-only wire
-// struct" pattern as fromOpenAIMessage etc. for chat).
+// The rerank wire types cover the existing generic contract plus Voyage's
+// top_k/data variant. They stay private to this adapter and are normalized
+// into the shared provider.RerankResult domain type after decoding.
 type rerankWireRequest struct {
 	Model           string   `json:"model"`
 	Query           string   `json:"query"`
@@ -398,11 +403,28 @@ type rerankWireRequest struct {
 	ReturnDocuments bool     `json:"return_documents"`
 }
 
+type voyageRerankWireRequest struct {
+	Model           string   `json:"model"`
+	Query           string   `json:"query"`
+	Documents       []string `json:"documents"`
+	TopK            int      `json:"top_k"`
+	ReturnDocuments bool     `json:"return_documents"`
+}
+
+type rerankWireScore struct {
+	Index int             `json:"index"`
+	Score json.RawMessage `json:"relevance_score"`
+}
+
 type rerankWireResponse struct {
-	Results []struct {
-		Index int             `json:"index"`
-		Score json.RawMessage `json:"relevance_score"`
-	} `json:"results"`
+	Results []rerankWireScore `json:"results"`
+}
+
+type voyageRerankWireResponse struct {
+	Data  []rerankWireScore `json:"data"`
+	Usage struct {
+		TotalTokens int `json:"total_tokens"`
+	} `json:"usage"`
 }
 
 // Rerank implements Client.Rerank against contracts/rerank-http-api.md's
@@ -415,13 +437,17 @@ type rerankWireResponse struct {
 // every candidate scored, never a server-side pre-filter that could silently
 // drop some.
 func (c *openAICompatClient) Rerank(ctx context.Context, req RerankRequest) (RerankResult, error) {
-	body, err := json.Marshal(rerankWireRequest{
-		Model:           req.Model,
-		Query:           req.Query,
-		Documents:       req.Documents,
-		TopN:            len(req.Documents),
-		ReturnDocuments: false,
-	})
+	var wireRequest any = rerankWireRequest{
+		Model: req.Model, Query: req.Query, Documents: req.Documents,
+		TopN: len(req.Documents), ReturnDocuments: false,
+	}
+	if c.rerankFormat == RerankFormatVoyage {
+		wireRequest = voyageRerankWireRequest{
+			Model: req.Model, Query: req.Query, Documents: req.Documents,
+			TopK: len(req.Documents), ReturnDocuments: false,
+		}
+	}
+	body, err := json.Marshal(wireRequest)
 	if err != nil {
 		return RerankResult{}, fmt.Errorf("provider: encode rerank request: %w", err)
 	}
@@ -456,11 +482,33 @@ func (c *openAICompatClient) Rerank(ctx context.Context, req RerankRequest) (Rer
 		return RerankResult{}, &adapterError{status: resp.StatusCode, cause: fmt.Errorf("provider: rerank request failed with status %d: %s", resp.StatusCode, truncateForError(respBody))}
 	}
 
-	var wire rerankWireResponse
-	if err := json.Unmarshal(respBody, &wire); err != nil {
-		return RerankResult{}, fmt.Errorf("provider: parse rerank response: %w", err)
+	var results []rerankWireScore
+	totalTokens := 0
+	if c.rerankFormat == RerankFormatVoyage {
+		var wire voyageRerankWireResponse
+		if err := json.Unmarshal(respBody, &wire); err != nil {
+			return RerankResult{}, fmt.Errorf("%w: provider: parse rerank response: %w", ErrRerankResponseInvalid, err)
+		}
+		// 014：usage.total_tokens 是托管 Rerank 真实消耗的唯一证据；负数说明
+		// 响应不可信，与其他校验失败一样整体报错。
+		if wire.Usage.TotalTokens < 0 {
+			return RerankResult{}, fmt.Errorf("%w: provider: rerank response usage.total_tokens is negative", ErrRerankResponseInvalid)
+		}
+		results = wire.Data
+		totalTokens = wire.Usage.TotalTokens
+	} else {
+		var wire rerankWireResponse
+		if err := json.Unmarshal(respBody, &wire); err != nil {
+			return RerankResult{}, fmt.Errorf("%w: provider: parse rerank response: %w", ErrRerankResponseInvalid, err)
+		}
+		results = wire.Results
 	}
-	return validateRerankResponse(wire, len(req.Documents))
+	result, err := validateRerankResponse(results, len(req.Documents))
+	if err != nil {
+		return RerankResult{}, fmt.Errorf("%w: %w", ErrRerankResponseInvalid, err)
+	}
+	result.TotalTokens = totalTokens
+	return result, nil
 }
 
 // truncateForError caps how much of a non-2xx rerank response body ends up
@@ -482,14 +530,14 @@ func truncateForError(body []byte) string {
 // untrusted — Hify returns an error and the caller degrades to the
 // pre-rerank fused order (FR-011's "整体丢弃，禁止部分采用"), never accepts
 // a partial result.
-func validateRerankResponse(wire rerankWireResponse, documentCount int) (RerankResult, error) {
-	if len(wire.Results) == 0 || len(wire.Results) != documentCount {
-		return RerankResult{}, fmt.Errorf("provider: rerank response has %d results, want %d", len(wire.Results), documentCount)
+func validateRerankResponse(results []rerankWireScore, documentCount int) (RerankResult, error) {
+	if len(results) == 0 || len(results) != documentCount {
+		return RerankResult{}, fmt.Errorf("provider: rerank response has %d results, want %d", len(results), documentCount)
 	}
 
 	seen := make([]bool, documentCount)
 	scores := make([]RerankScore, documentCount)
-	for _, r := range wire.Results {
+	for _, r := range results {
 		if r.Index < 0 || r.Index >= documentCount {
 			return RerankResult{}, fmt.Errorf("provider: rerank response index %d out of range [0, %d)", r.Index, documentCount)
 		}

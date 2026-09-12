@@ -34,6 +34,19 @@ make dev                    # 后端（air 热重载）
 make web-dev                # 前端
 ```
 
+### MIRACL 中文 Mini 检索评测（开发者工具）
+
+011 提供固定的 MIRACL v1.0 中文 dev 子集（50 条 query、目标 800 篇文档），用于在同一数据、模型和评分口径下比较 Hify 的真实检索效果。生成缓存、正文、向量和 run 均在 gitignored 路径；工具不调用聊天模型或 LLM Judge。
+
+```bash
+make eval-retrieval-benchmark-prepare
+make eval-retrieval-benchmark-ingest MIRACL_MINI_DIR=eval/cache/miracl-zh-mini
+make eval-retrieval-benchmark-run
+make eval-retrieval-benchmark-score
+```
+
+入库和查询需要真实 Ollama `bge-m3:567m`、Hify MySQL/PostgreSQL/Redis，以及 `HIFY_BENCHMARK_USER_ID`；首次入库会创建隔离知识库并写入 `eval/cache/miracl-zh-mini/ingest.json`，失败文档可从该 checkpoint 恢复。Mini 分数不等同完整 MIRACL 或生产中文 RAG 表现，详见 [MIRACL 阶段报告](docs/eval-phase18-miracl-zh-mini-report.md)。
+
 ### 整套容器化运行（后端也进容器）
 
 生产/服务器部署形态：前端 `npm run build` 的产物被 `go:embed` 收进二进制（见 [web/embed.go](web/embed.go)），
