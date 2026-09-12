@@ -1329,18 +1329,23 @@ func (s *service) applyRerankStep(ctx context.Context, query string, candidates 
 	stats.InputCount = len(head)
 	stats.DurationMs = time.Since(start).Milliseconds()
 	if err != nil {
-		// 覆盖失败与超时（ctx deadline exceeded 也从这里进来）——
-		// 绝不记 query 原文或候选正文，只记错误本身和候选数（FR-017）。
-		slog.Warn("knowledge: rerank call failed, keeping fused order", "err", err, "input_count", stats.InputCount)
+		// 只透传 provider 固定的安全分类；不得把原始 error（可能带响应正文）
+		// 写入 observer 或 benchmark 制品。
+		stats.FailureKind = provider.ClassifyRerankFailure(err)
+		slog.Warn("knowledge: rerank call failed, keeping fused order", "failure_kind", stats.FailureKind, "input_count", stats.InputCount)
 		stats.Degraded = true
 		return candidates, stats
 	}
 
+	// provider 已经返回结果就意味着这次调用已被计费——即使下面的响应校验不
+	// 通过而降级，用量也照实记录（014 T006）。
+	stats.TotalTokens = result.TotalTokens
 	rerankedHead, ok := applyRerank(head, result.Scores)
 	if !ok {
 		// contracts/rerank-http-api.md 的响应校验不通过——整体丢弃，保持
 		// 融合排序，绝不部分采用（FR-011）。
-		slog.Warn("knowledge: rerank response failed validation, keeping fused order", "input_count", stats.InputCount)
+		stats.FailureKind = provider.RerankFailureResponseInvalid
+		slog.Warn("knowledge: rerank response failed validation, keeping fused order", "failure_kind", stats.FailureKind, "input_count", stats.InputCount)
 		stats.Degraded = true
 		return candidates, stats
 	}

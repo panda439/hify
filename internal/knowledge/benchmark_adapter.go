@@ -71,6 +71,10 @@ type BenchmarkRetrievalResult struct {
 	RerankDegraded   bool
 	RerankInputCount int
 	RerankDurationMS int64
+	// RerankTotalTokens 来自 provider 上报的 usage（014 托管 Rerank），零值表示未上报。
+	RerankTotalTokens int
+	// RerankFailureKind is a fixed provider classification, never raw error text.
+	RerankFailureKind string
 }
 type RawBenchmarkRetrieval struct {
 	ChunkHits       []BenchmarkChunkHit
@@ -187,6 +191,8 @@ func (a *BenchmarkAdapter) Retrieve(ctx context.Context, query string, topK int)
 	out.RerankDegraded = observer.rerank.Degraded
 	out.RerankInputCount = observer.rerank.InputCount
 	out.RerankDurationMS = observer.rerank.DurationMs
+	out.RerankTotalTokens = observer.rerank.TotalTokens
+	out.RerankFailureKind = string(observer.rerank.FailureKind)
 	if err != nil {
 		out.Error = err.Error()
 		return out, err

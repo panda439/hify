@@ -42,6 +42,8 @@ func RescoreRun(r RetrievalRun) (MetricReport, error) {
 	report.Stages = r.Stages
 	report.RerankIdentity = r.RerankIdentity
 	report.RerankStats = r.RerankStats
+	report.HostedRerankCost = r.HostedRerankCost
+	report.RerankPacing = r.RerankPacing
 	report.Complete = r.Complete && report.FailedQueryCount == 0
 	return report, nil
 }

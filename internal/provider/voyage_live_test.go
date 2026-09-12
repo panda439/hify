@@ -55,8 +55,13 @@ func TestVoyageRerankLive(t *testing.T) {
 	if len(result.Scores) != 3 {
 		t.Fatalf("score count = %d, want 3", len(result.Scores))
 	}
-	t.Logf("model=%s scores=[%.6f %.6f %.6f]", model.ModelName, result.Scores[0].Score, result.Scores[1].Score, result.Scores[2].Score)
+	t.Logf("model=%s scores=[%.6f %.6f %.6f] total_tokens=%d", model.ModelName, result.Scores[0].Score, result.Scores[1].Score, result.Scores[2].Score, result.TotalTokens)
 	if result.Scores[0].Score <= result.Scores[1].Score || result.Scores[0].Score <= result.Scores[2].Score {
 		t.Fatalf("relevant document score %f is not highest", result.Scores[0].Score)
+	}
+	// 014 T011：真实 Voyage 响应必须带回 usage.total_tokens，否则托管 Rerank
+	// 的费用证据无从核对。
+	if result.TotalTokens <= 0 {
+		t.Fatalf("total_tokens = %d, want real usage from Voyage response", result.TotalTokens)
 	}
 }

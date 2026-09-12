@@ -7,7 +7,7 @@ export
 DOCKER_BUILDKIT ?= 0
 export DOCKER_BUILDKIT
 
-.PHONY: dev build test test-race migrate-up migrate-down sqlc check-deps db-up db-down web-dev web-build eval eval-retrieval-gate eval-context-gate eval-retrieval-benchmark-prepare eval-retrieval-benchmark-ingest eval-retrieval-benchmark-run eval-retrieval-benchmark-score eval-retrieval-benchmark-compare eval-rerank-install eval-rerank-download eval-rerank-service eval-rerank-setup eval-rerank-decision eval-rerank-diagnostic eval-rerank-quality-run eval-rerank-quality-score eval-rerank-quality-compare eval-rerank-quality-decision app-build app-up app-down app-logs app-seed-admin
+.PHONY: dev build test test-race migrate-up migrate-down sqlc check-deps db-up db-down web-dev web-build eval eval-retrieval-gate eval-context-gate eval-retrieval-benchmark-prepare eval-retrieval-benchmark-ingest eval-retrieval-benchmark-run eval-retrieval-benchmark-score eval-retrieval-benchmark-compare eval-rerank-install eval-rerank-download eval-rerank-service eval-rerank-setup eval-rerank-decision eval-rerank-diagnostic eval-rerank-quality-run eval-rerank-quality-score eval-rerank-quality-compare eval-rerank-quality-decision eval-voyage-deployment-run eval-voyage-deployment-score eval-voyage-deployment-compare eval-voyage-deployment-decision eval-voyage-quality-run eval-voyage-quality-score eval-voyage-quality-compare eval-voyage-quality-decision eval-voyage-quality-paced-run eval-voyage-quality-paced-score eval-voyage-quality-paced-compare eval-voyage-quality-paced-decision app-build app-up app-down app-logs app-seed-admin
 
 dev:
 	air
@@ -157,6 +157,45 @@ eval-rerank-quality-compare:
 	go run ./cmd/retrievalbench compare --baseline $(BASELINE) --candidate $(MIRACL_QUALITY_REPORT) --output $(MIRACL_QUALITY_COMPARISON) --quality-experiment
 eval-rerank-quality-decision:
 	go run ./cmd/retrievalbench quality-decision --baseline $(BASELINE) --candidate $(MIRACL_QUALITY_REPORT) --output $(MIRACL_QUALITY_DECISION)
+
+# 014：Voyage rerank-3 托管 Rerank 对照。API Key 只在 Hify 数据库里加密保存，
+# 这里只传已配置模型的 ID。raw run 由 CLI 拒绝覆盖，避免重复付费运行；
+# score/compare/decision 只读已有制品，可重复执行。
+VOYAGE_RERANK_MODEL_ID ?= $(HIFY_VOYAGE_RERANK_MODEL_ID)
+VOYAGE_RUN_PREFIX ?= $(CURDIR)/eval/runs/miracl-zh-voyage
+VOYAGE_BASELINE ?= $(MIRACL_REPORT)
+VOYAGE_RUN_ENV = $(MIRACL_CONFIG_ENV) HIFY_BENCHMARK_USER_ID='$(HIFY_BENCHMARK_USER_ID)' HIFY_RAG_RERANK_ENABLED=true HIFY_RAG_RERANK_MODEL_ID='$(VOYAGE_RERANK_MODEL_ID)'
+eval-voyage-deployment-run:
+	@test -n "$(HIFY_BENCHMARK_USER_ID)" && test -n "$(VOYAGE_RERANK_MODEL_ID)"
+	$(VOYAGE_RUN_ENV) HIFY_RAG_RERANK_TIMEOUT=1500ms go run ./cmd/retrievalbench run --rerank-source hosted_api --run-mode deployment_gate --input $(MIRACL_MINI_DIR) --output $(VOYAGE_RUN_PREFIX)-deployment.json
+eval-voyage-deployment-score:
+	go run ./cmd/retrievalbench score --input $(VOYAGE_RUN_PREFIX)-deployment.json --output $(VOYAGE_RUN_PREFIX)-deployment-report.json
+eval-voyage-deployment-compare:
+	go run ./cmd/retrievalbench compare --rerank-experiment --baseline $(VOYAGE_BASELINE) --candidate $(VOYAGE_RUN_PREFIX)-deployment-report.json --output $(VOYAGE_RUN_PREFIX)-deployment-comparison.json
+eval-voyage-deployment-decision:
+	go run ./cmd/retrievalbench gate-decision --gate deployment_gate --baseline $(VOYAGE_BASELINE) --candidate $(VOYAGE_RUN_PREFIX)-deployment-report.json --output $(VOYAGE_RUN_PREFIX)-deployment-decision.json
+eval-voyage-quality-run:
+	@test -n "$(HIFY_BENCHMARK_USER_ID)" && test -n "$(VOYAGE_RERANK_MODEL_ID)"
+	$(VOYAGE_RUN_ENV) go run ./cmd/retrievalbench run --rerank-source hosted_api --run-mode quality_diagnostic --input $(MIRACL_MINI_DIR) --output $(VOYAGE_RUN_PREFIX)-quality.json
+eval-voyage-quality-score:
+	go run ./cmd/retrievalbench score --input $(VOYAGE_RUN_PREFIX)-quality.json --output $(VOYAGE_RUN_PREFIX)-quality-report.json
+eval-voyage-quality-compare:
+	go run ./cmd/retrievalbench compare --quality-experiment --baseline $(VOYAGE_BASELINE) --candidate $(VOYAGE_RUN_PREFIX)-quality-report.json --output $(VOYAGE_RUN_PREFIX)-quality-comparison.json
+eval-voyage-quality-decision:
+	go run ./cmd/retrievalbench gate-decision --gate quality_diagnostic --baseline $(VOYAGE_BASELINE) --candidate $(VOYAGE_RUN_PREFIX)-quality-report.json --output $(VOYAGE_RUN_PREFIX)-quality-decision.json
+# FR-015：账户未添加付款方式（3 RPM / 10K TPM）时的限速质量诊断。相邻 query 起点
+# 至少间隔 VOYAGE_PACING_INTERVAL（单次调用约 6K tokens），50 条约 55 分钟；
+# 制品用独立的 -quality-paced 前缀，不覆盖首轮未限速制品。部署门禁不允许限速。
+VOYAGE_PACING_INTERVAL ?= 65s
+eval-voyage-quality-paced-run:
+	@test -n "$(HIFY_BENCHMARK_USER_ID)" && test -n "$(VOYAGE_RERANK_MODEL_ID)"
+	$(VOYAGE_RUN_ENV) go run ./cmd/retrievalbench run --rerank-source hosted_api --run-mode quality_diagnostic --pacing-interval $(VOYAGE_PACING_INTERVAL) --input $(MIRACL_MINI_DIR) --output $(VOYAGE_RUN_PREFIX)-quality-paced.json
+eval-voyage-quality-paced-score:
+	go run ./cmd/retrievalbench score --input $(VOYAGE_RUN_PREFIX)-quality-paced.json --output $(VOYAGE_RUN_PREFIX)-quality-paced-report.json
+eval-voyage-quality-paced-compare:
+	go run ./cmd/retrievalbench compare --quality-experiment --baseline $(VOYAGE_BASELINE) --candidate $(VOYAGE_RUN_PREFIX)-quality-paced-report.json --output $(VOYAGE_RUN_PREFIX)-quality-paced-comparison.json
+eval-voyage-quality-paced-decision:
+	go run ./cmd/retrievalbench gate-decision --gate quality_diagnostic --baseline $(VOYAGE_BASELINE) --candidate $(VOYAGE_RUN_PREFIX)-quality-paced-report.json --output $(VOYAGE_RUN_PREFIX)-quality-paced-decision.json
 
 # 009：上下文组装确定性门禁。守的是检索门禁**不覆盖**的那一段——从证据到"送给
 # 模型的完整消息序列"。上下文组装是整条对话链路上最容易被无声改坏的地方：改错了

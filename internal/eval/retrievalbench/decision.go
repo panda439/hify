@@ -71,6 +71,10 @@ func ValidateRerankEvidence(report MetricReport) error {
 	if report.RerankIdentity == nil || !report.RerankIdentity.Ready {
 		return fmt.Errorf("rerank model identity is not ready")
 	}
+	// 014：托管 API 没有 sidecar 计数，走独立的证据规则；本地 sidecar 保持 012 原样。
+	if report.RerankIdentity.Source == RerankSourceHostedAPI {
+		return validateHostedRerankEvidence(report)
+	}
 	if report.RerankIdentity.ModelName != "BAAI/bge-reranker-v2-m3" || report.RerankIdentity.License != "Apache-2.0" {
 		return fmt.Errorf("rerank model identity does not match fixed model")
 	}

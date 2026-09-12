@@ -29,11 +29,12 @@ type commandConfig struct {
 	command, input, output, baseline, candidate, queries, qrels, corpus string
 	rerankBaseURL, rerankModel, rerankUserID                            string
 	rerankExperiment, qualityExperiment                                 bool
-	runMode                                                             string
+	runMode, rerankSource, gate                                         string
 	dataset                                                             string
 	seed                                                                int64
 	queryLimit, target, minDocs, maxDocs                                int
 	diagnosticThreshold                                                 float64
+	pacingInterval                                                      time.Duration
 }
 
 type RerankHealth struct {
@@ -192,7 +193,7 @@ func ensureRerankProviderModel(ctx context.Context, svc provider.Service, baseUR
 
 func parseArgs(args []string) (commandConfig, error) {
 	if len(args) < 2 {
-		return commandConfig{}, errors.New("retrievalbench: subcommand is required (prepare, ingest, run, score, compare, setup-rerank, decision)")
+		return commandConfig{}, errors.New("retrievalbench: subcommand is required (prepare, ingest, run, score, compare, setup-rerank, decision, quality-decision, gate-decision, diagnostic)")
 	}
 	c := commandConfig{command: args[1]}
 	fs := flag.NewFlagSet(c.command, flag.ContinueOnError)
@@ -210,6 +211,9 @@ func parseArgs(args []string) (commandConfig, error) {
 	fs.BoolVar(&c.rerankExperiment, "rerank-experiment", false, "compare as the single-variable rerank experiment")
 	fs.BoolVar(&c.qualityExperiment, "quality-experiment", false, "compare as the quality diagnostic experiment")
 	fs.StringVar(&c.runMode, "run-mode", "deployment_gate", "benchmark run mode: deployment_gate or quality_diagnostic")
+	fs.StringVar(&c.rerankSource, "rerank-source", "local_sidecar", "rerank evidence source: local_sidecar or hosted_api")
+	fs.StringVar(&c.gate, "gate", "", "gate-decision gate: deployment_gate or quality_diagnostic")
+	fs.DurationVar(&c.pacingInterval, "pacing-interval", 0, "benchmark-only minimum interval between query starts (hosted_api quality_diagnostic only)")
 	fs.StringVar(&c.dataset, "dataset", "", "prepared dataset directory for diagnostics")
 	fs.Float64Var(&c.diagnosticThreshold, "threshold", 0.5, "recall threshold for low-score diagnostics")
 	fs.Int64Var(&c.seed, "seed", 11, "deterministic selection seed")
@@ -253,6 +257,8 @@ func run(c commandConfig) error {
 		return decision(c)
 	case "quality-decision":
 		return qualityDecision(c)
+	case "gate-decision":
+		return gateDecision(c)
 	case "diagnostic":
 		return diagnostic(c)
 	default:
@@ -446,6 +452,8 @@ type benchmarkRuntime struct {
 	embeddingDigest       string
 	serviceEndpointID     string
 	rerankEnabled         bool
+	rerankModelID         string
+	rerankTimeout         time.Duration
 	metadataFilterEnabled bool
 }
 
@@ -572,7 +580,7 @@ func newBenchmarkRuntimeForMode(runMode string) (*benchmarkRuntime, error) {
 		return nil, err
 	}
 	ks := knowledge.NewService(knowledge.NewRepository(db, pg), ps, ac, cfg.KnowledgeStorageDir, cfg.RAGRerankEnabled, cfg.RAGRerankModelID, cfg.RAGRerankTimeout, cfg.RAGMetadataFilterEnabled)
-	return &benchmarkRuntime{db: db, pgdb: pg, redis: rdb, asynq: ac, service: ks, provider: ps, embeddingModel: modelName, embeddingDigest: modelDigest, serviceEndpointID: benchmarkServiceEndpointID(benchmarkOllamaURL()), rerankEnabled: cfg.RAGRerankEnabled, metadataFilterEnabled: cfg.RAGMetadataFilterEnabled}, nil
+	return &benchmarkRuntime{db: db, pgdb: pg, redis: rdb, asynq: ac, service: ks, provider: ps, embeddingModel: modelName, embeddingDigest: modelDigest, serviceEndpointID: benchmarkServiceEndpointID(benchmarkOllamaURL()), rerankEnabled: cfg.RAGRerankEnabled, rerankModelID: cfg.RAGRerankModelID, rerankTimeout: cfg.RAGRerankTimeout, metadataFilterEnabled: cfg.RAGMetadataFilterEnabled}, nil
 }
 
 func benchmarkRunMode(mode string) (string, error) {
@@ -689,16 +697,48 @@ func runQueries(c commandConfig) error {
 	if err != nil {
 		return err
 	}
+	rerankSource, err := benchmarkRerankSource(c.rerankSource)
+	if err != nil {
+		return err
+	}
+	hosted := rerankSource == retrievalbench.RerankSourceHostedAPI
+	if err := validateRerankPacing(rerankSource, runMode, c.pacingInterval); err != nil {
+		return err
+	}
+	if hosted {
+		// 014 FR-013：付费运行最多 50 条 query，raw run 不覆盖、不自动重跑。
+		if len(ds.Queries) > 50 {
+			return fmt.Errorf("hosted rerank run is limited to 50 queries, got %d", len(ds.Queries))
+		}
+		if err := ensureFreshOutput(c.output); err != nil {
+			return err
+		}
+	}
 	rt, err := newBenchmarkRuntimeForMode(runMode)
 	if err != nil {
 		return err
 	}
 	defer rt.Close()
+	if hosted && !rt.rerankEnabled {
+		return errors.New("hosted rerank run requires HIFY_RAG_RERANK_ENABLED=true and HIFY_RAG_RERANK_MODEL_ID")
+	}
 	var rerankHealth RerankHealth
+	var hostedIdentity retrievalbench.RerankModelIdentity
 	var rerankBefore retrievalbench.RerankStatsSnapshot
 	hifyRerankEnabledCount, hifyRerankAppliedCount, hifyRerankDegradedCount := 0, 0, 0
-	hifyRerankInputCount, hifyRerankDurationMS := 0, int64(0)
+	hifyRerankInputCount, hifyRerankDurationMS, hifyRerankTotalTokens := 0, int64(0), 0
+	var rerankObservations []knowledge.BenchmarkRetrievalResult
 	if rt.rerankEnabled {
+		if err := validateGateRerankTimeout(runMode, rt.rerankTimeout); err != nil {
+			return err
+		}
+	}
+	if rt.rerankEnabled && hosted {
+		hostedIdentity, err = precheckHostedRerank(context.Background(), rt.provider, rt.rerankModelID)
+		if err != nil {
+			return err
+		}
+	} else if rt.rerankEnabled {
 		rerankHealth, err = precheckRerankService(benchmarkRerankURL())
 		if err != nil {
 			return err
@@ -742,16 +782,23 @@ func runQueries(c commandConfig) error {
 		},
 	}
 	run.Fingerprint.RunMode = runMode
-	if rt.rerankEnabled {
-		run.Fingerprint.RerankEnabled = true
-		run.Fingerprint.RerankModelName = rerankHealth.Model
-		run.Fingerprint.RerankModelDigest = rerankHealth.Revision
-		run.Fingerprint.RerankCandidateLimit = 50
-		run.Fingerprint.RerankTimeoutMS = benchmarkRerankTimeout(runMode, 1500*time.Millisecond).Milliseconds()
+	if rt.rerankEnabled && hosted {
+		applyRerankFingerprint(&run.Fingerprint, hostedIdentity.ModelName, hostedIdentity.EndpointID, runMode, rt.rerankTimeout)
+		run.RerankIdentity = &hostedIdentity
+	} else if rt.rerankEnabled {
+		applyRerankFingerprint(&run.Fingerprint, rerankHealth.Model, rerankHealth.Revision, runMode, rt.rerankTimeout)
 		run.RerankIdentity = &retrievalbench.RerankModelIdentity{ModelName: rerankHealth.Model, Revision: rerankHealth.Revision, Digest: rerankHealth.Digest, License: rerankHealth.License, Runtime: rerankHealth.Runtime, EndpointID: benchmarkServiceEndpointID(benchmarkRerankURL()), Ready: rerankHealth.Ready}
 	}
 	queryStarted := time.Now()
+	var lastQueryStart time.Time
+	var pacingWaited time.Duration
 	for _, q := range ds.Queries {
+		// 014 FR-015：benchmark-only 限速，只拉开相邻 query 的起点，不改变检索与 Rerank。
+		if wait := paceWait(lastQueryStart, time.Now(), c.pacingInterval); wait > 0 {
+			time.Sleep(wait)
+			pacingWaited += wait
+		}
+		lastQueryStart = time.Now()
 		rr, e := a.Retrieve(context.Background(), q.Text, 10)
 		r := retrievalbench.RawQueryResult{QueryID: q.ID, ElapsedMS: rr.ElapsedMS}
 		for _, h := range rr.Result.ChunkHits {
@@ -769,23 +816,46 @@ func runQueries(c commandConfig) error {
 		}
 		hifyRerankInputCount += rr.RerankInputCount
 		hifyRerankDurationMS += rr.RerankDurationMS
+		hifyRerankTotalTokens += rr.RerankTotalTokens
+		rerankObservations = append(rerankObservations, rr)
 		if e != nil {
-			r.Error = e.Error()
+			// Raw hosted runs must not persist provider error strings, which may
+			// contain upstream response bodies. Keep only a safe scoring marker;
+			// the ordinary local sidecar path retains its existing error semantics.
+			r.Error = runQueryErrorMarker(hosted, e)
 			run.FailedQueryCount++
 			run.Complete = false
 		}
 		run.Results = append(run.Results, r)
 	}
+	run.RerankPacing = rerankPacingRecord(c.pacingInterval, pacingWaited)
 	run.Stages.Query = retrievalbench.PhaseStats{ElapsedMS: time.Since(queryStarted).Milliseconds(), DocumentCount: len(ds.Documents), ChunkCount: ingestReport.ChunkCount, QueryCount: len(run.Results)}
-	if rt.rerankEnabled {
+	if rt.rerankEnabled && hosted {
+		run.RerankStats = hostedRerankPhaseStats(len(ds.Queries), hifyRerankEnabledCount, hifyRerankAppliedCount, hifyRerankDegradedCount, hifyRerankInputCount, hifyRerankDurationMS, successfulRerankDurations(rerankObservations), hifyRerankTotalTokens)
+		run.RerankStats.HifyFailureCounts = aggregateHostedFailureKinds(rerankObservations)
+		cost, costErr := retrievalbench.NewVoyageRerankCost(hifyRerankTotalTokens, queryStarted.UTC().Format(time.RFC3339))
+		if costErr != nil {
+			return costErr
+		}
+		run.HostedRerankCost = &cost
+	} else if rt.rerankEnabled {
 		rerankAfter, statsErr := waitForRerankStats(benchmarkRerankURL(), 20*time.Second)
 		if statsErr != nil {
 			return statsErr
 		}
 		run.RerankStats = rerankPhaseStats(rerankBefore, rerankAfter, len(ds.Queries), hifyRerankEnabledCount, hifyRerankAppliedCount, hifyRerankDegradedCount, hifyRerankInputCount, hifyRerankDurationMS)
-		if run.RerankStats.HifyAppliedCount != len(ds.Queries) || run.RerankStats.HifyDegradedCount != 0 {
-			run.Complete = false
+	}
+	if run.RerankStats != nil && (run.RerankStats.HifyAppliedCount != len(ds.Queries) || run.RerankStats.HifyDegradedCount != 0) {
+		run.Complete = false
+	}
+	if hosted {
+		// Hosted raw evidence may contain query IDs only. Sanitize immediately
+		// before persistence so the normal MIRACL/BGE path remains unchanged.
+		sanitized, sanitizeErr := retrievalbench.SanitizeHostedRun(run)
+		if sanitizeErr != nil {
+			return sanitizeErr
 		}
+		run = sanitized
 	}
 	return retrievalbench.SaveJSON(c.output, run)
 }

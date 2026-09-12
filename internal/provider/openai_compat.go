@@ -421,7 +421,10 @@ type rerankWireResponse struct {
 }
 
 type voyageRerankWireResponse struct {
-	Data []rerankWireScore `json:"data"`
+	Data  []rerankWireScore `json:"data"`
+	Usage struct {
+		TotalTokens int `json:"total_tokens"`
+	} `json:"usage"`
 }
 
 // Rerank implements Client.Rerank against contracts/rerank-http-api.md's
@@ -480,20 +483,32 @@ func (c *openAICompatClient) Rerank(ctx context.Context, req RerankRequest) (Rer
 	}
 
 	var results []rerankWireScore
+	totalTokens := 0
 	if c.rerankFormat == RerankFormatVoyage {
 		var wire voyageRerankWireResponse
 		if err := json.Unmarshal(respBody, &wire); err != nil {
-			return RerankResult{}, fmt.Errorf("provider: parse rerank response: %w", err)
+			return RerankResult{}, fmt.Errorf("%w: provider: parse rerank response: %w", ErrRerankResponseInvalid, err)
+		}
+		// 014：usage.total_tokens 是托管 Rerank 真实消耗的唯一证据；负数说明
+		// 响应不可信，与其他校验失败一样整体报错。
+		if wire.Usage.TotalTokens < 0 {
+			return RerankResult{}, fmt.Errorf("%w: provider: rerank response usage.total_tokens is negative", ErrRerankResponseInvalid)
 		}
 		results = wire.Data
+		totalTokens = wire.Usage.TotalTokens
 	} else {
 		var wire rerankWireResponse
 		if err := json.Unmarshal(respBody, &wire); err != nil {
-			return RerankResult{}, fmt.Errorf("provider: parse rerank response: %w", err)
+			return RerankResult{}, fmt.Errorf("%w: provider: parse rerank response: %w", ErrRerankResponseInvalid, err)
 		}
 		results = wire.Results
 	}
-	return validateRerankResponse(results, len(req.Documents))
+	result, err := validateRerankResponse(results, len(req.Documents))
+	if err != nil {
+		return RerankResult{}, fmt.Errorf("%w: %w", ErrRerankResponseInvalid, err)
+	}
+	result.TotalTokens = totalTokens
+	return result, nil
 }
 
 // truncateForError caps how much of a non-2xx rerank response body ends up
