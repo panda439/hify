@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T15:17:20Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08193-de56-733c-bde8-3ec2f651553e\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q沒有家，住在未莊的土穀祠裏；也沒有固定的職業，只給人家做短工，割麥便割麥，舂米便舂米，撐船便撐船。\"},{\"source_ref\":\"01a08193-de56-733c-bde8-3ec2f651553e#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group02\"},{\"mention_ref\":\"m3\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group03\"},{\"mention_ref\":\"m4\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group04\"}]}",
+  "elapsed_ms": 19972,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 738,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 219,
+  "prompt_runes": 1199,
+  "prompt_sha256": "0240f6b57e347db19d39115afb3704b31af954750124eb7a9377c95e649c7ca1",
+  "seq": 13,
+  "usage_known": true
+}

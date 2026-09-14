@@ -1,0 +1,82 @@
+{
+  "ID": "01a0817e-15e0-7138-8fe4-d505ce15f228",
+  "ItemID": "01a08156-9776-7a0a-875f-ca7dcb39f8f1",
+  "ChunkID": "01a08156-96ea-780a-aec9-e27525ab8e73",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "鄒七嫂"
+      },
+      {
+        "ref": "m3",
+        "surface": "趙白眼的母親"
+      },
+      {
+        "ref": "m4",
+        "surface": "趙太爺"
+      },
+      {
+        "ref": "m5",
+        "surface": "秀才大爺"
+      },
+      {
+        "ref": "m6",
+        "surface": "趙太太"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "同伙",
+        "evidence": [
+          {
+            "quote": "鄒七嫂在阿Q那裏買了一條藍綢裙"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m2",
+        "object_ref": "m4",
+        "type": "同伙",
+        "evidence": [
+          {
+            "quote": "將伊的綢裙請趙太太去賞鑑，趙太太又告訴了趙太爺"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m4",
+        "object_ref": "m5",
+        "type": "同伙",
+        "evidence": [
+          {
+            "quote": "趙太爺便在晚飯桌上，和秀才大爺討論"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1013,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 208,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 19965,
+    "Valid": true
+  }
+}

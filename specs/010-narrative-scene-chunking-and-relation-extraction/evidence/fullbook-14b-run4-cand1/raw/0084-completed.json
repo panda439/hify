@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:44:58Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"小尼姑\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m3\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group2\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"老尼姑\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 19956,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 993,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 195,
+  "prompt_runes": 1465,
+  "prompt_sha256": "b43a42c2e2f2a8eb3a96067e7c4dbff6ae3fe9d375bef4e8cb335d533c280186",
+  "seq": 84,
+  "usage_known": true
+}

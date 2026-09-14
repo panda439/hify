@@ -1,0 +1,72 @@
+{
+  "ID": "01a0818c-f011-7cbd-9be6-d7d95a4931d7",
+  "ItemID": "01a08156-977f-7ea2-be67-ec867e7ee219",
+  "ChunkID": "01a08156-96ea-784d-8d8f-94b8462a4483",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "ambiguous",
+        "character_id": "",
+        "new_group": "group1"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "ambiguous",
+        "character_id": "",
+        "new_group": "group2"
+      },
+      {
+        "mention_ref": "m4",
+        "action": "ambiguous",
+        "character_id": "",
+        "new_group": "group3"
+      },
+      {
+        "mention_ref": "m5",
+        "action": "ambiguous",
+        "character_id": "",
+        "new_group": "group4"
+      },
+      {
+        "mention_ref": "m6",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group5"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 858,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 212,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 19968,
+    "Valid": true
+  }
+}

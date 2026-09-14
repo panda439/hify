@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:44:38Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"小尼姑\"},{\"ref\":\"m3\",\"surface\":\"老尼姑\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"阿Q彷彿文童落第似的覺得很寃屈，他慢慢走近園門去，忽而非常驚喜了，這分明是一畦老蘿蔔。他于是蹲下便拔，而門口突然伸出一個很圓的頭來，又卽縮回去了，這分明是小尼姑。\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"『阿彌陀佛，阿Q，你怎麽跳進園裏來偸蘿蔔！……阿呀，罪過呵，阿唷，阿彌陀佛！……』\"},{\"quote\":\"『我什麽時候跳進你的園裏來偸蘿蔔？』阿Q且看且走的說。\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 22519,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1038,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 239,
+  "prompt_runes": 1602,
+  "prompt_sha256": "83998f233b50a40b75aee91e33145fb44c0deb32d317e200fd5217524dc7b7b8",
+  "seq": 83,
+  "usage_known": true
+}

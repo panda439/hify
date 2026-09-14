@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:13:07Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q『先前闊』，見識高，而且『眞能做』，\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"未莊的閒人們便愈喜歡玩笑他，一見面，他們便假作喫驚的說：\"},{\"source_ref\":\"chunk\",\"quote\":\"『噲，亮起來了。』\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 20570,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 908,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 213,
+  "prompt_runes": 1373,
+  "prompt_sha256": "d98e99094dafd94efd5a1e7415329b544971f9707d0070626036b99f1e76a66a",
+  "seq": 18,
+  "usage_known": true
+}

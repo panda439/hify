@@ -1,0 +1,9 @@
+{
+  "ambiguous_evidence": 1,
+  "ambiguous_positions": 45,
+  "legal_rate": 0.496,
+  "other_error_codes": {
+    "http_error": 13
+  },
+  "verifiable_quote_rate": null
+}

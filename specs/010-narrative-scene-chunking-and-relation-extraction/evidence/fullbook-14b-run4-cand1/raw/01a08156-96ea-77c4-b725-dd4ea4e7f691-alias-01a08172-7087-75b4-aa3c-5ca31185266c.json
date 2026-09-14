@@ -1,0 +1,93 @@
+{
+  "ID": "01a08172-7087-75b4-aa3c-5ca31185266c",
+  "ItemID": "01a08156-976b-778d-89b0-ddcb6ddff9c2",
+  "ChunkID": "01a08156-96ea-77c4-b725-dd4ea4e7f691",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q想：『哼，有趣，這小孤孀不知道鬧着什麽玩意兒了？』"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9#1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "走近趙司晨的身邊"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#1",
+            "quote": "趙司晨"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9#2",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#2",
+            "quote": "趙太爺"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m4",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9#3",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "地保進來了"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#3",
+            "quote": "地保"
+          }
+        ],
+        "reason_code": "context_identity"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 955,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 486,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 42629,
+    "Valid": true
+  }
+}

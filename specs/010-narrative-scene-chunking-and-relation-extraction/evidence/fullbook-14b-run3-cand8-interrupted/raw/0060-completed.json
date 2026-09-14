@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:40:35Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"趙司晨\"},{\"ref\":\"m3\",\"surface\":\"趙太爺\"},{\"ref\":\"m4\",\"surface\":\"地保\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"他猛然間看見趙太爺向他奔來，而且手裏揑着一枝大竹槓\"},{\"quote\":\"他坐了一會，皮膚有些起栗，他覺得冷了，因爲雖在春季，而夜間頗有餘寒，尙不宜於赤膊。他也記得布衫留在趙家，但倘若去取，又深怕秀才的竹槓\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"同乡邻里\",\"evidence\":[{\"quote\":\"走近趙司晨的身邊\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m4\",\"type\":\"权势压迫\",\"evidence\":[{\"quote\":\"地保進來了\"},{\"quote\":\"阿Q，你的媽媽的！你連趙家的用人都調戲起來，簡直是造反。害得我晚上沒有覺睡，你的媽媽的！……\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 36078,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 947,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 269,
+  "prompt_runes": 1484,
+  "prompt_sha256": "01bb05a80d14b408e0a05a80f3be5b83154e9aba72de844bd4507aaeed9c26c0",
+  "seq": 60,
+  "usage_known": true
+}

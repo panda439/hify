@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T19:35:07Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"}],\"relations\":[],\"alias_proposals\":[]}",
+  "elapsed_ms": 9647,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 698,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 23,
+  "prompt_runes": 1241,
+  "prompt_sha256": "bb7b5c6bd5f23ca4451af78fadf2a39cc178ef607c1e74f0cf08adee503e542e",
+  "seq": 1,
+  "usage_known": true
+}

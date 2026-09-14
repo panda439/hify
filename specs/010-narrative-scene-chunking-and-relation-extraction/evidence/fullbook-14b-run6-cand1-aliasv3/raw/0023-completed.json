@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T19:41:37Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"閒人\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"閑人還不完，只撩他，於是終而至于打。阿Q在形式上打敗了，被人揪住黃辮子，在壁下碰了四五個響頭，閒人這纔心滿意足的得勝的走了\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 11548,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 932,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 112,
+  "prompt_runes": 1509,
+  "prompt_sha256": "b0afb9d19fe1daa4d6dbeb78939840f3fdf2a4b3d69c9efb385e66b9c9271e41",
+  "seq": 23,
+  "usage_known": true
+}

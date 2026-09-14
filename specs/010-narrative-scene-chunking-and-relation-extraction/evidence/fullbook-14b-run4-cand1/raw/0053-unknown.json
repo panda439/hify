@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:28:51Z",
+  "content": "",
+  "elapsed_ms": 60002,
+  "error_code": "http_error",
+  "finish_reason": "",
+  "input_tokens": 0,
+  "model": "qwen2.5:14b",
+  "outcome": "unknown",
+  "output_tokens": 0,
+  "prompt_runes": 1503,
+  "prompt_sha256": "7211fe77930484d875cd782b393c9086fe0e289e5507c2300a5d14acbaf3abd0",
+  "seq": 53,
+  "usage_known": false
+}

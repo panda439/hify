@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:19:17Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07fdb-e106-7b56-ba4a-8c2dd0cd8d71\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"但雖然是蟲豸，閒人也並不放，仍舊在就近什麽地方給他碰了五六個響頭，這纔心滿意足的得勝的走了，他以爲阿Q這回可遭了瘟。\"},{\"source_ref\":\"01a07fdb-e106-7b56-ba4a-8c2dd0cd8d71#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a07fe1-6c66-7c21-b021-c4f699f875f1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"但雖然是蟲豸，閒人也並不放，仍舊在就近什麽地方給他碰了五六個響頭，這纔心滿意足的得勝的走了，他以爲阿Q這回可遭了瘟。\"},{\"source_ref\":\"01a07fe1-6c66-7c21-b021-c4f699f875f1#0\",\"quote\":\"未莊的閒人們便愈喜歡玩笑他，一見面，他們便假作喫驚的說：\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"樁家揭開盒子蓋，也是汗流滿面的唱。\"},{\"source_ref\":\"chunk\",\"quote\":\"阿Q的錢便在這樣的歌吟之下，漸漸的輸入別個汗流滿面的人物的腰間。\"}],\"reason_code\":\"insufficient\"}]",
+  "elapsed_ms": 44577,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1629,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 438,
+  "prompt_runes": 2199,
+  "prompt_sha256": "d40d35d282e6ff7cc4318dda78c0c7edbc382d0281e4122ee3874a66bc6291a5",
+  "seq": 22,
+  "usage_known": true
+}

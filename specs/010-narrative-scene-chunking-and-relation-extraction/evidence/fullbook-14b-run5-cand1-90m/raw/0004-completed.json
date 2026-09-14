@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T15:13:25Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08193-de56-733c-bde8-3ec2f651553e\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q\"},{\"source_ref\":\"01a08193-de56-733c-bde8-3ec2f651553e#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"},{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m3\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group2\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺的兒子\"},{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m4\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group3\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"地保\"},{\"source_ref\":\"chunk\",\"quote\":\"地保\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 27844,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 887,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 265,
+  "prompt_runes": 1361,
+  "prompt_sha256": "1a9849ec9919f53448b5bf5d67945487f8830d8ea6333c7c14663861c0276d76",
+  "seq": 4,
+  "usage_known": true
+}

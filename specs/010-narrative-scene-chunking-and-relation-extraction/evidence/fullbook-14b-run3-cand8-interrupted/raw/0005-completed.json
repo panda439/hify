@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:13:12Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07fdb-e106-7b56-ba4a-8c2dd0cd8d71\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q\"},{\"source_ref\":\"01a07fdb-e106-7b56-ba4a-8c2dd0cd8d71#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a07fdb-e106-7b56-ba4a-8c2dd0cd8d71#1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"},{\"source_ref\":\"01a07fdb-e106-7b56-ba4a-8c2dd0cd8d71#1\",\"quote\":\"趙太爺\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a07fdb-e106-7b56-ba4a-8c2dd0cd8d71#1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺的兒子\"},{\"source_ref\":\"01a07fdb-e106-7b56-ba4a-8c2dd0cd8d71#1\",\"quote\":\"趙太爺\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 26810,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 876,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 337,
+  "prompt_runes": 1348,
+  "prompt_sha256": "401919249a70fe7a29f6cb3149eacce7512783ef5a75042a94575d6055ecd713",
+  "seq": 5,
+  "usage_known": true
+}

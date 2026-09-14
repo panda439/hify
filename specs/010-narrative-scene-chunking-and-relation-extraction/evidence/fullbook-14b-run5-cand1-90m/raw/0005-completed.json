@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T15:13:33Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"地保\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"阿Q並沒有抗辯他確鑿姓趙，只用手摸着左頰，和地保退出去了\"},{\"quote\":\"外面又被地保訓斥了一番\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 8497,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 705,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 94,
+  "prompt_runes": 1247,
+  "prompt_sha256": "a87c1109c0153573de3f5e0e130603ce0f3c54f938437586950e27b590162320",
+  "seq": 5,
+  "usage_known": true
+}

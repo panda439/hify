@@ -1,0 +1,76 @@
+{
+  "ID": "01a08164-1330-7b9c-8e0b-c319114d1557",
+  "ItemID": "01a08156-9761-767c-a21d-0d858666df8c",
+  "ChunkID": "01a08156-96ea-7781-ac5b-44f736bca69b",
+  "Phase": "alias",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "王鬍"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "王癩鬍"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1022,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 343,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 28497,
+    "Valid": true
+  }
+}

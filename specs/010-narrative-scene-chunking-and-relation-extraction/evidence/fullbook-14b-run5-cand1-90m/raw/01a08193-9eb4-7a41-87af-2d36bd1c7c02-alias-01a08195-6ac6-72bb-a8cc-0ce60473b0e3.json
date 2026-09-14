@@ -1,0 +1,110 @@
+{
+  "ID": "01a08195-6ac6-72bb-a8cc-0ce60473b0e3",
+  "ItemID": "01a08193-9f2d-7a93-8176-9da948a34761",
+  "ChunkID": "01a08193-9eb4-7a41-87af-2d36bd1c7c02",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08193-de56-733c-bde8-3ec2f651553e",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "我雖不知道是眞沒有，還是沒有查，然而也再沒有別的方法了。生怕注音字母還未通行，只好用了『洋字』，照英國流行的拼法寫他爲阿Quei，略作阿Q。"
+          },
+          {
+            "source_ref": "01a08193-de56-733c-bde8-3ec2f651553e#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a08193-de56-733c-bde8-3ec2f651553e",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "我雖不知道是眞沒有，還是沒有查，然而也再沒有別的方法了。生怕注音字母還未通行，只好用了『洋字』，照英國流行的拼法寫他爲阿Quei，略作阿Q。"
+          },
+          {
+            "source_ref": "01a08193-de56-733c-bde8-3ec2f651553e#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group1",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "茂才先生"
+          }
+        ],
+        "reason_code": "insufficient"
+      },
+      {
+        "mention_ref": "m4",
+        "action": "link",
+        "character_id": "group1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "茂才先生"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m5",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group2",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "陳獨秀"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "新青年"
+          }
+        ],
+        "reason_code": "insufficient"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 959,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 473,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 42191,
+    "Valid": true
+  }
+}

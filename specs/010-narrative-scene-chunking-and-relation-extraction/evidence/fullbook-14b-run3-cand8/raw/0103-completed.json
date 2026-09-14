@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:39:38Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"鄒七嫂\"},{\"ref\":\"m2\",\"surface\":\"阿Q\"},{\"ref\":\"m3\",\"surface\":\"地保\"},{\"ref\":\"m4\",\"surface\":\"趙太太\"},{\"ref\":\"m5\",\"surface\":\"村人\"},{\"ref\":\"m6\",\"surface\":\"閒人\"}],\"relations\":[{\"subject_ref\":\"m2\",\"object_ref\":\"m3\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"地保尋上門了，取了他的門幕去，阿Q說是趙太太要看的，而地保也不還，並且要議定每月的孝敬錢\"}]},{\"subject_ref\":\"m5\",\"object_ref\":\"m2\",\"type\":\"权势压迫\",\"evidence\":[{\"quote\":\"村人對于他的敬畏忽而變相了，雖然還不敢來放肆，卻很有遠避的神情\"},{\"quote\":\"這神情和先前的防他來『嚓』的時候又不同，頗混着『敬而遠之』的分子了\"}]},{\"subject_ref\":\"m6\",\"object_ref\":\"m2\",\"type\":\"追求\",\"evidence\":[{\"quote\":\"只有一班閒人們卻還要尋根究底的去探阿Q的細底\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 24602,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 901,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 260,
+  "prompt_runes": 1431,
+  "prompt_sha256": "9cc36efbc1303ffefaff0056d848d63643320621812bca5ca4f558366c3acb83",
+  "seq": 103,
+  "usage_known": true
+}

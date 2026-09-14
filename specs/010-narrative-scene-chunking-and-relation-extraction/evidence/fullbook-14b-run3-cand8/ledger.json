@@ -1,0 +1,54 @@
+{
+  "run": "T042-run3-cand8-rerun",
+  "model": "qwen2.5:14b",
+  "alias_candidates": 8,
+  "job_id": "01a07ffd-f35f-7c50-8125-84937936a347",
+  "state_at_interrupt": "running",
+  "stop_reason": "external wall-clock gate: signal interrupt",
+  "total_items": 62,
+  "succeeded_items": 28,
+  "failed_items": 19,
+  "pending_items": 14,
+  "running_items": 1,
+  "degraded_items": 15,
+  "reserved_calls": 127,
+  "confirmed_dispatches": 117,
+  "unknown_attempts": 9,
+  "active_seconds": 3863.469,
+  "wall_clock_seconds": 3922.199,
+  "configured_go_timeout_minutes": 90,
+  "experiment_wall_clock_gate_minutes": 60,
+  "attempts_by_phase_state": {
+    "extract_completed": {"count": 38, "avg_ms": 21229},
+    "extract_failed": {"count": 30, "avg_ms": 24023},
+    "alias_completed": {"count": 11, "avg_ms": 42034},
+    "alias_failed": {"count": 38, "avg_ms": 35098},
+    "alias_unknown": {"count": 9, "avg_ms": 60002},
+    "alias_reserved": {"count": 1, "avg_ms": null}
+  },
+  "attempt_error_codes": {
+    "extract_completed": {"<none>": 38},
+    "extract_failed": {"invalid_output": 30},
+    "alias_completed": {"<none>": 11},
+    "alias_failed": {"invalid_output": 38},
+    "alias_unknown": {"http_error": 9},
+    "alias_reserved": {"<none>": 1}
+  },
+  "item_failure_reasons": {
+    "extract_invalid": 10,
+    "quote_unverifiable": 9
+  },
+  "results": {
+    "characters": 81,
+    "relations": 78,
+    "evidence": 92
+  },
+  "raw_files": 126,
+  "database_attempts": 127,
+  "raw_outcomes": {
+    "completed": 117,
+    "unknown": 9
+  },
+  "quality_metrics": null,
+  "note": "The run was interrupted after exceeding the experiment's 60-minute wall-clock gate. The database snapshot and streaming raw archive were captured before any other database test ran. No precision or recall is reported because the human truth set is not frozen."
+}

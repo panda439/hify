@@ -1,0 +1,97 @@
+{
+  "ID": "01a0816f-48f2-76fd-8a3c-19027b171fa1",
+  "ItemID": "01a08156-9768-7c35-b805-69f642aa2dd2",
+  "ChunkID": "01a08156-96ea-77b0-a039-335d17da9d74",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "ambiguous",
+        "character_id": "",
+        "new_group": "ambiguous1"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "ambiguous",
+        "character_id": "",
+        "new_group": "ambiguous2"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "link",
+        "character_id": "01a08157-cc2e-7128-966f-a236745fb11d",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "吳媽，是趙太爺家裏唯一的女僕"
+          },
+          {
+            "source_ref": "01a08157-cc2e-7128-966f-a236745fb11d#0",
+            "quote": "趙太爺"
+          }
+        ]
+      },
+      {
+        "mention_ref": "m4",
+        "action": "link",
+        "character_id": "01a08157-cc2e-7128-966f-a236745fb11d",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺"
+          },
+          {
+            "source_ref": "01a08157-cc2e-7128-966f-a236745fb11d#0",
+            "quote": "趙太爺"
+          }
+        ]
+      },
+      {
+        "mention_ref": "m5",
+        "action": "ambiguous",
+        "character_id": "",
+        "new_group": "ambiguous3"
+      },
+      {
+        "mention_ref": "m6",
+        "action": "link",
+        "character_id": "01a08157-cc2e-7128-966f-a236745fb11d",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺"
+          },
+          {
+            "source_ref": "01a08157-cc2e-7128-966f-a236745fb11d#0",
+            "quote": "趙太爺"
+          }
+        ]
+      },
+      {
+        "mention_ref": "m7",
+        "action": "ambiguous",
+        "character_id": "",
+        "new_group": "ambiguous4"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1063,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 422,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 33416,
+    "Valid": true
+  }
+}

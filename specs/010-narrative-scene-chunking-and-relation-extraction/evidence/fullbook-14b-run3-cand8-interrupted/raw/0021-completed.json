@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:18:32Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"閒人\"},{\"ref\":\"m3\",\"surface\":\"樁家\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"但雖然是蟲豸，閒人也並不放，仍舊在就近什麽地方給他碰了五六個響頭，這纔心滿意足的得勝的走了\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"同伙\",\"evidence\":[{\"quote\":\"樁家揭開盒子蓋，也是汗流滿面的唱。『天門啦～～角回啦！人和穿堂空在那裏啦～～！阿Q的銅錢拿過來～～！』\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 17782,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 966,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 181,
+  "prompt_runes": 1491,
+  "prompt_sha256": "66d1729eb75a2c3128890c507d700fbb7b9f3c37f856ab9abe49617d8e989578",
+  "seq": 21,
+  "usage_known": true
+}

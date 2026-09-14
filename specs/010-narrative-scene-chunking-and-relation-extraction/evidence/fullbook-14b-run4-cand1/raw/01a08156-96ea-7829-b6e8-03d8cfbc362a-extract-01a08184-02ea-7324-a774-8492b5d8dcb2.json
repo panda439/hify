@@ -1,0 +1,80 @@
+{
+  "ID": "01a08184-02ea-7324-a774-8492b5d8dcb2",
+  "ItemID": "01a08156-977a-7b6d-b0d2-966607b491db",
+  "ChunkID": "01a08156-96ea-7829-b6e8-03d8cfbc362a",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "舉人老爺"
+      },
+      {
+        "ref": "m3",
+        "surface": "革命黨"
+      },
+      {
+        "ref": "m4",
+        "surface": "未莊人"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "殊不料這卻使百里聞名的舉人老爺有這樣怕"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m3",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "殊不料這卻使百里聞名的舉人老爺有這樣怕"
+          },
+          {
+            "quote": "革這夥媽媽的命，太可惡！太可恨！"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m4",
+        "type": "欺凌",
+        "evidence": [
+          {
+            "quote": "未莊人卻都是他的俘虜了"
+          },
+          {
+            "quote": "未莊人都用了驚懼的眼光對他看"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1017,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 206,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 19817,
+    "Valid": true
+  }
+}

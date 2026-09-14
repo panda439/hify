@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:55:27Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"舉人老爺\"},{\"ref\":\"m3\",\"surface\":\"革命黨\"},{\"ref\":\"m4\",\"surface\":\"未莊人\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"殊不料這卻使百里聞名的舉人老爺有這樣怕\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"殊不料這卻使百里聞名的舉人老爺有這樣怕\"},{\"quote\":\"革這夥媽媽的命，太可惡！太可恨！\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m4\",\"type\":\"欺凌\",\"evidence\":[{\"quote\":\"未莊人卻都是他的俘虜了\"},{\"quote\":\"未莊人都用了驚懼的眼光對他看\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 19817,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1017,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 206,
+  "prompt_runes": 1603,
+  "prompt_sha256": "4557c2cb957d0adbeef684cf063122eb7b2118f5d4a1071b33758e9e60e1c6b8",
+  "seq": 107,
+  "usage_known": true
+}

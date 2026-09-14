@@ -1,0 +1,110 @@
+{
+  "ID": "01a08286-c450-76dd-9567-5c291155d3e0",
+  "ItemID": "01a08284-3691-75a1-8d56-2f5e503310db",
+  "ChunkID": "01a08284-3610-7d88-8249-888441f69661",
+  "Phase": "alias",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08284-5cd9-782d-9a9b-b578eb134cd1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q"
+          },
+          {
+            "source_ref": "01a08284-5cd9-782d-9a9b-b578eb134cd1#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a08284-5cd9-782d-9a9b-b578eb134cd1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Quei"
+          },
+          {
+            "source_ref": "01a08284-5cd9-782d-9a9b-b578eb134cd1#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "link",
+        "character_id": "01a08284-5cd9-782d-9a9b-b578eb134cd1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺"
+          },
+          {
+            "source_ref": "01a08284-5cd9-782d-9a9b-b578eb134cd1#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m4",
+        "action": "link",
+        "character_id": "01a08284-5cd9-782d-9a9b-b578eb134cd1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "茂才先生"
+          },
+          {
+            "source_ref": "01a08284-5cd9-782d-9a9b-b578eb134cd1#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m5",
+        "action": "link",
+        "character_id": "01a08284-5cd9-782d-9a9b-b578eb134cd1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "陳獨秀"
+          },
+          {
+            "source_ref": "01a08284-5cd9-782d-9a9b-b578eb134cd1#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1222,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 565,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 49367,
+    "Valid": true
+  }
+}

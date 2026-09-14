@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:53:37Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"但第二日，鄒七嫂便將那藍裙去染了皂，又將阿Q可疑之點傳揚出去了\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"但第二日，鄒七嫂便將那藍裙去染了皂，又將阿Q可疑之點傳揚出去了\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"地保尋上門了，取了他的門幕去\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m4\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group2\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"村人對于他的敬畏忽而變相了\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m5\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group3\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q也並不諱飾，傲然的說出他的經驗來。從此他們纔知道，他不過是一個小脚色，不但不能上牆，並且不能進洞，只站在門外接東西\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m6\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group4\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"只有一班閒人們卻還要尋根究底的去探阿Q的細底\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 44844,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 927,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 515,
+  "prompt_runes": 1433,
+  "prompt_sha256": "b36d2b30cb070e1c8ae66b8f6693f526fd4edd49679f1bb785a4c9161e1bc1e8",
+  "seq": 102,
+  "usage_known": true
+}

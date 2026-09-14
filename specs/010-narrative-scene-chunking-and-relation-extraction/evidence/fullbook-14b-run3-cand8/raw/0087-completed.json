@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:29:07Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"據阿Q說，他是在舉人老爺家裏幫忙\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08002-fdd6-7d5d-9ac8-abcaff9c0c5e\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"這老爺本姓白，但因爲合城裏只有他一個舉人，所以不必再冠姓，說起舉人來就是他\"},{\"source_ref\":\"01a08002-fdd6-7d5d-9ac8-abcaff9c0c5e#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a0800d-bd4c-788b-bf02-d2842352db44\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"卽如未莊的鄉下人不過打三十二張的竹牌，只有假洋鬼子能够叉『麻醬』\"},{\"source_ref\":\"01a0800d-bd4c-788b-bf02-d2842352db44#0\",\"quote\":\"他這一戰，早忘卻了王鬍，也忘卻了假洋鬼子，似乎對于今天的一切『晦氣』都報了讎\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 47425,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1556,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 432,
+  "prompt_runes": 2110,
+  "prompt_sha256": "0f145a80bab77f3351b91cd5e3579b31688550321597c64e0b3a87ab94a9f019",
+  "seq": 87,
+  "usage_known": true
+}

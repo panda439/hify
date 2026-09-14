@@ -1,0 +1,76 @@
+{
+  "ID": "01a08170-840c-7ee8-9897-8462cc27d6fa",
+  "ItemID": "01a08156-9769-7a9e-94ee-3648ba956891",
+  "ChunkID": "01a08156-96ea-77b8-b121-d83f56969256",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "e4e2f6d6-9f9d-4b6d-9d6d-9f9d9f9d9f9d",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "『我們的少奶奶……』吳媽還嘮叨說。"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "『阿呀！』吳媽楞了一息，突然發抖，大叫着往外跑，且跑且嚷，似乎後來帶哭了。"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "『我和你睏覺，我和你睏覺！』阿Q忽然搶上去，對伊跪下了。"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q對了牆壁跪着也發楞，於是兩手扶着空板凳，慢慢的站起來，彷彿覺得有些糟。"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "link",
+        "character_id": "e4e2f6d6-9f9d-4b6d-9d6d-9f9d9f9d9f9d",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "『忘八蛋！』秀才在後面用了官話這樣罵。"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "一剎時中很寂然。"
+          }
+        ],
+        "reason_code": "context_identity"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 906,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 365,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 29252,
+    "Valid": true
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "model": "qwen2.5:14b",
+  "elapsed_ms": 20495,
+  "prompt": "下面依次给出：这一段里出现的人物称呼、原文、以及已知的候选人物。请判断每一个称呼指的是谁。\n输出一个 JSON 对象，不要任何解释、不要 Markdown 代码围栏：\n{\"decisions\":[{\"mention_ref\",\"action\",\"character_id\",\"new_group\",\"supports\",\"reason_code\"}]}\n每个称呼恰好一条决策，不能多也不能少。\nlink —— character_id 必须逐字填候选行 id= 后的完整人物 id。\nnew 或 ambiguous —— character_id 留空，new_group 填一个只属于它自己的组号。\nsupports 给 1～4 条依据，每条 {\"source_ref\",\"quote\"}。source_ref 可填 chunk 或候选依据 ref（形如 char-aq#0）。\n#序号仅是 supports 的候选依据引用，不能填 character_id；例如 id=char-aq 的候选依据可以写 char-aq#0，但 link 的 character_id 必须写 char-aq，绝不能写 char-aq#0 或 char-aq#1。\n\n称呼：\n- 阿Q（ref=m1）\n- 老Q（ref=m2）\n\n原文：\n老Q，就是阿Q。\n\n候选人物：\n- 阿Q（id=char-aq）；依据 char-aq#0：阿Q\n",
+  "response": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"char-aq\",\"new_group\":null,\"supports\":[{\"source_ref\":\"char-aq#0\",\"quote\":\"阿Q\"}]},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"char-aq\",\"new_group\":null,\"supports\":[{\"source_ref\":\"char-aq#0\",\"quote\":\"阿Q\"}]}]}",
+  "finish_reason": "stop",
+  "usage": {
+    "prompt_tokens": 310,
+    "completion_tokens": 85,
+    "total_tokens": 395
+  }
+}

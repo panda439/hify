@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:30:10Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"妲己\"},{\"ref\":\"m2\",\"surface\":\"褒姒\"},{\"ref\":\"m3\",\"surface\":\"貂蟬\"},{\"ref\":\"m4\",\"surface\":\"阿Q\"},{\"ref\":\"m5\",\"surface\":\"小尼姑\"},{\"ref\":\"m6\",\"surface\":\"假洋鬼子\"},{\"ref\":\"m7\",\"surface\":\"女人\"},{\"ref\":\"m8\",\"surface\":\"野男人\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m7\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"商是妲己鬧亡的\"}]},{\"subject_ref\":\"m2\",\"object_ref\":\"m7\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"周是褒姒弄壞的\"}]},{\"subject_ref\":\"m3\",\"object_ref\":\"m7\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"而董卓可是的確給貂蟬害死了\"}]},{\"subject_ref\":\"m4\",\"object_ref\":\"m5\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"竟被小尼姑害得飄飄然了\"}]},{\"subject_ref\":\"m4\",\"object_ref\":\"m7\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"凡尼姑，一定與和尙私通，一個女人在外面走，一定想引誘野男人\"}]},{\"subject_ref\":\"m4\",\"object_ref\":\"m6\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"也很有排斥異端——如小尼姑及假洋鬼子之類——的正氣\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 28810,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 956,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 323,
+  "prompt_runes": 1487,
+  "prompt_sha256": "cc66b361d0b0813ea0c8a4666ce6f59d3894c234e14cd5db09916ab29681b3a2",
+  "seq": 47,
+  "usage_known": true
+}

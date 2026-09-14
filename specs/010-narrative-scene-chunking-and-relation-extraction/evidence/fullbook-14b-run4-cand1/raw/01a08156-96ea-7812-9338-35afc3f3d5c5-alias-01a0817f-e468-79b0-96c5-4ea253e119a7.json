@@ -1,0 +1,99 @@
+{
+  "ID": "01a0817f-e468-79b0-96c5-4ea253e119a7",
+  "ItemID": "01a08156-9777-762a-a6af-bb1124d69697",
+  "ChunkID": "01a08156-96ea-7812-9338-35afc3f3d5c5",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q還不到"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group1"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9#1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太太還怕他因爲春天的條件不敢來"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#1",
+            "quote": "趙太太"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m4",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9#2",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺以爲不足慮"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#2",
+            "quote": "趙太爺"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m5",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9#3",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "或怨鄒七嫂不上緊"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#3",
+            "quote": "鄒七嫂"
+          }
+        ],
+        "reason_code": "context_identity"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1020,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 501,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 39683,
+    "Valid": true
+  }
+}

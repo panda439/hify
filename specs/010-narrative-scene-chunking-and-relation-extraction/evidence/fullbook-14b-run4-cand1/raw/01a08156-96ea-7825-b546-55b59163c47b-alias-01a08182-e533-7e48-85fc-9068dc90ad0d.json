@@ -1,0 +1,85 @@
+{
+  "ID": "01a08182-e533-7e48-85fc-9068dc90ad0d",
+  "ItemID": "01a08156-9779-7d69-85c7-4c58bb7598c0",
+  "ChunkID": "01a08156-96ea-7825-b546-55b59163c47b",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "ambiguous",
+        "character_id": "",
+        "new_group": "ambiguous1"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a08157-cc2e-7128-966f-a236745fb11d",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙府"
+          },
+          {
+            "source_ref": "01a08157-cc2e-7128-966f-a236745fb11d#0",
+            "quote": "趙太爺"
+          }
+        ]
+      },
+      {
+        "mention_ref": "m3",
+        "action": "link",
+        "character_id": "01a08157-cc2e-7128-966f-a236745fb11d",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺"
+          },
+          {
+            "source_ref": "01a08157-cc2e-7128-966f-a236745fb11d#0",
+            "quote": "趙太爺"
+          }
+        ]
+      },
+      {
+        "mention_ref": "m4",
+        "action": "ambiguous",
+        "character_id": "",
+        "new_group": "ambiguous2"
+      },
+      {
+        "mention_ref": "m5",
+        "action": "link",
+        "character_id": "01a08157-cc2e-7128-966f-a236745fb11d",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "鄒七嫂"
+          },
+          {
+            "source_ref": "01a08157-cc2e-7128-966f-a236745fb11d#1",
+            "quote": "趙太爺"
+          }
+        ]
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 992,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 373,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 34258,
+    "Valid": true
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "ID": "01a0817e-6417-75f7-8827-1956fc35fb4f",
+  "ItemID": "01a08156-9777-762a-a6af-bb1124d69697",
+  "ChunkID": "01a08156-96ea-7812-9338-35afc3f3d5c5",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "趙府的全眷"
+      },
+      {
+        "ref": "m3",
+        "surface": "趙太太"
+      },
+      {
+        "ref": "m4",
+        "surface": "趙太爺"
+      },
+      {
+        "ref": "m5",
+        "surface": "鄒七嫂"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m3",
+        "type": "雇佣",
+        "evidence": [
+          {
+            "quote": "趙太太還怕他因爲春天的條件不敢來"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m4",
+        "type": "雇佣",
+        "evidence": [
+          {
+            "quote": "因爲這是『我』去叫他的"
+          },
+          {
+            "quote": "阿Q，聽說你在外面發財"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m2",
+        "object_ref": "m3",
+        "type": "亲属",
+        "evidence": [
+          {
+            "quote": "趙府的全眷都很焦急"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m2",
+        "object_ref": "m4",
+        "type": "亲属",
+        "evidence": [
+          {
+            "quote": "趙府的全眷都很焦急"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m5",
+        "object_ref": "m1",
+        "type": "同伙",
+        "evidence": [
+          {
+            "quote": "阿Q終於跟着鄒七嫂進來了"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 996,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 247,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 22746,
+    "Valid": true
+  }
+}

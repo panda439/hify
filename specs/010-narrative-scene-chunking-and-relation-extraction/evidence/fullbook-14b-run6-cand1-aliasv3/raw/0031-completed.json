@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T19:43:51Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"ambiguous1\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08284-5cd9-782d-9a9b-b578eb134cd1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"然而阿Q雖然常優勝，卻直待蒙趙太爺打他嘴巴之後，這纔出了名。\"},{\"source_ref\":\"01a08284-5cd9-782d-9a9b-b578eb134cd1#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 12920,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1100,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 160,
+  "prompt_runes": 2069,
+  "prompt_sha256": "199f95e7eabe6b7d918fcb50808db4657dc23a54166ec7d1f1f199b58c45723e",
+  "seq": 31,
+  "usage_known": true
+}

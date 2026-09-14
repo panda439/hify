@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:11:46Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q沒有家，住在未莊的土穀祠裏；也沒有固定的職業，只給人家做短工，割麥便割麥，舂米便舂米，撐船便撐船。\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"住在未莊的土穀祠裏\"},{\"source_ref\":\"chunk\",\"quote\":\"有一個老頭子頌揚說：『阿Q眞能做！』\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m3\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group2\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"住在未莊的土穀祠裏\"},{\"source_ref\":\"chunk\",\"quote\":\"有一個老頭子頌揚說：『阿Q眞能做！』\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m4\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group3\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"有一個老頭子頌揚說：『阿Q眞能做！』\"},{\"source_ref\":\"chunk\",\"quote\":\"這時阿Q赤着膊，懶洋洋的瘦伶仃的正在他面前\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 30872,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 786,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 387,
+  "prompt_runes": 1293,
+  "prompt_sha256": "734b33088c18921731023d8f517547c7884cb1be20791588064e667b34218d5c",
+  "seq": 14,
+  "usage_known": true
+}

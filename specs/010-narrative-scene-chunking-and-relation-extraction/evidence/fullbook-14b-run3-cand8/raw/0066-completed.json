@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:19:30Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"三、阿Q從此不准踏進趙府的門檻。\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"三、阿Q從此不准踏進趙府的門檻。\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a08015-25f9-7088-b892-5248c2f6aae6\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"四、吳媽此後倘有不測，惟阿Q是問。\"},{\"source_ref\":\"01a08015-25f9-7088-b892-5248c2f6aae6#0\",\"quote\":\"吳媽\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"五、阿Q不准再去索取工錢和布衫。\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m5\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"那破布衫是大半做了少奶奶八月間生下來的孩子的襯尿布，那小半破爛的便都做了吳媽的鞋底。\"},{\"source_ref\":\"chunk\",\"quote\":\"阿Q禮畢之後，仍舊回到土穀祠，太陽下去了，漸漸覺得世上有些古怪。\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m6\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group2\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"那破布衫是大半做了少奶奶八月間生下來的孩子的襯尿布，那小半破爛的便都做了吳媽的鞋底。\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 54513,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1471,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 686,
+  "prompt_runes": 2021,
+  "prompt_sha256": "2e442786cf87f11eccf5fe8b5aa4fe2c665cbba2c0cef4a85555773b7591c98e",
+  "seq": 66,
+  "usage_known": true
+}

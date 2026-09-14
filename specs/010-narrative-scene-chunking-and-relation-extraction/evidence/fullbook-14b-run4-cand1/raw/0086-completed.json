@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:45:38Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q沒有說完話，拔步便跑；追來的是一匹很肥大的黑狗。\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"追來的是一匹很肥大的黑狗。\"},{\"source_ref\":\"chunk\",\"quote\":\"阿Q怕尼姑又放出黑狗來，拾起蘿蔔便走。\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m3\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group2\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"老尼姑念着佛。\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 24575,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 965,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 256,
+  "prompt_runes": 1455,
+  "prompt_sha256": "0340d92bd335632e580cc1cf30bf7ae031b9ea23c43b32a66458fe5ff8a983b4",
+  "seq": 86,
+  "usage_known": true
+}

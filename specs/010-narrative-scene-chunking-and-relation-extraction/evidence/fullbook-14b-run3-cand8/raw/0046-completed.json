@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:06:19Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『這斷子絕孫的阿Q！』\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"他這一戰，早忘卻了王鬍，也忘卻了假洋鬼子，似乎對于今天的一切『晦氣』都報了讎\"},{\"source_ref\":\"chunk\",\"quote\":\"遠遠地聽得小尼姑的帶哭的聲音\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m3\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group2\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"他這一戰，早忘卻了王鬍，也忘卻了假洋鬼子，似乎對于今天的一切『晦氣』都報了讎\"},{\"source_ref\":\"chunk\",\"quote\":\"遠遠地聽得小尼姑的帶哭的聲音\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m4\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group3\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"遠遠地聽得小尼姑的帶哭的聲音\"},{\"source_ref\":\"chunk\",\"quote\":\"『這斷子絕孫的阿Q！』\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 38237,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1652,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 376,
+  "prompt_runes": 2255,
+  "prompt_sha256": "efe2d152f273749221f1c495782948ad134e9a3353a777ceac8b959c97c98c80",
+  "seq": 46,
+  "usage_known": true
+}

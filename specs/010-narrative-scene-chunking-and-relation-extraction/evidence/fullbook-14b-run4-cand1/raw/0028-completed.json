@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:15:38Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group1\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\"}]}",
+  "elapsed_ms": 6740,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 839,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 75,
+  "prompt_runes": 1380,
+  "prompt_sha256": "c080bc8682aa032601181534833b06fbcac7e5dd1428696d2ebf975d0c868714",
+  "seq": 28,
+  "usage_known": true
+}

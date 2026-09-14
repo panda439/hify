@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:59:04Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"然而阿Q雖然常優勝，卻直待蒙趙太爺打他嘴巴之後，這纔出了名。\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a07fff-c52a-7858-8c63-edf39040ab31\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"然而阿Q雖然常優勝，卻直待蒙趙太爺打他嘴巴之後，這纔出了名。\"},{\"source_ref\":\"01a07fff-c52a-7858-8c63-edf39040ab31#0\",\"quote\":\"知道的人都說阿Q太荒唐，自己去招打；他大約未必姓趙，卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的\"}],\"reason_code\":\"explicit_alias\"}]}",
+  "elapsed_ms": 32470,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1497,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 311,
+  "prompt_runes": 2084,
+  "prompt_sha256": "c34b78c7667decc23809d2be1d141032bac34b5011cc7a301b3725770343b034",
+  "seq": 30,
+  "usage_known": true
+}

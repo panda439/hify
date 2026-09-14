@@ -1,0 +1,110 @@
+{
+  "ID": "01a08187-3738-740f-b361-5548c82dce3b",
+  "ItemID": "01a08156-977b-7c7b-a247-5072ffa3b6ed",
+  "ChunkID": "01a08156-96ea-7831-bef7-3a2d4e2ab5b1",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "『老Q。』"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "『老Q，……現在……』"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "『老Q。』"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "『老Q，……現在……』"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q這纔站住"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "『阿Q！』"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m4",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "『阿Q！』"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "『阿……Q哥，像我們這樣窮朋友是不要緊的……』"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m5",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "『阿……Q哥，像我們這樣窮朋友是不要緊的……』"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "『老Q，……現在……』"
+          }
+        ],
+        "reason_code": "context_identity"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1029,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 461,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 36871,
+    "Valid": true
+  }
+}

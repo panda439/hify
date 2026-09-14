@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:05:05Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"錢太爺的大兒子\"},{\"ref\":\"m3\",\"surface\":\"假洋鬼子\"},{\"ref\":\"m4\",\"surface\":\"禿兒\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"這也是阿Q最厭惡的一個人，就是錢太爺的大兒子\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"阿Q尤其『深惡而痛絕之』的，是他的一條假辮子\"},{\"quote\":\"這『假洋鬼子』近來了\"},{\"quote\":\"『禿兒。驢……』阿Q歷來本只在肚子裏罵，沒有出過聲，這回因爲正氣忿，因爲要報讎，便不由的輕輕的說出來了\"}]},{\"subject_ref\":\"m3\",\"object_ref\":\"m4\",\"type\":\"alias_proposals\",\"evidence\":[{\"quote\":\"不料這禿兒卻拿着一枝黃漆的棍子——就是阿Q所謂哭喪棒——大踏步走了過來\"}]}],\"alias_proposals\":[{\"left\":\"假洋鬼子\",\"right\":\"禿兒\",\"quote\":\"不料這禿兒卻拿着一枝黃漆的棍子——就是阿Q所謂哭喪棒——大踏步走了過來\"}]}",
+  "elapsed_ms": 24049,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 940,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 307,
+  "prompt_runes": 1477,
+  "prompt_sha256": "ea165485daf9f0b4e751a2256000ce51f9e5c693559e80683fba74e87728ddd4",
+  "seq": 43,
+  "usage_known": true
+}

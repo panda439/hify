@@ -1,0 +1,35 @@
+{
+  "active_ms_used": 0,
+  "attempts": 1,
+  "attempts_by_phase": {
+    "extract": 1
+  },
+  "attempts_by_state": {
+    "not_dispatched": 1
+  },
+  "confirmed_dispatches": 0,
+  "failed_items": 0,
+  "input_tokens_known": 0,
+  "job_id": "01a084e2-98d9-7603-9b3d-b33a9fe5c2e8",
+  "model": "deepseek-chat",
+  "output_tokens_known": 0,
+  "reserved_calls": 0,
+  "retry_rounds": 0,
+  "run_result": {
+    "ItemsSucceeded": 0,
+    "ItemsFailed": 0,
+    "AmbiguousPositions": 0,
+    "AmbiguousEvidence": 0,
+    "AliasDegraded": false,
+    "StoppedEarly": false,
+    "StopReason": ""
+  },
+  "state": "running",
+  "stop_reason": "",
+  "succeeded": 0,
+  "total": 62,
+  "unknown_attempts": 0,
+  "usage_known": 0,
+  "usage_unknown": 1,
+  "wall_ms": 1386
+}

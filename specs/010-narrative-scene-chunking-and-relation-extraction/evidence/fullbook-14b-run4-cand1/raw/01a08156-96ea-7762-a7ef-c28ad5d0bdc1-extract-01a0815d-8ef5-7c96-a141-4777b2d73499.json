@@ -1,0 +1,46 @@
+{
+  "ID": "01a0815d-8ef5-7c96-a141-4777b2d73499",
+  "ItemID": "01a08156-975d-726d-9e76-09f696bab919",
+  "ChunkID": "01a08156-96ea-7762-a7ef-c28ad5d0bdc1",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "閒人"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "閑人還不完，只撩他，於是終而至于打。阿Q在形式上打敗了，被人揪住黃辮子，在壁下碰了四五個響頭，閒人這纔心滿意足的得勝的走了"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 932,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 112,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 11570,
+    "Valid": true
+  }
+}

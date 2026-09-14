@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:46:02Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"掌櫃\"},{\"ref\":\"m3\",\"surface\":\"堂倌\"},{\"ref\":\"m4\",\"surface\":\"酒客\"},{\"ref\":\"m5\",\"surface\":\"路人\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"掌櫃旣先之以點頭，又繼之以談話：\\n『嚄，阿Q，你回來了！』\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"堂倌、掌櫃、酒客、路人，便自然顯出一種疑而且敬的形態來。\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m4\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"堂倌、掌櫃、酒客、路人，便自然顯出一種疑而且敬的形態來。\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m5\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"堂倌、掌櫃、酒客、路人，便自然顯出一種疑而且敬的形態來。\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 23768,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 967,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 259,
+  "prompt_runes": 1529,
+  "prompt_sha256": "f10bcc161b03e1c551bdededbcbf84b659badfb5f30477ae8fcbbf1a64a75819",
+  "seq": 87,
+  "usage_known": true
+}

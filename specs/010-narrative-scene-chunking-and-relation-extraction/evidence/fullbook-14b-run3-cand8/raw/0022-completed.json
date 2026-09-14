@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:56:17Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"閒人\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"閑人還不完，只撩他，於是終而至于打。阿Q在形式上打敗了，被人揪住黃辮子，在壁下碰了四五個響頭，閒人這纔心滿意足的得勝的走了\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"欺凌\",\"evidence\":[{\"quote\":\"閑人還不完，只撩他，於是終而至于打。阿Q在形式上打敗了，被人揪住黃辮子，在壁下碰了四五個響頭，閒人這纔心滿意足的得勝的走了\"},{\"quote\":\"阿Q，這不是兒子打老子，是人打畜生。自己說，人打畜生！\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 19993,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 888,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 219,
+  "prompt_runes": 1409,
+  "prompt_sha256": "fc2a744f9e6762b4c88d282456bdcef935b2073de76a3e4afe26123ad39f1031",
+  "seq": 22,
+  "usage_known": true
+}

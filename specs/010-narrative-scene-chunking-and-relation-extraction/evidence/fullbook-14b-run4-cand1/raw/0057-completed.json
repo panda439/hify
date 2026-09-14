@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:31:55Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"ambiguous1\"},{\"mention_ref\":\"m2\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"ambiguous2\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a08157-cc2e-7128-966f-a236745fb11d\",\"new_group\":\"\"},{\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"01a08157-cc2e-7128-966f-a236745fb11d\",\"new_group\":\"\"},{\"mention_ref\":\"m5\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"ambiguous3\"},{\"mention_ref\":\"m6\",\"action\":\"link\",\"character_id\":\"01a08157-cc2e-7128-966f-a236745fb11d\",\"new_group\":\"\"},{\"mention_ref\":\"m7\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"ambiguous4\"}]}",
+  "elapsed_ms": 23344,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1017,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 235,
+  "prompt_runes": 1543,
+  "prompt_sha256": "2bfeb2ac9fecf46f1e48eb9a28163aae220d684f31a288640b40ae6ec6b29b1d",
+  "seq": 57,
+  "usage_known": true
+}

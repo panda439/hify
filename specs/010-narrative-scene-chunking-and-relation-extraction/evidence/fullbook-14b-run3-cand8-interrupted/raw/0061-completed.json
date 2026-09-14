@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:41:11Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"趙府\"},{\"ref\":\"m3\",\"surface\":\"吳媽\"},{\"ref\":\"m4\",\"surface\":\"趙家\"},{\"ref\":\"m5\",\"surface\":\"太太\"},{\"ref\":\"m6\",\"surface\":\"少奶奶\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"三、阿Q從此不准踏進趙府的門檻。\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"权势压迫\",\"evidence\":[{\"quote\":\"四、吳媽此後倘有不測，惟阿Q是問。\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"雇佣\",\"evidence\":[{\"quote\":\"五、阿Q不准再去索取工錢和布衫。\"}]},{\"subject_ref\":\"m4\",\"object_ref\":\"m5\",\"type\":\"亲属\",\"evidence\":[{\"quote\":\"趙家也並不燒香點燭，因爲太太拜佛的時候可以用，留着了。\"}]},{\"subject_ref\":\"m4\",\"object_ref\":\"m6\",\"type\":\"亲属\",\"evidence\":[{\"quote\":\"那破布衫是大半做了少奶奶八月間生下來的孩子的襯尿布\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 36460,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 865,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 282,
+  "prompt_runes": 1383,
+  "prompt_sha256": "e667322c872c4094042b31d100a9d88c77c90edc07e17c3243aff0ca2ec35ef3",
+  "seq": 61,
+  "usage_known": true
+}

@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:50:34Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"地保\"},{\"ref\":\"m3\",\"surface\":\"趙太爺\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"阿Q並沒有抗辯他確鑿姓趙，只用手摸着左頰，和地保退出去了\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 12667,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 661,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 140,
+  "prompt_runes": 1147,
+  "prompt_sha256": "13c3563938e7210fb633e5483f01de81ba5e0e1bb4f7a18363b358ca1a66feff",
+  "seq": 5,
+  "usage_known": true
+}

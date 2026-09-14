@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:47:01Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"趙司晨\"},{\"ref\":\"m3\",\"surface\":\"王鬍\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"他搖搖頭，將唾沫飛在正對面的趙司晨的臉上\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"照着伸長𩓐子聽得出神的王鬍的後項窩上直劈下去道\"},{\"quote\":\"王鬍驚得一跳，同時電光石火似的趕快縮了頭\"}]},{\"subject_ref\":\"m3\",\"object_ref\":\"m1\",\"type\":\"权势压迫\",\"evidence\":[{\"quote\":\"並且再不敢走近阿Q的身邊\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"权势压迫\",\"evidence\":[{\"quote\":\"謂之差不多，大約也就沒有什麽語病的了\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 20224,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 821,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 232,
+  "prompt_runes": 1379,
+  "prompt_sha256": "9ffd00337f0b8eee8abb1317b3691bae54b77213657325e9517e689ed83e13df",
+  "seq": 90,
+  "usage_known": true
+}

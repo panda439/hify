@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:13:30Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"樁家\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"樁家揭開盒子蓋，也是汗流滿面的唱。『天門啦～～角回啦！人和穿堂空在那裏啦～～！阿Q的銅錢拿過來～～！』\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 11889,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1010,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 107,
+  "prompt_runes": 1591,
+  "prompt_sha256": "91a769fbb1e32b2a3a5461f18eff1a7f463ca9dab5f29ec953174b9a2ad9f011",
+  "seq": 20,
+  "usage_known": true
+}

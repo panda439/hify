@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T15:21:40Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"ambiguous1\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08193-de56-733c-bde8-3ec2f651553e\",\"new_group\":\"\"}]}\n{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"ambiguous1\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08193-de56-733c-bde8-3ec2f651553e\",\"new_group\":\"\"},{\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"然而阿Q雖然常優勝，卻直待蒙趙太爺打他嘴巴之後，這纔出了名。\"}]}]}",
+  "elapsed_ms": 17813,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 791,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 184,
+  "prompt_runes": 1286,
+  "prompt_sha256": "8618c50033f89595dd3b9f42746231963e4c79197e0315406df0a8d0f3f0c788",
+  "seq": 27,
+  "usage_known": true
+}

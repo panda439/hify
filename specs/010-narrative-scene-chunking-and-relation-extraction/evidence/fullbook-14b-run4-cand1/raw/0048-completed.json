@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:26:34Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"哈哈哈！阿Q十分得意的笑。\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『這斷子絕孫的阿Q！』\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m3\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group2\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"酒店裏的人也九分得意的笑。\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 17577,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 985,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 217,
+  "prompt_runes": 1519,
+  "prompt_sha256": "f561b4cca81295e615498c95f82bb1cf01ccc842a852306d24c4b54b6faed664",
+  "seq": 48,
+  "usage_known": true
+}

@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:07:52Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"看哪，他飄飄然的似乎要飛去了！\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『斷子絕孫的阿Q！』\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a0800d-bd4f-76f9-a06f-c204775a907d\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"遠遠地聽得小尼姑的帶哭的聲音\"},{\"source_ref\":\"01a0800d-bd4f-76f9-a06f-c204775a907d#0\",\"quote\":\"遠遠地聽得小尼姑的帶哭的聲音\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 32078,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1706,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 380,
+  "prompt_runes": 2313,
+  "prompt_sha256": "eac42ec4751fd805d38d3ad3d120a4f2e23739e71d7c04ca1c559756e547e4f8",
+  "seq": 49,
+  "usage_known": true
+}

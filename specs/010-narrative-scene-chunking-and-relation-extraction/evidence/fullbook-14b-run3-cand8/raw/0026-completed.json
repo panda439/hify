@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:57:31Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"但雖然是蟲豸，閒人也並不放，仍舊在就近什麽地方給他碰了五六個響頭，這纔心滿意足的得勝的走了，他以爲阿Q這回可遭了瘟。\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group1\"},{\"mention_ref\":\"m3\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group2\"}]}",
+  "elapsed_ms": 16137,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1663,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 203,
+  "prompt_runes": 2250,
+  "prompt_sha256": "121c6eac6ce3c093dd2fcf8f9bb25a5f2f59c019fe299c0b1a03a613033ba36a",
+  "seq": 26,
+  "usage_known": true
+}

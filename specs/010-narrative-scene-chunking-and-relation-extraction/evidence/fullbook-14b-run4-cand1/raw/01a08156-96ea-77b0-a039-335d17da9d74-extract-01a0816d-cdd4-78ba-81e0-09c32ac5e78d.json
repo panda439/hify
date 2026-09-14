@@ -1,0 +1,136 @@
+{
+  "ID": "01a0816d-cdd4-78ba-81e0-09c32ac5e78d",
+  "ItemID": "01a08156-9768-7c35-b805-69f642aa2dd2",
+  "ChunkID": "01a08156-96ea-77b0-a039-335d17da9d74",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "他"
+      },
+      {
+        "ref": "m2",
+        "surface": "伊"
+      },
+      {
+        "ref": "m3",
+        "surface": "吳媽"
+      },
+      {
+        "ref": "m4",
+        "surface": "趙太爺"
+      },
+      {
+        "ref": "m5",
+        "surface": "太太"
+      },
+      {
+        "ref": "m6",
+        "surface": "老爺"
+      },
+      {
+        "ref": "m7",
+        "surface": "少奶奶"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "他對於以爲『一定想引誘野男人』的女人，時常留心着，然而伊並不對他笑。"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "欺凌",
+        "evidence": [
+          {
+            "quote": "他對于和他講話的女人，也時常留心聽，然而伊又並不提起關于什麽勾當的話來。"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m4",
+        "object_ref": "m1",
+        "type": "雇佣",
+        "evidence": [
+          {
+            "quote": "這一天，阿Q在趙太爺家裏舂了一天米，喫過晚飯，便坐在廚房裏吸旱煙。"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m3",
+        "object_ref": "m4",
+        "type": "雇佣",
+        "evidence": [
+          {
+            "quote": "吳媽，是趙太爺家裏唯一的女僕，洗完了碗碟，也就在長凳上坐下了，而且和阿Q談閒天："
+          }
+        ]
+      },
+      {
+        "subject_ref": "m5",
+        "object_ref": "m6",
+        "type": "亲属",
+        "evidence": [
+          {
+            "quote": "太太兩天沒有喫飯哩，因爲老爺要買一個小的……"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m5",
+        "object_ref": "m4",
+        "type": "亲属",
+        "evidence": [
+          {
+            "quote": "太太兩天沒有喫飯哩，因爲老爺要買一個小的……"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m7",
+        "object_ref": "m6",
+        "type": "亲属",
+        "evidence": [
+          {
+            "quote": "我們的少奶奶是八月裏要生孩子了……"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m7",
+        "object_ref": "m4",
+        "type": "亲属",
+        "evidence": [
+          {
+            "quote": "我們的少奶奶是八月裏要生孩子了……"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 984,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 460,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 39774,
+    "Valid": true
+  }
+}

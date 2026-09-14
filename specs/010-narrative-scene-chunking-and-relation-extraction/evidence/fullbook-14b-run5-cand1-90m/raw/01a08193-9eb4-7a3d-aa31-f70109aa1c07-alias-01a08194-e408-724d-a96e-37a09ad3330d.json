@@ -1,0 +1,55 @@
+{
+  "ID": "01a08194-e408-724d-a96e-37a09ad3330d",
+  "ItemID": "01a08193-9f2c-79cb-baf6-9643cca20875",
+  "ChunkID": "01a08193-9eb4-7a3d-aa31-f70109aa1c07",
+  "Phase": "alias",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08193-de56-733c-bde8-3ec2f651553e",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q並沒有抗辯他確鑿姓趙，只用手摸着左頰，和地保退出去了"
+          },
+          {
+            "source_ref": "01a08193-de56-733c-bde8-3ec2f651553e#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group1",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "和地保退出去了；外面又被地保訓斥了一番，謝了地保二百文酒錢"
+          }
+        ],
+        "reason_code": "insufficient"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 645,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 199,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 17504,
+    "Valid": true
+  }
+}

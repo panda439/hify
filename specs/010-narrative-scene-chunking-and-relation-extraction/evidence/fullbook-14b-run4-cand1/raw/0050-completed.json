@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:27:02Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"小尼姑\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"斷子絕孫的阿Q！\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"欺凌\",\"evidence\":[{\"quote\":\"女人是害人的東西。\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 10923,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 988,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 96,
+  "prompt_runes": 1591,
+  "prompt_sha256": "a7338586d540d47900d48ae5ee809a8b3afe35e50ab209e76243e3fec5fc3fd5",
+  "seq": 50,
+  "usage_known": true
+}

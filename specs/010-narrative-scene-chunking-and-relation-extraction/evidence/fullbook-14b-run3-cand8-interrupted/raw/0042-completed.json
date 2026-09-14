@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:27:45Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07fdb-e106-7b56-ba4a-8c2dd0cd8d71\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『哈哈哈！』阿Q十分得意的笑。\"},{\"source_ref\":\"01a07fdb-e106-7b56-ba4a-8c2dd0cd8d71#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a07fdd-864a-7ea9-883c-a2d906d0a846\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"他這一戰，早忘卻了王鬍，也忘卻了假洋鬼子，似乎對于今天的一切『晦氣』都報了讎；\"},{\"source_ref\":\"01a07fdd-864a-7ea9-883c-a2d906d0a846#0\",\"quote\":\"趙太爺的兒子\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"他這一戰，早忘卻了王鬍，也忘卻了假洋鬼子，似乎對于今天的一切『晦氣』都報了讎；\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m4\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group2\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『這斷子絕孫的阿Q！』遠遠地聽得小尼姑的帶哭的聲音。\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 46260,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1696,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 405,
+  "prompt_runes": 2297,
+  "prompt_sha256": "9ed56e99403098d79de71bcbb1c4e68e4640ba1a7dbd10db6b475b9bac853697",
+  "seq": 42,
+  "usage_known": true
+}

@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:14:24Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"他對於以爲『一定想引誘野男人』的女人，時常留心着\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"他對於以爲『一定想引誘野男人』的女人，時常留心着\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a07fff-c52a-7858-8c63-edf39040ab31\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"},{\"source_ref\":\"01a07fff-c52a-7858-8c63-edf39040ab31#0\",\"quote\":\"趙太爺\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"01a08002-fdd6-7d5d-9ac8-abcaff9c0c5e\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q\"},{\"source_ref\":\"01a08002-fdd6-7d5d-9ac8-abcaff9c0c5e#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m5\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"吳媽\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m6\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group2\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"太太\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m7\",\"action\":\"link\",\"character_id\":\"01a07fff-c52a-7858-8c63-edf39040ab31\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"老爺\"},{\"source_ref\":\"01a07fff-c52a-7858-8c63-edf39040ab31#0\",\"quote\":\"趙太爺\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m8\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group3\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"我們的少奶奶\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 55189,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1598,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 695,
+  "prompt_runes": 2199,
+  "prompt_sha256": "622058c379b0142a4db3048b185cd0df3db5a5d7e11a7344a1ad671187d31007",
+  "seq": 57,
+  "usage_known": true
+}

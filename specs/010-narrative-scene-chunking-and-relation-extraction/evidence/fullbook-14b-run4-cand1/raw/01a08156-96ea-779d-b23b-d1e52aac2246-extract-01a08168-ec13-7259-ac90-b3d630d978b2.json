@@ -1,0 +1,63 @@
+{
+  "ID": "01a08168-ec13-7259-ac90-b3d630d978b2",
+  "ItemID": "01a08156-9766-72da-9dee-18a1824a45a5",
+  "ChunkID": "01a08156-96ea-779d-b23b-d1e52aac2246",
+  "Phase": "extract",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "小尼姑"
+      },
+      {
+        "ref": "m3",
+        "surface": "酒店裏的人"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "『這斷子絕孫的阿Q！』"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m3",
+        "type": "得意",
+        "evidence": [
+          {
+            "quote": "阿Q十分得意的笑"
+          },
+          {
+            "quote": "酒店裏的人也九分得意的笑"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 982,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 121,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 12937,
+    "Valid": true
+  }
+}

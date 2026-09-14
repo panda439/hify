@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:54:48Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"ambiguous1\"},{\"mention_ref\":\"m2\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"ambiguous2\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a08157-cc2e-7128-966f-a236745fb11d\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"},{\"source_ref\":\"01a08157-cc2e-7128-966f-a236745fb11d#0\",\"quote\":\"趙太爺\"},{\"source_ref\":\"01a08157-cc2e-7128-966f-a236745fb11d#1\",\"quote\":\"趙太爺\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m4\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"ambiguous3\"},{\"mention_ref\":\"m5\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"ambiguous4\"}]}",
+  "elapsed_ms": 19629,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1038,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 242,
+  "prompt_runes": 1579,
+  "prompt_sha256": "4c8d1863301de780d20fd306c6ba0bd3260a2574d831ec6f8628253e32fc606c",
+  "seq": 105,
+  "usage_known": true
+}

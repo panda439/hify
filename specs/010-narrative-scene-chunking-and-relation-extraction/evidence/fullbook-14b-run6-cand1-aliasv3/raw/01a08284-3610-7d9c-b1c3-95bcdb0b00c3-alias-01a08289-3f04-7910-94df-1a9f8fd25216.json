@@ -1,0 +1,60 @@
+{
+  "ID": "01a08289-3f04-7910-94df-1a9f8fd25216",
+  "ItemID": "01a08284-3695-7207-ae30-d35aabcdf6fc",
+  "ChunkID": "01a08284-3610-7d9c-b1c3-95bcdb0b00c3",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08284-5cd9-782d-9a9b-b578eb134cd1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q"
+          },
+          {
+            "source_ref": "01a08284-5cd9-782d-9a9b-b578eb134cd1#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group1"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group2"
+      },
+      {
+        "mention_ref": "m4",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group3"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1115,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 174,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 14289,
+    "Valid": true
+  }
+}

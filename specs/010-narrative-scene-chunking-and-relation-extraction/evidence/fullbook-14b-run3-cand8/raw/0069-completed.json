@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:20:38Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"小D\"},{\"ref\":\"m3\",\"surface\":\"媽媽的\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"阿Q進三步，小D便退三步，都站着；小D進三步，阿Q便退三步，又都站着\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"权势压迫\",\"evidence\":[{\"quote\":\"『記着罷，媽媽的……』\"},{\"quote\":\"『媽媽的，記着罷……』\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 13931,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 836,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 147,
+  "prompt_runes": 1348,
+  "prompt_sha256": "e254d2d1985b89c4b30d1c6458c84cc4135e7fe71ae2041a8cad172ae8bb1847",
+  "seq": 69,
+  "usage_known": true
+}

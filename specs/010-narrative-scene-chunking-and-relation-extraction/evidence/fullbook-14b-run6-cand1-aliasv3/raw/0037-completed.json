@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T19:48:26Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08284-5cd9-782d-9a9b-b578eb134cd1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q\"},{\"source_ref\":\"01a08284-5cd9-782d-9a9b-b578eb134cd1#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"d9d9f56e-9f6d-7f5b-9f6d-6f6d6f6d6f6f6f6f\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"王鬍\"},{\"source_ref\":\"d9d9f56e-9f6d-7f5b-9f6d-6f6d6f6d6f6f6f6f#0\",\"quote\":\"王鬍\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"d9d9f56e-9f6d-7f5b-9f6d-6f6d6f6d6f6f6f6f\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"王癩鬍\"},{\"source_ref\":\"d9d9f56e-9f6d-7f5b-9f6d-6f6d6f6d6f6f6f6f#1\",\"quote\":\"王癩鬍\"}],\"reason_code\":\"explicit_alias\"}]}",
+  "elapsed_ms": 41745,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1237,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 379,
+  "prompt_runes": 2148,
+  "prompt_sha256": "60dd678bde321fa029f18d30cb612439ec8305295be2ba03bb2139bb59d48ad6",
+  "seq": 37,
+  "usage_known": true
+}

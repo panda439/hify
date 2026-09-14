@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T19:39:10Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08284-5cd9-782d-9a9b-b578eb134cd1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q\"},{\"source_ref\":\"01a08284-5cd9-782d-9a9b-b578eb134cd1#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\"},{\"mention_ref\":\"m3\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group2\"},{\"mention_ref\":\"m4\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group3\"}]}",
+  "elapsed_ms": 16227,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1001,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 174,
+  "prompt_runes": 1888,
+  "prompt_sha256": "65f28032926aa42b860b1bd3bbd6fc4b528fdc01b77b8eef09c2213a1a8ad7d1",
+  "seq": 14,
+  "usage_known": true
+}

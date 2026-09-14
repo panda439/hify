@@ -1,0 +1,52 @@
+{
+  "ID": "01a0815d-1448-72ca-94f8-5af5a512667f",
+  "ItemID": "01a08156-975b-73c8-a0d0-f666ace1ce9f",
+  "ChunkID": "01a08156-96ea-775e-ad8c-3a78cbf3f761",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "閒人們"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "閒人們便愈喜歡玩笑他"
+          },
+          {
+            "quote": "阿Q照例的發了怒，他怒目而視了"
+          },
+          {
+            "quote": "阿Q沒有法，只得另外想出報復的話來"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 965,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 97,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 10749,
+    "Valid": true
+  }
+}

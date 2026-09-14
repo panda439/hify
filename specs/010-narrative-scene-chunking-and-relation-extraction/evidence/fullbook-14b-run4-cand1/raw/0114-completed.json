@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T15:00:01Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"趙太爺\"},{\"ref\":\"m2\",\"surface\":\"趙白眼\"},{\"ref\":\"m3\",\"surface\":\"阿Q\"},{\"ref\":\"m4\",\"surface\":\"小D\"},{\"ref\":\"m5\",\"surface\":\"秀才\"},{\"ref\":\"m6\",\"surface\":\"假洋鬼子\"},{\"ref\":\"m7\",\"surface\":\"王鬍\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"亲属\",\"evidence\":[{\"quote\":\"趙太爺父子回家\"}]},{\"subject_ref\":\"m3\",\"object_ref\":\"m4\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"第一個該死的是小D\"}]},{\"subject_ref\":\"m3\",\"object_ref\":\"m1\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"第一個該死的是小D和趙太爺\"}]},{\"subject_ref\":\"m3\",\"object_ref\":\"m5\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"還有秀才\"}]},{\"subject_ref\":\"m3\",\"object_ref\":\"m6\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"還有假洋鬼子\"}]},{\"subject_ref\":\"m3\",\"object_ref\":\"m7\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"王鬍本來還可留，但也不要了\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 21865,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1075,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 274,
+  "prompt_runes": 1714,
+  "prompt_sha256": "ac4e7df5a4fe3758cfff532ccf4607fd375429098bad178597c512d63701f78b",
+  "seq": 114,
+  "usage_known": true
+}

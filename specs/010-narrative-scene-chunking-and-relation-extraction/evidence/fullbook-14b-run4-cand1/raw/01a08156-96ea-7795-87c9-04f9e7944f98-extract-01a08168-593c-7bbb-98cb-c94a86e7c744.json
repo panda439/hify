@@ -1,0 +1,65 @@
+{
+  "ID": "01a08168-593c-7bbb-98cb-c94a86e7c744",
+  "ItemID": "01a08156-9765-76b2-a3a8-f7ea5b8fea5f",
+  "ChunkID": "01a08156-96ea-7795-87c9-04f9e7944f98",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "小尼姑"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "他迎上去，大聲的吐一口唾沫"
+          },
+          {
+            "quote": "阿Q走近伊身旁，突然伸出手去摩着伊新剃的頭皮，獃笑着，說"
+          },
+          {
+            "quote": "尼姑滿臉通紅的說，一面趕快走"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "欺凌",
+        "evidence": [
+          {
+            "quote": "阿Q走近伊身旁，突然伸出手去摩着伊新剃的頭皮，獃笑着，說"
+          },
+          {
+            "quote": "尼姑滿臉通紅的說，一面趕快走"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 982,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 176,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 17458,
+    "Valid": true
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:51:03Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q並沒有抗辯他確鑿姓趙，只用手摸着左頰，和地保退出去了\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"外面又被地保訓斥了一番，謝了地保二百文酒錢\"},{\"source_ref\":\"chunk\",\"quote\":\"知道的人都說阿Q太荒唐，自己去招打；他大約未必姓趙，卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m3\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group2\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"知道的人都說阿Q太荒唐，自己去招打；他大約未必姓趙，卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 28958,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 656,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 323,
+  "prompt_runes": 1109,
+  "prompt_sha256": "5e2dd445dc8d444d97bdba9b315129acb59f4488bafd09cfcdf21b647193f50c",
+  "seq": 6,
+  "usage_known": true
+}

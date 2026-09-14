@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:24:56Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a0800d-bd4f-76f9-a06f-c204775a907d\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"小尼姑\"},{\"source_ref\":\"01a0800d-bd4f-76f9-a06f-c204775a907d#0\",\"quote\":\"遠遠地聽得小尼姑的帶哭的聲音\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"老尼姑\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 22223,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1639,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 279,
+  "prompt_runes": 2171,
+  "prompt_sha256": "0bf0674130256ac37d6e2e01bdacbe6a0a992217ed903ba0ab5f54ef5d7e99f4",
+  "seq": 79,
+  "usage_known": true
+}

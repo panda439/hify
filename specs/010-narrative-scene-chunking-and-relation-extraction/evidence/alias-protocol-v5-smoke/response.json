@@ -1,0 +1,11 @@
+{
+  "model": "qwen2.5:14b",
+  "elapsed_ms": 25542,
+  "prompt": "输出一个 JSON 对象，不要解释或 Markdown：\n{\"decisions\":[{\"mention_ref\",\"action\",\"character_id\",\"new_group\",\"supports\",\"reason_code\"}]}\n每个称呼恰好一条决策。link 时 character_id 必须逐字填候选人物 id= 后的完整 ID，绝不能填带 #序号 的依据引用。\nsupports 的文字字段只能叫 quote，不能写 text、content 或其他字段名。\n每个 link 的 supports 必须恰好两条：第一条 {\"source_ref\":\"chunk\",\"quote\":\"当前原文\"}；第二条 {\"source_ref\":\"char-aq#0\",\"quote\":\"候选依据\"}。少任何一侧都会被拒绝。\n称呼：阿Q（ref=m1）、老Q（ref=m2）。原文：老Q，就是阿Q。候选人物：阿Q（id=char-aq）；依据 char-aq#0：阿Q。",
+  "response": "{\n  \"decisions\": [\n    {\n      \"mention_ref\": \"m1\",\n      \"action\": \"link\",\n      \"character_id\": \"char-aq\",\n      \"new_group\": false,\n      \"supports\": [\n        {\n          \"source_ref\": \"chunk\",\n          \"quote\": \"老Q，就是阿Q。\"\n        },\n        {\n          \"source_ref\": \"char-aq#0\",\n          \"quote\": \"阿Q。\"\n        }\n      ],\n      \"reason_code\": \"mention_match\"\n    },\n    {\n      \"mention_ref\": \"m2\",\n      \"action\": \"link\",\n      \"character_id\": \"char-aq\",\n      \"new_group\": false,\n      \"supports\": [\n        {\n          \"source_ref\": \"chunk\",\n          \"quote\": \"老Q，就是阿Q。\"\n        },\n        {\n          \"source_ref\": \"char-aq#0\",\n          \"quote\": \"阿Q。\"\n        }\n      ],\n      \"reason_code\": \"mention_match\"\n    }\n  ]\n}",
+  "usage": {
+    "prompt_tokens": 213,
+    "completion_tokens": 217,
+    "total_tokens": 430
+  }
+}

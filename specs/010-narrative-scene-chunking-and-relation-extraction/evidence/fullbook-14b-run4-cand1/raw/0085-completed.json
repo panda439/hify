@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:45:13Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"黑狗\"},{\"ref\":\"m3\",\"surface\":\"老尼姑\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"追來的是一匹很肥大的黑狗。這本來在前門的，不知怎的到後園來了。黑狗哼而且追，已經要咬着阿Q的腿\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"阿Q怕尼姑又放出黑狗來，拾起蘿蔔便走\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 15530,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1012,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 152,
+  "prompt_runes": 1593,
+  "prompt_sha256": "130aa280321191ae02f63be5718afb37cad83e238b92eedf421fca3eb4a471e7",
+  "seq": 85,
+  "usage_known": true
+}

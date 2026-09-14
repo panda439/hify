@@ -1,0 +1,76 @@
+{
+  "ID": "01a0818a-18d9-789b-b7fb-4e5f421b857f",
+  "ItemID": "01a08156-977f-7382-ace1-2198b6c15adf",
+  "ChunkID": "01a08156-96ea-7845-80b8-f979a33e3260",
+  "Phase": "extract",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "老尼姑"
+      },
+      {
+        "ref": "m3",
+        "surface": "趙秀才"
+      },
+      {
+        "ref": "m4",
+        "surface": "錢洋鬼子"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "『革命革命，革過一革的，……你們要革得我們怎麽樣呢？』"
+          },
+          {
+            "quote": "『什麽？……』"
+          },
+          {
+            "quote": "『誰？……』"
+          },
+          {
+            "quote": "『那秀才和洋鬼子！』"
+          },
+          {
+            "quote": "阿Q很出意外，不由的一錯愕，老尼姑見他失了銳氣，便飛速的關了門，阿Q再推時，牢不可開，再打時，沒有回答了。"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m3",
+        "object_ref": "m4",
+        "type": "同伙",
+        "evidence": [
+          {
+            "quote": "這是『咸與維新』的時候了，所以他們便談得很投機，立刻成了情投意合的同志，也相約去革命。"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1006,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 240,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 22323,
+    "Valid": true
+  }
+}

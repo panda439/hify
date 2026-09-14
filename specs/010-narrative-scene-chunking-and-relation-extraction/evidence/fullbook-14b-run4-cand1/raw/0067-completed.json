@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:36:38Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q想：『哼，有趣，這小孤孀不知道鬧着什麽玩意兒了？』\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"走近趙司晨的身邊\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#1\",\"quote\":\"趙司晨\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#2\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#2\",\"quote\":\"趙太爺\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#3\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"地保進來了\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#3\",\"quote\":\"地保\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 42629,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 955,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 486,
+  "prompt_runes": 1460,
+  "prompt_sha256": "40922799a04906a269bd552c6b0fe4a467589a2be52958bd53e6c373b2591be1",
+  "seq": 67,
+  "usage_known": true
+}

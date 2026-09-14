@@ -1,0 +1,68 @@
+{
+  "ID": "01a0817a-6976-7720-a5ff-4ddc57a9c063",
+  "ItemID": "01a08156-9771-73eb-920b-64d18f5169ca",
+  "ChunkID": "01a08156-96ea-77eb-9edd-ba4dc0d664d0",
+  "Phase": "alias",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group1",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "小尼姑"
+          }
+        ],
+        "reason_code": "insufficient"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group2",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "老尼姑"
+          }
+        ],
+        "reason_code": "insufficient"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 993,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 195,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 19956,
+    "Valid": true
+  }
+}

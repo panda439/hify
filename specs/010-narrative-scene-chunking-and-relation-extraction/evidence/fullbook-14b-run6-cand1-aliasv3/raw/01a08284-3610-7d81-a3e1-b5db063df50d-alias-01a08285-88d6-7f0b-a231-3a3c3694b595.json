@@ -1,0 +1,71 @@
+{
+  "ID": "01a08285-88d6-7f0b-a231-3a3c3694b595",
+  "ItemID": "01a08284-368f-7480-90a8-03e65c34e138",
+  "ChunkID": "01a08284-3610-7d81-a3e1-b5db063df50d",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08284-5cd9-782d-9a9b-b578eb134cd1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q"
+          },
+          {
+            "source_ref": "01a08284-5cd9-782d-9a9b-b578eb134cd1#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group1"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "link",
+        "character_id": "01a08284-5cd9-782d-9a9b-b578eb134cd1#1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺的兒子"
+          },
+          {
+            "source_ref": "01a08284-5cd9-782d-9a9b-b578eb134cd1#1",
+            "quote": "趙太爺的兒子"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m4",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group2"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1196,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 274,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 21712,
+    "Valid": true
+  }
+}

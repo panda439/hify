@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:41:28Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group1\"},{\"mention_ref\":\"m2\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group2\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a07fff-c52a-7858-8c63-edf39040ab31\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"},{\"source_ref\":\"01a07fff-c52a-7858-8c63-edf39040ab31#0\",\"quote\":\"知道的人都說阿Q太荒唐，自己去招打；他大約未必姓趙，卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m4\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group3\"},{\"mention_ref\":\"m5\",\"action\":\"link\",\"character_id\":\"01a08028-e421-7392-8629-92d50b9ebb78\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"鄒七嫂\"},{\"source_ref\":\"01a08028-e421-7392-8629-92d50b9ebb78#0\",\"quote\":\"鄒七嫂\"}],\"reason_code\":\"explicit_alias\"}]}",
+  "elapsed_ms": 27029,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1580,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 329,
+  "prompt_runes": 2135,
+  "prompt_sha256": "f06f7fdbf9d66b7181aa168674c708b965fff541d34419de9c7d7224838f25d0",
+  "seq": 107,
+  "usage_known": true
+}

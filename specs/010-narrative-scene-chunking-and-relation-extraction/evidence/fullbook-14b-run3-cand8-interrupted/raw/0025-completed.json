@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:20:45Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"樁家\"},{\"ref\":\"m3\",\"surface\":\"兒子\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"他不知道誰和誰爲什麽打起架來了。罵聲、打聲、脚步聲，昏頭昏腦的一大陣，他纔爬起來，賭攤不見了，人們也不見了，身上有幾處很似乎有些痛，似乎也挨了幾拳幾腳似的，幾個人詫異的對他看。\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"亲属\",\"evidence\":[{\"quote\":\"說是算被兒子拿去了罷，總還是忽忽不樂；\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 17824,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 911,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 184,
+  "prompt_runes": 1421,
+  "prompt_sha256": "201fea532da0cedef9eed39dd93b12a93c9905fcef905727292cc68d1cec563b",
+  "seq": 25,
+  "usage_known": true
+}

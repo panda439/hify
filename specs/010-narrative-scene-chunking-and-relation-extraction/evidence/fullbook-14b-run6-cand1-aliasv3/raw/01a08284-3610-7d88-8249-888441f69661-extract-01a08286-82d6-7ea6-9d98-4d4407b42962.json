@@ -1,0 +1,74 @@
+{
+  "ID": "01a08286-82d6-7ea6-9d98-4d4407b42962",
+  "ItemID": "01a08284-3691-75a1-8d56-2f5e503310db",
+  "ChunkID": "01a08284-3610-7d88-8249-888441f69661",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "阿Quei"
+      },
+      {
+        "ref": "m3",
+        "surface": "趙太爺"
+      },
+      {
+        "ref": "m4",
+        "surface": "茂才先生"
+      },
+      {
+        "ref": "m5",
+        "surface": "陳獨秀"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "同伙",
+        "evidence": [
+          {
+            "quote": "他活着的時候，人都叫他阿Quei"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m5",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "陳獨秀辦了新青年提倡洋字，所以國粹淪亡，無可查考了"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": [
+      {
+        "left": "m1",
+        "right": "m2",
+        "quote": "他活着的時候，人都叫他阿Quei"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 985,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 171,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 16716,
+    "Valid": true
+  }
+}

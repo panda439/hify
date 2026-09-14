@@ -1,0 +1,22 @@
+{
+  "ID": "01a08185-6826-7f1f-ab3a-4e2d1de20355",
+  "ItemID": "01a08156-977b-7c7b-a247-5072ffa3b6ed",
+  "ChunkID": "01a08156-96ea-7831-bef7-3a2d4e2ab5b1",
+  "Phase": "alias",
+  "State": "unknown",
+  "ErrorCode": "http_error",
+  "Raw": null,
+  "UsageKnown": false,
+  "In": {
+    "Int64": 0,
+    "Valid": false
+  },
+  "Out": {
+    "Int64": 0,
+    "Valid": false
+  },
+  "Elapsed": {
+    "Int64": 60002,
+    "Valid": true
+  }
+}

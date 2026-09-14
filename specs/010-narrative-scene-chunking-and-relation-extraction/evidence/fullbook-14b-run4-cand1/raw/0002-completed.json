@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:05:54Z",
+  "content": "{\"mentions\":[],\"relations\":[],\"alias_proposals\":[]}",
+  "elapsed_ms": 5793,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 978,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 13,
+  "prompt_runes": 1545,
+  "prompt_sha256": "035b1e259f9679d84de67bc6fd4daaa0fcaf8fce5ff16a9419da2d6165eb5833",
+  "seq": 2,
+  "usage_known": true
+}

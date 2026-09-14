@@ -1,0 +1,22 @@
+{
+  "ID": "01a084e9-31af-780a-9a9c-347a6217ac7d",
+  "ItemID": "01a084e7-0d6d-77bc-b6e4-4f21755e1ae8",
+  "ChunkID": "01a084e7-0cff-76e5-bd52-9934e31c7ce1",
+  "Phase": "extract",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": "={\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"地保\"},{\"ref\":\"m3\",\"surface\":\"趙太爺\"}],\"",
+  "UsageKnown": true,
+  "In": {
+    "Int64": 750,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 2048,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 17714,
+    "Valid": true
+  }
+}

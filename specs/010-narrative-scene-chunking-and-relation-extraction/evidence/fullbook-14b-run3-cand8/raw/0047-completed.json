@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:06:36Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"他\"},{\"ref\":\"m2\",\"surface\":\"阿Q\"},{\"ref\":\"m3\",\"surface\":\"小尼姑\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"同伙\",\"evidence\":[{\"quote\":\"阿Q的耳朵裏又聽到這句話\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"斷子絕孫的阿Q！\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"欺凌\",\"evidence\":[{\"quote\":\"他想：不錯，應該有一個女人，斷子絕孫便沒有人供一碗飯，……應該有一個女人\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 16908,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 944,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 160,
+  "prompt_runes": 1491,
+  "prompt_sha256": "5876dc4ea13490523bf8b756067704183c5dd5bdac2397013fc1c070a00916c8",
+  "seq": 47,
+  "usage_known": true
+}

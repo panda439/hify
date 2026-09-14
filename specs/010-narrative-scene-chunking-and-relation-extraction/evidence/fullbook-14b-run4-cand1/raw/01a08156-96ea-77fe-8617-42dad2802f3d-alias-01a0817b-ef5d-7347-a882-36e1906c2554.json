@@ -1,0 +1,68 @@
+{
+  "ID": "01a0817b-ef5d-7347-a882-36e1906c2554",
+  "ItemID": "01a08156-9773-7cf4-9930-29b9a256e178",
+  "ChunkID": "01a08156-96ea-77fe-8617-42dad2802f3d",
+  "Phase": "alias",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "據阿Q說，他是在舉人老爺家裏幫忙"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group01",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "這老爺本姓白，但因爲合城裏只有他一個舉人，所以不必再冠姓，說起舉人來就是他"
+          }
+        ],
+        "reason_code": "insufficient"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group02",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "只有假洋鬼子能够叉『麻醬』"
+          }
+        ],
+        "reason_code": "insufficient"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 892,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 247,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 23271,
+    "Valid": true
+  }
+}

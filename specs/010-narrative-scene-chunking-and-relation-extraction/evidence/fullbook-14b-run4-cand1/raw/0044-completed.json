@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:25:32Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"我說他！\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"靜修菴裏的小尼姑\"},{\"source_ref\":\"chunk\",\"quote\":\"小尼姑全不睬，低了頭只是走\"},{\"source_ref\":\"chunk\",\"quote\":\"尼姑滿臉通紅的說\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 19942,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 925,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 199,
+  "prompt_runes": 1433,
+  "prompt_sha256": "5612ee5f04d83dc6b3ace316d0807e3a08aae85325f8cb31076de84152e1b8d2",
+  "seq": 44,
+  "usage_known": true
+}

@@ -1,0 +1,41 @@
+{
+  "models": [
+    {
+      "model": "qwen2.5:14b",
+      "digest": "7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6",
+      "chunks": 13,
+      "calls": {
+        "extract": 13,
+        "alias": 1
+      },
+      "json_valid": 12,
+      "json_invalid": 1,
+      "call_failed": 0,
+      "reject_reasons": {
+        "其他": 2,
+        "围栏": 0,
+        "截断": 0,
+        "未知字段": 0,
+        "缺字段": 0,
+        "重复key": 0
+      },
+      "resolve_ok": 11,
+      "resolve_failed": 1,
+      "resolve_reject_reasons": {
+        "occurrence越界": 0,
+        "引用找不到": 1,
+        "跨分隔符": 0
+      },
+      "latency_ms": {
+        "p50": 13947,
+        "p95": 26961,
+        "max": 60002
+      },
+      "usage_returned": 13,
+      "over_60s": 1,
+      "mentions_avg": 1.7692307692307692,
+      "relations_avg": 1.0769230769230769,
+      "note": "直接 POST Ollama /v1/chat/completions；有意绕过 provider.ChatOnce（限流/熔断/账目），不代表完整生产调用路径。"
+    }
+  ]
+}

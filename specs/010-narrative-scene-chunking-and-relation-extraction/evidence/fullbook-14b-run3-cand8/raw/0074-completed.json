@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:22:57Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"棉被\"},{\"ref\":\"m3\",\"surface\":\"氈帽\"},{\"ref\":\"m4\",\"surface\":\"布衫\"},{\"ref\":\"m5\",\"surface\":\"棉襖\"},{\"ref\":\"m6\",\"surface\":\"褲子\"},{\"ref\":\"m7\",\"surface\":\"破夾襖\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"擁有\",\"evidence\":[{\"quote\":\"棉被、氈帽、布衫早已沒有了\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m5\",\"type\":\"擁有\",\"evidence\":[{\"quote\":\"其次就賣了棉襖\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m6\",\"type\":\"擁有\",\"evidence\":[{\"quote\":\"現在有褲子，卻萬不可脫的\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m7\",\"type\":\"擁有\",\"evidence\":[{\"quote\":\"有破夾襖，又除了送人做鞋底之外，決定賣不出錢\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 18211,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 871,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 232,
+  "prompt_runes": 1394,
+  "prompt_sha256": "ace5d3844b9364fe52a37ff080f6db09c132262048759f3ead2cedba927cf37b",
+  "seq": 74,
+  "usage_known": true
+}

@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:33:35Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"趙府的全眷\"},{\"ref\":\"m3\",\"surface\":\"趙太太\"},{\"ref\":\"m4\",\"surface\":\"趙太爺\"},{\"ref\":\"m5\",\"surface\":\"鄒七嫂\"}],\"relations\":[{\"subject_ref\":\"m4\",\"object_ref\":\"m1\",\"type\":\"雇佣\",\"evidence\":[{\"quote\":\"『我』去叫他的\"},{\"quote\":\"阿Q終於跟着鄒七嫂進來了\"}]},{\"subject_ref\":\"m3\",\"object_ref\":\"m1\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"趙太太還怕他因爲春天的條件不敢來\"}]},{\"subject_ref\":\"m4\",\"object_ref\":\"m3\",\"type\":\"亲属\",\"evidence\":[{\"quote\":\"趙太太還怕他因爲春天的條件不敢來\"}]},{\"subject_ref\":\"m2\",\"object_ref\":\"m1\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"趙府的全眷都很焦急，打着呵欠，或恨阿Q太飄忽，或怨鄒七嫂不上緊\"}]},{\"subject_ref\":\"m5\",\"object_ref\":\"m1\",\"type\":\"同伙\",\"evidence\":[{\"quote\":\"阿Q終於跟着鄒七嫂進來了\"}]},{\"subject_ref\":\"m4\",\"object_ref\":\"m5\",\"type\":\"权势压迫\",\"evidence\":[{\"quote\":\"他只說沒有沒有，我說你自己當面說去，他還要說，我說……\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 31727,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 952,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 320,
+  "prompt_runes": 1493,
+  "prompt_sha256": "0dca488e009e8ed0902e06f12d35e4fb2002a164c1515cf62ffe15ecc03e1df4",
+  "seq": 95,
+  "usage_known": true
+}

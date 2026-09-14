@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:41:38Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q愈覺得希奇了\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"這小D，是一個窮小子\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#1\",\"quote\":\"小D\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"他竟在錢府的照壁前遇見了小D\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#1\",\"quote\":\"小D\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"畜生！\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#1\",\"quote\":\"小D\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m5\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"這謙遜反使阿Q更加憤怒起來\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#1\",\"quote\":\"小D\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 52512,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 986,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 604,
+  "prompt_runes": 1491,
+  "prompt_sha256": "1a957b2b33b6ef1c48c4f5ad92dd7d04361f33e238e1e8c4b345ea348ed4ce2e",
+  "seq": 76,
+  "usage_known": true
+}

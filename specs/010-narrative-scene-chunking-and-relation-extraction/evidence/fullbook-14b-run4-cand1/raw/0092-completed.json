@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:48:07Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『你們可看見過殺頭麽？』阿Q說，『咳，好看。殺革命黨。唉，好看好看，……』\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"d41d8cd9-8f5a-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"將唾沫飛在正對面的趙司晨的臉上\"},{\"source_ref\":\"d41d8cd9-8f5a-7036-b022-2c66c154ecd9#0\",\"quote\":\"趙司晨\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"d41d8cd9-8f5a-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"照着伸長𩓐子聽得出神的王鬍的後項窩上直劈下去\"},{\"source_ref\":\"d41d8cd9-8f5a-7036-b022-2c66c154ecd9#0\",\"quote\":\"王鬍\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 32268,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 822,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 404,
+  "prompt_runes": 1335,
+  "prompt_sha256": "e16a7e28f6babb00a147ef6c6622091408ebe782550758ee196df0daa86d0e06",
+  "seq": 92,
+  "usage_known": true
+}

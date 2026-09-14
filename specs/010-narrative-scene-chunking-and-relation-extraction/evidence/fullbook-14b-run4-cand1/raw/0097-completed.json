@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:50:37Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q還不到\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太太還怕他因爲春天的條件不敢來\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#1\",\"quote\":\"趙太太\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#2\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺以爲不足慮\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#2\",\"quote\":\"趙太爺\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m5\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#3\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"或怨鄒七嫂不上緊\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#3\",\"quote\":\"鄒七嫂\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 40073,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1020,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 501,
+  "prompt_runes": 1580,
+  "prompt_sha256": "36e32ce2b883c3fe660a5a774fd2aab7acbdf331547c257395d6bc390f60811b",
+  "seq": 97,
+  "usage_known": true
+}

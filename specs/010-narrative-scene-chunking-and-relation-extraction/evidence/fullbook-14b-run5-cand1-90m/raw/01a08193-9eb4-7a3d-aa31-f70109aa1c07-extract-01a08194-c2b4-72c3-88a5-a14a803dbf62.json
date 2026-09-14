@@ -1,0 +1,49 @@
+{
+  "ID": "01a08194-c2b4-72c3-88a5-a14a803dbf62",
+  "ItemID": "01a08193-9f2c-79cb-baf6-9643cca20875",
+  "ChunkID": "01a08193-9eb4-7a3d-aa31-f70109aa1c07",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "地保"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "阿Q並沒有抗辯他確鑿姓趙，只用手摸着左頰，和地保退出去了"
+          },
+          {
+            "quote": "外面又被地保訓斥了一番"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 705,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 94,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 8497,
+    "Valid": true
+  }
+}

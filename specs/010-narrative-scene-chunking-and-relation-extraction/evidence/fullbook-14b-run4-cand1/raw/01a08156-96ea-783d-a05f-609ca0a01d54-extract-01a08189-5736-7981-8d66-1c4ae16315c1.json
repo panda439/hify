@@ -1,0 +1,78 @@
+{
+  "ID": "01a08189-5736-7981-8d66-1c4ae16315c1",
+  "ItemID": "01a08156-977e-76d2-b0f7-c7b8026cbfb1",
+  "ChunkID": "01a08156-96ea-783d-a05f-609ca0a01d54",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "趙司晨"
+      },
+      {
+        "ref": "m2",
+        "surface": "鄒七嫂"
+      },
+      {
+        "ref": "m3",
+        "surface": "假洋鬼子"
+      },
+      {
+        "ref": "m4",
+        "surface": "秀才"
+      },
+      {
+        "ref": "m5",
+        "surface": "吳媽"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m5",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "趙司晨的妹子眞醜。鄒七嫂的女兒過幾年再說。"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m3",
+        "object_ref": "m5",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "假洋鬼子的老婆會和沒有辮子的男人睡覺，嚇，不是好東西！"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m4",
+        "object_ref": "m5",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "秀才的老婆是眼胞上有疤的。"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1007,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 194,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 18736,
+    "Valid": true
+  }
+}

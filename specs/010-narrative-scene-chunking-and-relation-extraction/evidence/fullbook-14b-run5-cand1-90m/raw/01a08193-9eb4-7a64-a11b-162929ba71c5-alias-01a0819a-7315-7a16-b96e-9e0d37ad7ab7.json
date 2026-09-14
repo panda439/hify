@@ -1,0 +1,59 @@
+{
+  "ID": "01a0819a-7315-7a16-b96e-9e0d37ad7ab7",
+  "ItemID": "01a08193-9f34-7f3a-97a3-7996b8078d17",
+  "ChunkID": "01a08193-9eb4-7a64-a11b-162929ba71c5",
+  "Phase": "alias",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08193-de56-733c-bde8-3ec2f651553e",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "但雖然是蟲豸，閒人也並不放，仍舊在就近什麽地方給他碰了五六個響頭，這纔心滿意足的得勝的走了，他以爲阿Q這回可遭了瘟。"
+          },
+          {
+            "source_ref": "01a08193-de56-733c-bde8-3ec2f651553e#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a08193-de56-733c-bde8-3ec2f651553e",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "樁家揭開盒子蓋，也是汗流滿面的唱。『天門啦～～角回啦！人和穿堂空在那裏啦～～！阿Q的銅錢拿過來～～！』"
+          },
+          {
+            "source_ref": "01a08193-de56-733c-bde8-3ec2f651553e#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 951,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 322,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 29972,
+    "Valid": true
+  }
+}

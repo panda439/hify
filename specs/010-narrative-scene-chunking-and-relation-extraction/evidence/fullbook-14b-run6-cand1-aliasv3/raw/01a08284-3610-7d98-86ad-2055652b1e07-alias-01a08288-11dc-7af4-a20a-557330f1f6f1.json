@@ -1,0 +1,60 @@
+{
+  "ID": "01a08288-11dc-7af4-a20a-557330f1f6f1",
+  "ItemID": "01a08284-3694-73d4-a7d2-3e9639a87559",
+  "ChunkID": "01a08284-3610-7d98-86ad-2055652b1e07",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08284-5cd9-782d-9a9b-b578eb134cd1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q沒有家，住在未莊的土穀祠裏；也沒有固定的職業，只給人家做短工，割麥便割麥，舂米便舂米，撐船便撐船。"
+          },
+          {
+            "source_ref": "01a08284-5cd9-782d-9a9b-b578eb134cd1#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "new",
+        "character_id": "",
+        "new_group": "1"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "new",
+        "character_id": "",
+        "new_group": "2"
+      },
+      {
+        "mention_ref": "m4",
+        "action": "new",
+        "character_id": "",
+        "new_group": "3"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1047,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 215,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 17459,
+    "Valid": true
+  }
+}

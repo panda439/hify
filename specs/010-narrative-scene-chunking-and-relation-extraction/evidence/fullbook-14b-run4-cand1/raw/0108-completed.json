@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:56:12Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q的耳朶裏，本來早聽到過革命黨這一句話\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"殊不料這卻使百里聞名的舉人老爺有這樣怕\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"革這夥媽媽的命，太可惡！太可恨！……便是我，也要投​降革命黨了\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"未莊人卻都是他的俘虜了\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 45225,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 983,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 514,
+  "prompt_runes": 1481,
+  "prompt_sha256": "75f0fb652336bd911c04702c2080acc37f72aabf2734e13421e44f4c039f08f9",
+  "seq": 108,
+  "usage_known": true
+}

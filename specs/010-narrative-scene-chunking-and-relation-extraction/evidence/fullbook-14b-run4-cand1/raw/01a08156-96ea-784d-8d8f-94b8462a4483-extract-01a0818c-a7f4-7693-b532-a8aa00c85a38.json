@@ -1,0 +1,72 @@
+{
+  "ID": "01a0818c-a7f4-7693-b532-a8aa00c85a38",
+  "ItemID": "01a08156-977f-7ea2-be67-ec867e7ee219",
+  "ChunkID": "01a08156-96ea-784d-8d8f-94b8462a4483",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "革命黨"
+      },
+      {
+        "ref": "m3",
+        "surface": "知縣大老爺"
+      },
+      {
+        "ref": "m4",
+        "surface": "舉人老爺"
+      },
+      {
+        "ref": "m5",
+        "surface": "老把總"
+      },
+      {
+        "ref": "m6",
+        "surface": "航船七斤"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "只有一件可怕的事是另有幾個不好的革命黨夾在裏面搗亂，第二天便動手翦辮子，聽說那鄰村的航船七斤便着了道兒，弄得不像人樣子了。"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "权势压迫",
+        "evidence": [
+          {
+            "quote": "阿Q本也想進城去尋他的老朋友，一得這消息，也只得作罷了。"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 867,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 208,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 18428,
+    "Valid": true
+  }
+}

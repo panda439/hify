@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T15:04:34Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"革命了……你知道？……\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"老尼姑兩眼通紅的說\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#1\",\"quote\":\"老尼姑\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#2\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"那秀才和洋鬼子！\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#2\",\"quote\":\"趙秀才\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#3\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"錢洋鬼子\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#3\",\"quote\":\"洋鬼子\"}],\"reason_code\":\"explicit_alias\"}]}",
+  "elapsed_ms": 37335,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1016,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 478,
+  "prompt_runes": 1572,
+  "prompt_sha256": "85909a19cbf7639f5d6c9fb8d26a9140c8e998eedb20353cef03fd28d4c67d93",
+  "seq": 122,
+  "usage_known": true
+}

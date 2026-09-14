@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "acceptance": false,
+  "reference_only": true,
+  "identity_mode": "gold_alias_assisted",
+  "truth_snapshot_sha256": "7fcde710e6d61714f4da3650b61a0581c73c9a20799c464dec01f9c01a9810a6",
+  "prediction_snapshot_sha256": "faf7e49a7693a2530f928153de08aa5fcc4aa22587b8e5ceb6e66c99065d82f2",
+  "truth": {
+    "model_config_hash": "9a2bb4970de6696ba95215f550588625095e6960ce47c3e3c336b263104f22ff",
+    "price_version": "not-applicable-ai-draft",
+    "raw_response_snapshot_sha256": "c4219d8df8fb2cafa7fa2bbf8646dc1a1bf23244a8a60be37dc57fe80faea2bc",
+    "ledger_snapshot_sha256": "9a2bb4970de6696ba95215f550588625095e6960ce47c3e3c336b263104f22ff"
+  },
+  "prediction": {
+    "model_config_hash": "9a2bb4970de6696ba95215f550588625095e6960ce47c3e3c336b263104f22ff",
+    "price_version": "not-applicable-ai-draft",
+    "raw_response_snapshot_sha256": "c4219d8df8fb2cafa7fa2bbf8646dc1a1bf23244a8a60be37dc57fe80faea2bc",
+    "ledger_snapshot_sha256": "9a2bb4970de6696ba95215f550588625095e6960ce47c3e3c336b263104f22ff"
+  },
+  "metrics": {
+    "true_positives": 58,
+    "false_positives": 0,
+    "false_negatives": 0,
+    "precision": 1,
+    "recall": 1,
+    "valid_evidence_rate": 1
+  }
+}

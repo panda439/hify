@@ -1,0 +1,74 @@
+{
+  "ID": "01a08171-67d3-7ee4-aa17-5a37a2d236ce",
+  "ItemID": "01a08156-976a-7897-a6c7-bce4e606886a",
+  "ChunkID": "01a08156-96ea-77c0-9608-b7838f6a7dd3",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "趙太爺"
+      },
+      {
+        "ref": "m3",
+        "surface": "鄒七嫂"
+      },
+      {
+        "ref": "m4",
+        "surface": "吳媽"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "趙太爺的內院裏"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m3",
+        "type": "同乡邻里",
+        "evidence": [
+          {
+            "quote": "鄒七嫂"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m3",
+        "object_ref": "m4",
+        "type": "权势压迫",
+        "evidence": [
+          {
+            "quote": "吳媽只是哭，夾些話，卻不甚聽得分明。"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 939,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 159,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 15658,
+    "Valid": true
+  }
+}

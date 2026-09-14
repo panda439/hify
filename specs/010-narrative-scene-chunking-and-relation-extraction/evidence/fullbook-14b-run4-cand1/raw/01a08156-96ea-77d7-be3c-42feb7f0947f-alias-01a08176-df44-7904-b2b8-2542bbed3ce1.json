@@ -1,0 +1,110 @@
+{
+  "ID": "01a08176-df44-7904-b2b8-2542bbed3ce1",
+  "ItemID": "01a08156-976e-7a25-a2cb-88e9e7fa79e4",
+  "ChunkID": "01a08156-96ea-77d7-be3c-42feb7f0947f",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q愈覺得希奇了"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9#1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "這小D，是一個窮小子"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#1",
+            "quote": "小D"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9#1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "他竟在錢府的照壁前遇見了小D"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#1",
+            "quote": "小D"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m4",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9#1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "畜生！"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#1",
+            "quote": "小D"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m5",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9#1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "這謙遜反使阿Q更加憤怒起來"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#1",
+            "quote": "小D"
+          }
+        ],
+        "reason_code": "context_identity"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 986,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 604,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 52512,
+    "Valid": true
+  }
+}

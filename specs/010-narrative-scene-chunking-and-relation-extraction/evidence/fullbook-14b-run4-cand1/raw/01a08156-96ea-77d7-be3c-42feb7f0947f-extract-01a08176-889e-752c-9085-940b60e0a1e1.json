@@ -1,0 +1,77 @@
+{
+  "ID": "01a08176-889e-752c-9085-940b60e0a1e1",
+  "ItemID": "01a08156-976e-7a25-a2cb-88e9e7fa79e4",
+  "ChunkID": "01a08156-96ea-77d7-be3c-42feb7f0947f",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "小D"
+      },
+      {
+        "ref": "m3",
+        "surface": "小D"
+      },
+      {
+        "ref": "m4",
+        "surface": "小D"
+      },
+      {
+        "ref": "m5",
+        "surface": "小D"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "『畜生！』阿Q怒目而視的說，嘴角上飛出唾沫來。"
+          },
+          {
+            "quote": "『我是蟲豸，好麽？……』小D說。"
+          },
+          {
+            "quote": "這謙遜反使阿Q更加憤怒起來"
+          },
+          {
+            "quote": "于是只得撲上去，伸手去拔小D的辮子。小D一手護住了自己的辮根，一手也來拔阿Q的辮子，阿Q便也將空着的一隻手護住了自己的辮根。"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "欺凌",
+        "evidence": [
+          {
+            "quote": "誰料這小子竟謀了他的飯盌去。"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1017,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 236,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 22151,
+    "Valid": true
+  }
+}

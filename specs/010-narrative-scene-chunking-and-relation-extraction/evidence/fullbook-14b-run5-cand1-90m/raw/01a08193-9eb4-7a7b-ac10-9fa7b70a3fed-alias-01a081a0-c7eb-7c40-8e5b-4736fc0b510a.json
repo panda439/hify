@@ -1,0 +1,92 @@
+{
+  "ID": "01a081a0-c7eb-7c40-8e5b-4736fc0b510a",
+  "ItemID": "01a08193-9f39-7854-9e9b-a0c48dcfce6d",
+  "ChunkID": "01a08193-9eb4-7a7b-ac10-9fa7b70a3fed",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08193-de56-733c-bde8-3ec2f651553e",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q"
+          },
+          {
+            "source_ref": "01a08193-de56-733c-bde8-3ec2f651553e#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a08193-de56-733c-bde8-3ec2f651553e#1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "王鬍"
+          },
+          {
+            "source_ref": "01a08193-de56-733c-bde8-3ec2f651553e#0",
+            "quote": "阿Q"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "王鬍"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "link",
+        "character_id": "01a08193-de56-733c-bde8-3ec2f651553e#1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "王癩鬍"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "王鬍"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "王鬍"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "王鬍"
+          }
+        ],
+        "reason_code": "context_identity"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1020,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 353,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 28571,
+    "Valid": true
+  }
+}

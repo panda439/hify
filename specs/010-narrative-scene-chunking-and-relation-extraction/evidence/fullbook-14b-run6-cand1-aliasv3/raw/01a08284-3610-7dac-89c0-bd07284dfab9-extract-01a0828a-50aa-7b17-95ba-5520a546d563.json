@@ -1,0 +1,46 @@
+{
+  "ID": "01a0828a-50aa-7b17-95ba-5520a546d563",
+  "ItemID": "01a08284-3698-776e-b6c1-1639754f507a",
+  "ChunkID": "01a08284-3610-7dac-89c0-bd07284dfab9",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "樁家"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "樁家揭開盒子蓋，也是汗流滿面的唱。『天門啦～～角回啦！人和穿堂空在那裏啦～～！阿Q的銅錢拿過來～～！』"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1010,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 107,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 11892,
+    "Valid": true
+  }
+}

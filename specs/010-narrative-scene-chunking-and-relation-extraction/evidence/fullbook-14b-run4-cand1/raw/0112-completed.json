@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:59:14Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『老Q。』\"},{\"source_ref\":\"chunk\",\"quote\":\"『老Q，……現在……』\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『老Q。』\"},{\"source_ref\":\"chunk\",\"quote\":\"『老Q，……現在……』\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q這纔站住\"},{\"source_ref\":\"chunk\",\"quote\":\"『阿Q！』\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『阿Q！』\"},{\"source_ref\":\"chunk\",\"quote\":\"『阿……Q哥，像我們這樣窮朋友是不要緊的……』\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m5\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『阿……Q哥，像我們這樣窮朋友是不要緊的……』\"},{\"source_ref\":\"chunk\",\"quote\":\"『老Q，……現在……』\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 36871,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1029,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 461,
+  "prompt_runes": 1554,
+  "prompt_sha256": "d8859f7e0a1a8db5ef4454c6a7c396843be55042057726dd90f3f7570ecb5300",
+  "seq": 112,
+  "usage_known": true
+}

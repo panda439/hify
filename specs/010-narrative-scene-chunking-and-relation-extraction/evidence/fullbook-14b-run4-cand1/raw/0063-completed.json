@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:34:48Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"e4e2f6d6-9f9d-4b6d-9d6d-9f9d9f9d9f9d\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『我們的少奶奶……』吳媽還嘮叨說。\"},{\"source_ref\":\"chunk\",\"quote\":\"『阿呀！』吳媽楞了一息，突然發抖，大叫着往外跑，且跑且嚷，似乎後來帶哭了。\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『我和你睏覺，我和你睏覺！』阿Q忽然搶上去，對伊跪下了。\"},{\"source_ref\":\"chunk\",\"quote\":\"阿Q對了牆壁跪着也發楞，於是兩手扶着空板凳，慢慢的站起來，彷彿覺得有些糟。\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"e4e2f6d6-9f9d-4b6d-9d6d-9f9d9f9d9f9d\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『忘八蛋！』秀才在後面用了官話這樣罵。\"},{\"source_ref\":\"chunk\",\"quote\":\"一剎時中很寂然。\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 28947,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 906,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 365,
+  "prompt_runes": 1438,
+  "prompt_sha256": "ba1c4f0059c644d49ba510f9661f10cfe821eb0603d6926a39883dab6b8d9374",
+  "seq": 63,
+  "usage_known": true
+}

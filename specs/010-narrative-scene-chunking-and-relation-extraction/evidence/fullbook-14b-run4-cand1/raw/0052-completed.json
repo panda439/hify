@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:27:51Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"小尼姑\"},{\"ref\":\"m3\",\"surface\":\"女人\"},{\"ref\":\"m4\",\"surface\":\"小尼姑\"},{\"ref\":\"m5\",\"surface\":\"女人\"},{\"ref\":\"m6\",\"surface\":\"小尼姑\"},{\"ref\":\"m7\",\"surface\":\"女人\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"竟被小尼姑害得飄飄然了\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"女人眞可惡\"},{\"quote\":\"女人在外面走，一定想引誘野男人\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m4\",\"type\":\"欺凌\",\"evidence\":[{\"quote\":\"竟被小尼姑害得飄飄然了\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m5\",\"type\":\"欺凌\",\"evidence\":[{\"quote\":\"女人眞可惡\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m6\",\"type\":\"欺凌\",\"evidence\":[{\"quote\":\"小尼姑並不然\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m7\",\"type\":\"欺凌\",\"evidence\":[{\"quote\":\"凡尼姑，一定與和尙私通\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 26603,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1000,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 296,
+  "prompt_runes": 1587,
+  "prompt_sha256": "84118b282e25df5378cc55a0289f1dfaeb29e991c9e448bf39d08ee89b3009e7",
+  "seq": 52,
+  "usage_known": true
+}

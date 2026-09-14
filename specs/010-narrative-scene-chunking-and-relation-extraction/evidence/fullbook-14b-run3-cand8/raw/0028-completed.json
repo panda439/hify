@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:58:23Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"但眞所謂『塞翁失馬安知非福』罷，阿Q不幸而贏了一回，他倒幾乎失敗了。\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08005-b077-7d98-8afc-412e7aa75fda\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"他只聽得樁家的歌唱了。\"},{\"source_ref\":\"01a08005-b077-7d98-8afc-412e7aa75fda#0\",\"quote\":\"樁家\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m3\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"說是算被兒子拿去了罷，總還是忽忽不樂\"},{\"source_ref\":\"chunk\",\"quote\":\"他這回纔有些感到失敗的苦痛了\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 34324,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1608,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 337,
+  "prompt_runes": 2178,
+  "prompt_sha256": "882789b42aa72d95e42a90e947dc68f2b3a8ee499e27feca4f0c9f61b4c2dd33",
+  "seq": 28,
+  "usage_known": true
+}

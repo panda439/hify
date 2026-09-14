@@ -1,0 +1,72 @@
+{
+  "ID": "01a0817a-f496-7bf2-8061-aff746b39d4a",
+  "ItemID": "01a08156-9772-71ec-afb8-f9334a5cd72d",
+  "ChunkID": "01a08156-96ea-77f3-b276-171782493235",
+  "Phase": "alias",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q沒有說完話，拔步便跑；追來的是一匹很肥大的黑狗。"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group1",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "追來的是一匹很肥大的黑狗。"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q怕尼姑又放出黑狗來，拾起蘿蔔便走。"
+          }
+        ],
+        "reason_code": "insufficient"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group2",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "老尼姑念着佛。"
+          }
+        ],
+        "reason_code": "insufficient"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 965,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 256,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 24575,
+    "Valid": true
+  }
+}

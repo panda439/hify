@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:16:38Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"趙太爺\"},{\"ref\":\"m3\",\"surface\":\"錢太爺\"},{\"ref\":\"m4\",\"surface\":\"文童\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"而阿Q在情神上獨不表格外的崇奉，他想：我的兒子會闊得多啦！\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"而阿Q在情神上獨不表格外的崇奉，他想：我的兒子會闊得多啦！\"}]},{\"subject_ref\":\"m2\",\"object_ref\":\"m4\",\"type\":\"亲属\",\"evidence\":[{\"quote\":\"夫文童者，將來恐怕要變秀才者也；趙太爺、錢太爺大受居民的尊敬，除有錢之外，就因爲都是文童的爹爹\"}]},{\"subject_ref\":\"m3\",\"object_ref\":\"m4\",\"type\":\"亲属\",\"evidence\":[{\"quote\":\"夫文童者，將來恐怕要變秀才者也；趙太爺、錢太爺大受居民的尊敬，除有錢之外，就因爲都是文童的爹爹\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 24536,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 800,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 286,
+  "prompt_runes": 1295,
+  "prompt_sha256": "6e7efabc51cab18124babcca8bbd639517f2a6bc146a370031ce57611ae8b044",
+  "seq": 16,
+  "usage_known": true
+}

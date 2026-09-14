@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:35:58Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"油燈乾了不少了，阿Q還不到。\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a08006-4061-7c02-92e4-2fa554364c50\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太太還怕他因爲春天的條件不敢來，而趙太爺以爲不足慮：因爲這是『我』去叫他的。\"},{\"source_ref\":\"01a08006-4061-7c02-92e4-2fa554364c50#0\",\"quote\":\"趙太太\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"01a07fff-c52a-7858-8c63-edf39040ab31\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺踱開去，眼睛打量着他的全身，一面說。\"},{\"source_ref\":\"01a07fff-c52a-7858-8c63-edf39040ab31#0\",\"quote\":\"趙太爺\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m5\",\"action\":\"link\",\"character_id\":\"01a08002-fde1-76fd-b701-1ae1053119e2\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『他只說沒有沒有，我說你自己當面說去，他還要說，我說……』\"},{\"source_ref\":\"01a08002-fde1-76fd-b701-1ae1053119e2#0\",\"quote\":\"趙太爺\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 43505,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1588,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 544,
+  "prompt_runes": 2174,
+  "prompt_sha256": "f74744f88329586155d6c6cdd314e4486c2f4a79a54debc0722727c1fca349f9",
+  "seq": 98,
+  "usage_known": true
+}

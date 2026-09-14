@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:35:55Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"趙司晨\"},{\"ref\":\"m3\",\"surface\":\"趙太爺\"},{\"ref\":\"m4\",\"surface\":\"地保\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"他猛然間看見趙太爺向他奔來，而且手裏揑着一枝大竹槓\"},{\"quote\":\"他覺得冷了，因爲雖在春季，而夜間頗有餘寒，尙不宜於赤膊。他也記得布衫留在趙家，但倘若去取，又深怕秀才的竹槓\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m4\",\"type\":\"权势压迫\",\"evidence\":[{\"quote\":\"地保進來了\"},{\"quote\":\"阿Q自然沒有話。臨末，因爲在晚上，應該送地保加倍酒錢四百文\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 20109,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 991,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 212,
+  "prompt_runes": 1584,
+  "prompt_sha256": "2cc07e919a6c220ab2ea36e3ef2890a7ce26612301325809eb11b6f9789355fd",
+  "seq": 66,
+  "usage_known": true
+}

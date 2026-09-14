@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:43:17Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07fff-c52a-7858-8c63-edf39040ab31\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『老Q。』\"},{\"source_ref\":\"01a07fff-c52a-7858-8c63-edf39040ab31#0\",\"quote\":\"趙太爺\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a07fff-c52a-7858-8c63-edf39040ab31\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『老Q。』\"},{\"source_ref\":\"01a07fff-c52a-7858-8c63-edf39040ab31#0\",\"quote\":\"趙太爺\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q這纔站住\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"01a08002-fde1-76fd-b701-1ae1053119e2\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"秀才只得直呼其名了\"},{\"source_ref\":\"01a08002-fde1-76fd-b701-1ae1053119e2#0\",\"quote\":\"趙太爺\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m5\",\"action\":\"link\",\"character_id\":\"01a08005-b06f-79d3-b196-b14143688c3d\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙白眼惴惴的說\"},{\"source_ref\":\"01a08005-b06f-79d3-b196-b14143688c3d#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 58691,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1595,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 576,
+  "prompt_runes": 2170,
+  "prompt_sha256": "cd1f07991092e306e42914f60eb7a49206fd8203a1107529edd6ecfd59931391",
+  "seq": 110,
+  "usage_known": true
+}

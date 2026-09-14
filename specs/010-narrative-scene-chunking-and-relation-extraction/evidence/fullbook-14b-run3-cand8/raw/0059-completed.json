@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:15:22Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08015-25f9-7088-b892-5248c2f6aae6\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『我們的少奶奶……』吳媽還嘮叨說。\"},{\"source_ref\":\"01a08015-25f9-7088-b892-5248c2f6aae6#0\",\"quote\":\"吳媽\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『我和你睏覺，我和你睏覺！』阿Q忽然搶上去，對伊跪下了。\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a08013-04ed-7484-b480-c81b8716dd57\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『忘八蛋！』秀才在後面用了官話這樣罵。\"},{\"source_ref\":\"01a08013-04ed-7484-b480-c81b8716dd57#0\",\"quote\":\"秀才\"}],\"reason_code\":\"explicit_alias\"}]}",
+  "elapsed_ms": 38444,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1441,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 392,
+  "prompt_runes": 1981,
+  "prompt_sha256": "da387967db2ab6ab440bf61700de4705ef3105b812e307abb7b00f4acdafaf5c",
+  "seq": 59,
+  "usage_known": true
+}

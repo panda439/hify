@@ -1,0 +1,637 @@
+{
+  "schema_version": 1,
+  "status": "COMPLETED",
+  "frozen_for_acceptance": false,
+  "identity_mode": "gold_alias_assisted",
+  "relations": [
+    {
+      "chapter": 1,
+      "subject": "赵太爷",
+      "object": "赵秀才",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C01P003",
+        "C01P010"
+      ]
+    },
+    {
+      "chapter": 1,
+      "subject": "赵太爷",
+      "object": "阿Q",
+      "type": "欺凌",
+      "directed": true,
+      "evidence_ids": [
+        "C01P006",
+        "C01P007",
+        "C01P008"
+      ]
+    },
+    {
+      "chapter": 1,
+      "subject": "赵太爷",
+      "object": "阿Q",
+      "type": "权势压迫",
+      "directed": true,
+      "evidence_ids": [
+        "C01P003",
+        "C01P007",
+        "C01P008"
+      ]
+    },
+    {
+      "chapter": 1,
+      "subject": "地保",
+      "object": "阿Q",
+      "type": "权势压迫",
+      "directed": true,
+      "evidence_ids": [
+        "C01P009"
+      ]
+    },
+    {
+      "chapter": 2,
+      "subject": "赵太爷",
+      "object": "赵秀才",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C02P004"
+      ]
+    },
+    {
+      "chapter": 2,
+      "subject": "钱太爷",
+      "object": "钱洋鬼子",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C02P004",
+        "C03P019"
+      ]
+    },
+    {
+      "chapter": 3,
+      "subject": "赵太爷",
+      "object": "阿Q",
+      "type": "欺凌",
+      "directed": true,
+      "evidence_ids": [
+        "C03P001"
+      ]
+    },
+    {
+      "chapter": 3,
+      "subject": "地保",
+      "object": "阿Q",
+      "type": "权势压迫",
+      "directed": true,
+      "evidence_ids": [
+        "C03P002"
+      ]
+    },
+    {
+      "chapter": 3,
+      "subject": "阿Q",
+      "object": "王胡",
+      "type": "冲突",
+      "directed": false,
+      "evidence_ids": [
+        "C03P010",
+        "C03P014",
+        "C03P016"
+      ]
+    },
+    {
+      "chapter": 3,
+      "subject": "阿Q",
+      "object": "王胡",
+      "type": "欺凌",
+      "directed": true,
+      "evidence_ids": [
+        "C03P017"
+      ]
+    },
+    {
+      "chapter": 3,
+      "subject": "钱太爷",
+      "object": "钱洋鬼子",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C03P019"
+      ]
+    },
+    {
+      "chapter": 3,
+      "subject": "钱洋鬼子",
+      "object": "钱母",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C03P019"
+      ]
+    },
+    {
+      "chapter": 3,
+      "subject": "钱洋鬼子",
+      "object": "钱妻",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C03P019",
+        "C03P020"
+      ]
+    },
+    {
+      "chapter": 3,
+      "subject": "钱洋鬼子",
+      "object": "阿Q",
+      "type": "欺凌",
+      "directed": true,
+      "evidence_ids": [
+        "C03P019",
+        "C03P021",
+        "C03P023",
+        "C03P025"
+      ]
+    },
+    {
+      "chapter": 3,
+      "subject": "阿Q",
+      "object": "钱洋鬼子",
+      "type": "冲突",
+      "directed": false,
+      "evidence_ids": [
+        "C03P019",
+        "C03P022",
+        "C03P023"
+      ]
+    },
+    {
+      "chapter": 3,
+      "subject": "阿Q",
+      "object": "小尼姑",
+      "type": "欺凌",
+      "directed": true,
+      "evidence_ids": [
+        "C03P027",
+        "C03P031",
+        "C03P033",
+        "C03P035",
+        "C03P036"
+      ]
+    },
+    {
+      "chapter": 4,
+      "subject": "阿Q",
+      "object": "小尼姑",
+      "type": "欺凌",
+      "directed": true,
+      "evidence_ids": [
+        "C04P003"
+      ]
+    },
+    {
+      "chapter": 4,
+      "subject": "赵太爷",
+      "object": "阿Q",
+      "type": "雇佣",
+      "directed": true,
+      "evidence_ids": [
+        "C04P015"
+      ]
+    },
+    {
+      "chapter": 4,
+      "subject": "赵太爷",
+      "object": "吴妈",
+      "type": "雇佣",
+      "directed": true,
+      "evidence_ids": [
+        "C04P016"
+      ]
+    },
+    {
+      "chapter": 4,
+      "subject": "赵太爷",
+      "object": "赵太太",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C04P016",
+        "C04P017",
+        "C04P031"
+      ]
+    },
+    {
+      "chapter": 4,
+      "subject": "赵秀才",
+      "object": "阿Q",
+      "type": "欺凌",
+      "directed": true,
+      "evidence_ids": [
+        "C04P026",
+        "C04P028",
+        "C04P029"
+      ]
+    },
+    {
+      "chapter": 4,
+      "subject": "赵太爷",
+      "object": "阿Q",
+      "type": "权势压迫",
+      "directed": true,
+      "evidence_ids": [
+        "C04P036",
+        "C04P039",
+        "C04P040",
+        "C04P042",
+        "C04P044"
+      ]
+    },
+    {
+      "chapter": 4,
+      "subject": "地保",
+      "object": "阿Q",
+      "type": "权势压迫",
+      "directed": true,
+      "evidence_ids": [
+        "C04P037",
+        "C04P038",
+        "C04P039"
+      ]
+    },
+    {
+      "chapter": 4,
+      "subject": "邹七嫂",
+      "object": "赵太爷",
+      "type": "同乡邻里",
+      "directed": false,
+      "evidence_ids": [
+        "C04P031"
+      ]
+    },
+    {
+      "chapter": 4,
+      "subject": "赵太爷",
+      "object": "赵白眼",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C04P031"
+      ]
+    },
+    {
+      "chapter": 4,
+      "subject": "赵秀才娘子",
+      "object": "赵家孩子",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C04P045"
+      ]
+    },
+    {
+      "chapter": 5,
+      "subject": "邹七嫂",
+      "object": "邹七嫂女儿",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C05P002"
+      ]
+    },
+    {
+      "chapter": 5,
+      "subject": "阿Q",
+      "object": "小D",
+      "type": "冲突",
+      "directed": false,
+      "evidence_ids": [
+        "C05P008",
+        "C05P011",
+        "C05P014",
+        "C05P015",
+        "C05P016"
+      ]
+    },
+    {
+      "chapter": 5,
+      "subject": "阿Q",
+      "object": "老尼姑",
+      "type": "冲突",
+      "directed": false,
+      "evidence_ids": [
+        "C05P022",
+        "C05P023",
+        "C05P024",
+        "C05P025",
+        "C05P026"
+      ]
+    },
+    {
+      "chapter": 6,
+      "subject": "阿Q",
+      "object": "王胡",
+      "type": "欺凌",
+      "directed": true,
+      "evidence_ids": [
+        "C06P010",
+        "C06P012"
+      ]
+    },
+    {
+      "chapter": 6,
+      "subject": "赵太爷",
+      "object": "赵太太",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C06P016"
+      ]
+    },
+    {
+      "chapter": 6,
+      "subject": "赵秀才",
+      "object": "赵秀才娘子",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C06P028"
+      ]
+    },
+    {
+      "chapter": 6,
+      "subject": "赵太爷",
+      "object": "赵秀才",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C06P030"
+      ]
+    },
+    {
+      "chapter": 6,
+      "subject": "地保",
+      "object": "阿Q",
+      "type": "权势压迫",
+      "directed": true,
+      "evidence_ids": [
+        "C06P031"
+      ]
+    },
+    {
+      "chapter": 7,
+      "subject": "白举人",
+      "object": "赵秀才",
+      "type": "冲突",
+      "directed": false,
+      "evidence_ids": [
+        "C07P002"
+      ]
+    },
+    {
+      "chapter": 7,
+      "subject": "邹七嫂",
+      "object": "赵太爷",
+      "type": "同乡邻里",
+      "directed": false,
+      "evidence_ids": [
+        "C07P002"
+      ]
+    },
+    {
+      "chapter": 7,
+      "subject": "赵太爷",
+      "object": "赵秀才",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C07P027"
+      ]
+    },
+    {
+      "chapter": 7,
+      "subject": "赵白眼",
+      "object": "赵白眼妻",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C07P027"
+      ]
+    },
+    {
+      "chapter": 7,
+      "subject": "赵司晨",
+      "object": "赵司晨妹",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C07P032"
+      ]
+    },
+    {
+      "chapter": 7,
+      "subject": "邹七嫂",
+      "object": "邹七嫂女儿",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C07P032"
+      ]
+    },
+    {
+      "chapter": 7,
+      "subject": "钱洋鬼子",
+      "object": "钱妻",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C07P032"
+      ]
+    },
+    {
+      "chapter": 7,
+      "subject": "赵秀才",
+      "object": "赵秀才娘子",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C07P032"
+      ]
+    },
+    {
+      "chapter": 7,
+      "subject": "赵秀才",
+      "object": "钱洋鬼子",
+      "type": "冲突",
+      "directed": false,
+      "evidence_ids": [
+        "C07P046"
+      ]
+    },
+    {
+      "chapter": 7,
+      "subject": "赵秀才",
+      "object": "钱洋鬼子",
+      "type": "同伙",
+      "directed": false,
+      "evidence_ids": [
+        "C07P046"
+      ]
+    },
+    {
+      "chapter": 7,
+      "subject": "赵秀才",
+      "object": "老尼姑",
+      "type": "欺凌",
+      "directed": true,
+      "evidence_ids": [
+        "C07P046"
+      ]
+    },
+    {
+      "chapter": 7,
+      "subject": "钱洋鬼子",
+      "object": "老尼姑",
+      "type": "欺凌",
+      "directed": true,
+      "evidence_ids": [
+        "C07P046"
+      ]
+    },
+    {
+      "chapter": 7,
+      "subject": "赵秀才",
+      "object": "老尼姑",
+      "type": "权势压迫",
+      "directed": true,
+      "evidence_ids": [
+        "C07P046"
+      ]
+    },
+    {
+      "chapter": 7,
+      "subject": "钱洋鬼子",
+      "object": "老尼姑",
+      "type": "权势压迫",
+      "directed": true,
+      "evidence_ids": [
+        "C07P046"
+      ]
+    },
+    {
+      "chapter": 8,
+      "subject": "阿Q",
+      "object": "小D",
+      "type": "冲突",
+      "directed": false,
+      "evidence_ids": [
+        "C08P007"
+      ]
+    },
+    {
+      "chapter": 8,
+      "subject": "赵秀才",
+      "object": "钱洋鬼子",
+      "type": "同伙",
+      "directed": false,
+      "evidence_ids": [
+        "C08P008"
+      ]
+    },
+    {
+      "chapter": 8,
+      "subject": "赵太爷",
+      "object": "赵秀才",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C08P008"
+      ]
+    },
+    {
+      "chapter": 8,
+      "subject": "钱洋鬼子",
+      "object": "阿Q",
+      "type": "权势压迫",
+      "directed": true,
+      "evidence_ids": [
+        "C08P018",
+        "C08P020",
+        "C08P022"
+      ]
+    },
+    {
+      "chapter": 8,
+      "subject": "赵白眼",
+      "object": "阿Q",
+      "type": "欺凌",
+      "directed": true,
+      "evidence_ids": [
+        "C08P021"
+      ]
+    },
+    {
+      "chapter": 9,
+      "subject": "白举人",
+      "object": "欠租囚犯",
+      "type": "权势压迫",
+      "directed": true,
+      "evidence_ids": [
+        "C09P003"
+      ]
+    },
+    {
+      "chapter": 9,
+      "subject": "欠租囚犯",
+      "object": "欠租囚犯祖父",
+      "type": "亲属",
+      "directed": false,
+      "evidence_ids": [
+        "C09P003"
+      ]
+    },
+    {
+      "chapter": 9,
+      "subject": "审讯光头老人",
+      "object": "阿Q",
+      "type": "权势压迫",
+      "directed": true,
+      "evidence_ids": [
+        "C09P004",
+        "C09P008",
+        "C09P013",
+        "C09P017",
+        "C09P019"
+      ]
+    },
+    {
+      "chapter": 9,
+      "subject": "白举人",
+      "object": "把总",
+      "type": "冲突",
+      "directed": false,
+      "evidence_ids": [
+        "C09P029"
+      ]
+    },
+    {
+      "chapter": 9,
+      "subject": "把总",
+      "object": "阿Q",
+      "type": "权势压迫",
+      "directed": true,
+      "evidence_ids": [
+        "C09P001",
+        "C09P029"
+      ]
+    }
+  ],
+  "model_config_hash": "9a2bb4970de6696ba95215f550588625095e6960ce47c3e3c336b263104f22ff",
+  "price_version": "not-applicable-ai-draft",
+  "raw_response_snapshot_path": "ai-draft-relations.jsonl",
+  "ledger_snapshot_path": "ai-draft-manifest.json",
+  "kind": "prediction"
+}

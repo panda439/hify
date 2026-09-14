@@ -1,0 +1,88 @@
+{
+  "ID": "01a0817b-54e7-708c-aaf0-91b6bfb7fc2e",
+  "ItemID": "01a08156-9773-70c7-96b2-981548e96195",
+  "ChunkID": "01a08156-96ea-77fa-954e-d03a290731d7",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "掌櫃"
+      },
+      {
+        "ref": "m3",
+        "surface": "堂倌"
+      },
+      {
+        "ref": "m4",
+        "surface": "酒客"
+      },
+      {
+        "ref": "m5",
+        "surface": "路人"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "掌櫃旣先之以點頭，又繼之以談話：\n『嚄，阿Q，你回來了！』"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m3",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "堂倌、掌櫃、酒客、路人，便自然顯出一種疑而且敬的形態來。"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m4",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "堂倌、掌櫃、酒客、路人，便自然顯出一種疑而且敬的形態來。"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m5",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "堂倌、掌櫃、酒客、路人，便自然顯出一種疑而且敬的形態來。"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 967,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 259,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 23768,
+    "Valid": true
+  }
+}

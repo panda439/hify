@@ -1,0 +1,22 @@
+{
+  "ID": "01a084ea-8f54-761a-bcf1-d68ac77b5b2f",
+  "ItemID": "01a084e7-0d6f-77ef-b38a-fa0952ef140e",
+  "ChunkID": "01a084e7-0cff-76ed-bde3-cb591d8414d7",
+  "Phase": "extract",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": null,
+  "UsageKnown": true,
+  "In": {
+    "Int64": 930,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 2048,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 17349,
+    "Valid": true
+  }
+}

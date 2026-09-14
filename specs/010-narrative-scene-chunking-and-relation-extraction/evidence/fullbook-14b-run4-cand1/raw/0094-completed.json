@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:48:59Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"鄒七嫂\"},{\"ref\":\"m3\",\"surface\":\"趙白眼的母親\"},{\"ref\":\"m4\",\"surface\":\"趙太爺\"},{\"ref\":\"m5\",\"surface\":\"秀才大爺\"},{\"ref\":\"m6\",\"surface\":\"趙太太\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"同伙\",\"evidence\":[{\"quote\":\"鄒七嫂在阿Q那裏買了一條藍綢裙\"}]},{\"subject_ref\":\"m2\",\"object_ref\":\"m4\",\"type\":\"同伙\",\"evidence\":[{\"quote\":\"將伊的綢裙請趙太太去賞鑑，趙太太又告訴了趙太爺\"}]},{\"subject_ref\":\"m4\",\"object_ref\":\"m5\",\"type\":\"同伙\",\"evidence\":[{\"quote\":\"趙太爺便在晚飯桌上，和秀才大爺討論\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 19965,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1013,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 208,
+  "prompt_runes": 1585,
+  "prompt_sha256": "3862abba2e77b58877b0375aba00461fdb6ec97578e16753963fe344f9525cc1",
+  "seq": 94,
+  "usage_known": true
+}

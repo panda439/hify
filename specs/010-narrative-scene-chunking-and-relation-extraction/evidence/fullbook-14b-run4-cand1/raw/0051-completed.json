@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:27:25Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q的耳朵裏又聽到這句話。\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"誰知道這一晚，他很不容易合眼，他覺得自己的大拇指和第二指有點古怪：彷彿比平常滑膩些。不知道是小尼姑的臉上有一點滑膩的東西黏在他指上，還是他的指頭在小尼姑臉上磨得滑膩了？……\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 22312,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 931,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 232,
+  "prompt_runes": 1440,
+  "prompt_sha256": "20714163160beda044b7f547ac3f8426027e4cb96a5f45f6d7771c18c236a445",
+  "seq": 51,
+  "usage_known": true
+}

@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:21:25Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07fdb-e106-7b56-ba4a-8c2dd0cd8d71\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"但眞所謂『塞翁失馬安知非福』罷，阿Q不幸而贏了一回，他倒幾乎失敗了。\"},{\"source_ref\":\"01a07fdb-e106-7b56-ba4a-8c2dd0cd8d71#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a07fe3-bf21-7dbf-907f-80ebf798bd6a\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"他不知道誰和誰爲什麽打起架來了。\"},{\"source_ref\":\"01a07fe3-bf21-7dbf-907f-80ebf798bd6a#0\",\"quote\":\"樁家\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"說是算被兒子拿去了罷，總還是忽忽不樂\"},{\"source_ref\":\"01a07fdd-864a-7ea9-883c-a2d906d0a846#0\",\"quote\":\"趙太爺的兒子\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 40901,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1581,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 363,
+  "prompt_runes": 2141,
+  "prompt_sha256": "19ba8a9e15216f54865de0847f5133c8c86618dde8e0ffdc2779e6abb936c206",
+  "seq": 26,
+  "usage_known": true
+}

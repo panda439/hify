@@ -1,0 +1,22 @@
+{
+  "ID": "01a084e6-2563-72a7-8ca9-c47ff89c91a8",
+  "ItemID": "01a084e6-2160-72e6-b98a-173d6c0fa30c",
+  "ChunkID": "01a084e6-20f9-7124-a3e8-c547c85249e2",
+  "Phase": "extract",
+  "State": "failed",
+  "ErrorCode": "http_400",
+  "Raw": "error, status code: 400, status: 400 Bad Request, message: The supported API model names are deepseek-v4-pro, deepseek-v4-flash, and deepseek-v4-flash-vision-exp, but you passed .",
+  "UsageKnown": false,
+  "In": {
+    "Int64": 0,
+    "Valid": false
+  },
+  "Out": {
+    "Int64": 0,
+    "Valid": false
+  },
+  "Elapsed": {
+    "Int64": 74,
+    "Valid": true
+  }
+}

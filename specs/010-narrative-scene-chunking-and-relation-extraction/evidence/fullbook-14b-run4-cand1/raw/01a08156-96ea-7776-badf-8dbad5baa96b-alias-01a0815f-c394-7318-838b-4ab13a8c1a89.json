@@ -1,0 +1,37 @@
+{
+  "ID": "01a0815f-c394-7318-838b-4ab13a8c1a89",
+  "ItemID": "01a08156-975f-78ae-8090-823d0de65f7e",
+  "ChunkID": "01a08156-96ea-7776-badf-8dbad5baa96b",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "ambiguous",
+        "character_id": "",
+        "new_group": "group1"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": ""
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 839,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 75,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 6740,
+    "Valid": true
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "ID": "01a0819b-b09c-7553-bca5-cab51e56d722",
+  "ItemID": "01a08193-9f35-7e29-a764-bb46245b4198",
+  "ChunkID": "01a08193-9eb4-7a6b-8ee1-d3cce6b8b488",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08193-de56-733c-bde8-3ec2f651553e",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "但眞所謂『塞翁失馬安知非福』罝，阿Q不幸而贏了一回，他倒幾乎失敗了。"
+          },
+          {
+            "source_ref": "01a08193-de56-733c-bde8-3ec2f651553e#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "ambiguous",
+        "character_id": "",
+        "new_group": "group1"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "ambiguous",
+        "character_id": "",
+        "new_group": "group2"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 953,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 183,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 14975,
+    "Valid": true
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "ID": "01a08199-caff-7f36-9d53-f5219a5cd9d5",
+  "ItemID": "01a08193-9f33-72d2-9c31-823d48725134",
+  "ChunkID": "01a08193-9eb4-7a58-96e2-de23b1d50a77",
+  "Phase": "alias",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08193-de56-733c-bde8-3ec2f651553e",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q『先前闊』，見識高，而且『眞能做』，"
+          },
+          {
+            "source_ref": "01a08193-de56-733c-bde8-3ec2f651553e#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group1",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "未莊的閒人們便愈喜歡玩笑他，一見面，他們便假作喫驚的說："
+          }
+        ],
+        "reason_code": "insufficient"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 906,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 194,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 19214,
+    "Valid": true
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:24:31Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"王鬍\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"『誰認便罵誰！』\"},{\"quote\":\"『你的骨頭癢了麽？』\"},{\"quote\":\"這拳頭還未達到身上，已經被他抓住了，只一拉，阿Q蹌蹌踉踉的跌進去，立刻又被王鬍扭住了辮子，要撞到牆上照例去碰頭。\"},{\"quote\":\"『「君子動口不動手！」』\"},{\"quote\":\"王鬍似乎不是君子，並不理會，一連給他碰了五下，又用力的一推，至于阿Q跌出六尺多遠，這纔滿足的去了。\"}]],\"alias_proposals\":[]}",
+  "elapsed_ms": 18473,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 963,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 192,
+  "prompt_runes": 1481,
+  "prompt_sha256": "b49e90bc3036fb10af3c29ec6e117cfae4ac2ca17b957eb6a193368b1b0d822d",
+  "seq": 34,
+  "usage_known": true
+}

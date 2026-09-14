@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:54:28Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"ambiguous1\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08157-cc2e-7128-966f-a236745fb11d\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙府\"},{\"source_ref\":\"01a08157-cc2e-7128-966f-a236745fb11d#0\",\"quote\":\"趙太爺\"}]},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a08157-cc2e-7128-966f-a236745fb11d\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"},{\"source_ref\":\"01a08157-cc2e-7128-966f-a236745fb11d#0\",\"quote\":\"趙太爺\"}]},{\"mention_ref\":\"m4\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"ambiguous2\"},{\"mention_ref\":\"m5\",\"action\":\"link\",\"character_id\":\"01a08157-cc2e-7128-966f-a236745fb11d\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"鄒七嫂\"},{\"source_ref\":\"01a08157-cc2e-7128-966f-a236745fb11d#1\",\"quote\":\"趙太爺\"}]}]}",
+  "elapsed_ms": 34258,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 992,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 373,
+  "prompt_runes": 1485,
+  "prompt_sha256": "b07cb97bcfc1a9e422fc6f04b518159312b29848f260611c00892f86b147b0b9",
+  "seq": 104,
+  "usage_known": true
+}

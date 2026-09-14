@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:46:41Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"據阿Q說，他是在舉人老爺家裏幫忙\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group01\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"這老爺本姓白，但因爲合城裏只有他一個舉人，所以不必再冠姓，說起舉人來就是他\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m3\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group02\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"只有假洋鬼子能够叉『麻醬』\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 23271,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 892,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 247,
+  "prompt_runes": 1378,
+  "prompt_sha256": "b5e57060f3ad090888a817b94663f88c4d0cf9921f0de77dc5b341380e189493",
+  "seq": 89,
+  "usage_known": true
+}

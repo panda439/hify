@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:17:16Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07fdb-e106-7b56-ba4a-8c2dd0cd8d71\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q又很自尊\"},{\"source_ref\":\"01a07fdb-e106-7b56-ba4a-8c2dd0cd8d71#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a07fdd-8646-7599-9297-2d516eb70273\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"},{\"source_ref\":\"01a07fdd-8646-7599-9297-2d516eb70273#0\",\"quote\":\"趙太爺\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m3\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"錢太爺\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"01a07fdd-864a-7ea9-883c-a2d906d0a846\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"文童\"},{\"source_ref\":\"01a07fdd-864a-7ea9-883c-a2d906d0a846#0\",\"quote\":\"趙太爺的兒子\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 37356,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1237,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 389,
+  "prompt_runes": 1755,
+  "prompt_sha256": "f507530893dd830635fb33e59037336cc5a965b0f1af7693e874be0896f1d144",
+  "seq": 17,
+  "usage_known": true
+}

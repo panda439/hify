@@ -1,0 +1,93 @@
+{
+  "ID": "01a0818b-8232-73cc-a676-7e28a3e214a6",
+  "ItemID": "01a08156-977f-7382-ace1-2198b6c15adf",
+  "ChunkID": "01a08156-96ea-7845-80b8-f979a33e3260",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "革命了……你知道？……"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9#1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "老尼姑兩眼通紅的說"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#1",
+            "quote": "老尼姑"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9#2",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "那秀才和洋鬼子！"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#2",
+            "quote": "趙秀才"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m4",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9#3",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "錢洋鬼子"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#3",
+            "quote": "洋鬼子"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1016,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 478,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 37799,
+    "Valid": true
+  }
+}

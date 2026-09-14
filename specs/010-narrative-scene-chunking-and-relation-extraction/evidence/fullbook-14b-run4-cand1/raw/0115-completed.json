@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T15:00:56Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺父子回家\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙白眼回家\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q飄飄然的飛了一通\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"小D和趙太爺\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m5\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"還有秀才\"},{\"source_ref\":\"chunk\",\"quote\":\"秀才娘子的一張寧式牀先搬到土穀祠\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m6\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group2\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"還有假洋鬼子\"},{\"source_ref\":\"chunk\",\"quote\":\"假洋鬼子\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m7\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group3\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"王鬍本來還可留\"},{\"source_ref\":\"chunk\",\"quote\":\"王鬍\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 54855,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1024,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 639,
+  "prompt_runes": 1521,
+  "prompt_sha256": "e38ccb96d6e017f1a04fd35f73e22a34aecf0627798458f5b68f2686374e7fbd",
+  "seq": 115,
+  "usage_known": true
+}

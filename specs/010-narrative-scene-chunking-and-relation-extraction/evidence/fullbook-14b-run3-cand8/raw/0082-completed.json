@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:26:08Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"堂倌\"},{\"ref\":\"m3\",\"surface\":\"掌櫃\"},{\"ref\":\"m4\",\"surface\":\"酒客\"},{\"ref\":\"m5\",\"surface\":\"路人\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"同乡邻里\",\"evidence\":[{\"quote\":\"掌櫃旣先之以點頭，又繼之以談話\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"同乡邻里\",\"evidence\":[{\"quote\":\"掌櫃旣先之以點頭，又繼之以談話\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m4\",\"type\":\"同乡邻里\",\"evidence\":[{\"quote\":\"掌櫃旣先之以點頭，又繼之以談話\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m5\",\"type\":\"同乡邻里\",\"evidence\":[{\"quote\":\"掌櫃旣先之以點頭，又繼之以談話\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 23369,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 923,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 229,
+  "prompt_runes": 1429,
+  "prompt_sha256": "e2ea13dd70a4a6057aa4a9f1e46770de47a7ae9cb0d985fafb9bc6bc759f559e",
+  "seq": 82,
+  "usage_known": true
+}

@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T19:36:24Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08284-5cd9-782d-9a9b-b578eb134cd1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q\"},{\"source_ref\":\"01a08284-5cd9-782d-9a9b-b578eb134cd1#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a08284-5cd9-782d-9a9b-b578eb134cd1#1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺的兒子\"},{\"source_ref\":\"01a08284-5cd9-782d-9a9b-b578eb134cd1#1\",\"quote\":\"趙太爺的兒子\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m4\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group2\"}]}",
+  "elapsed_ms": 22169,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1196,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 274,
+  "prompt_runes": 2144,
+  "prompt_sha256": "6c3ab634de116f8c8a829b5fbcd4e9bbc10d90ce1558f0dd4f7ecd52beff20dd",
+  "seq": 5,
+  "usage_known": true
+}

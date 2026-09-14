@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T15:14:50Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08193-de56-733c-bde8-3ec2f651553e\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"我雖不知道是眞沒有，還是沒有查，然而也再沒有別的方法了。生怕注音字母還未通行，只好用了『洋字』，照英國流行的拼法寫他爲阿Quei，略作阿Q。\"},{\"source_ref\":\"01a08193-de56-733c-bde8-3ec2f651553e#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08193-de56-733c-bde8-3ec2f651553e\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"我雖不知道是眞沒有，還是沒有查，然而也再沒有別的方法了。生怕注音字母還未通行，只好用了『洋字』，照英國流行的拼法寫他爲阿Quei，略作阿Q。\"},{\"source_ref\":\"01a08193-de56-733c-bde8-3ec2f651553e#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"},{\"source_ref\":\"chunk\",\"quote\":\"茂才先生\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"group1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"},{\"source_ref\":\"chunk\",\"quote\":\"茂才先生\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m5\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group2\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"陳獨秀\"},{\"source_ref\":\"chunk\",\"quote\":\"新青年\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 42191,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 959,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 473,
+  "prompt_runes": 1500,
+  "prompt_sha256": "78d823843bef2b1ee91efbcd01918a8cf8794a50810f7d4529ce6bd845154514",
+  "seq": 8,
+  "usage_known": true
+}

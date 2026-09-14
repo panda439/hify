@@ -1,0 +1,38 @@
+{
+  "active_ms_used": 989148,
+  "attempts": 40,
+  "attempts_by_phase": {
+    "alias": 19,
+    "extract": 21
+  },
+  "attempts_by_state": {
+    "completed": 20,
+    "failed": 17,
+    "unknown": 3
+  },
+  "confirmed_dispatches": 37,
+  "failed_items": 7,
+  "input_tokens_known": 33750,
+  "job_id": "01a08193-9f1e-7157-b015-6ed037b98fbe",
+  "model": "qwen2.5:14b",
+  "output_tokens_known": 8884,
+  "reserved_calls": 40,
+  "retry_rounds": 0,
+  "run_result": {
+    "ItemsSucceeded": 9,
+    "ItemsFailed": 7,
+    "AmbiguousPositions": 10,
+    "AmbiguousEvidence": 0,
+    "AliasDegraded": false,
+    "StoppedEarly": true,
+    "StopReason": "consecutive_failures"
+  },
+  "state": "paused",
+  "stop_reason": "consecutive_failures",
+  "succeeded": 9,
+  "total": 62,
+  "unknown_attempts": 3,
+  "usage_known": 37,
+  "usage_unknown": 3,
+  "wall_ms": 992862
+}

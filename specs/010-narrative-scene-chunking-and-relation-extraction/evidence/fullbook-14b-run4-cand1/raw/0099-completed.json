@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:51:50Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"趙太爺\"},{\"ref\":\"m2\",\"surface\":\"阿Q\"},{\"ref\":\"m3\",\"surface\":\"秀才\"},{\"ref\":\"m4\",\"surface\":\"秀才娘子\"},{\"ref\":\"m5\",\"surface\":\"趙太太\"},{\"ref\":\"m6\",\"surface\":\"地保\"},{\"ref\":\"m7\",\"surface\":\"鄒七嫂\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"雇佣\",\"evidence\":[{\"quote\":\"趙太爺卻不甚熱心了。『阿Q，你以後有什麽東西的時候，你儘先送來給我們看，……』\"}]},{\"subject_ref\":\"m3\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"秀才對于阿Q的態度也很不平，于是說，這忘八蛋要提防，或者竟不如吩咐地保，不許他住在未莊。\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"权势压迫\",\"evidence\":[{\"quote\":\"秀才聽了這『庭訓』，非常之以爲然，便卽刻撤消了驅逐阿Q的提議\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m6\",\"type\":\"权势压迫\",\"evidence\":[{\"quote\":\"秀才對于阿Q的態度也很不平，于是說，這忘八蛋要提防，或者竟不如吩咐地保，不許他住在未莊。\"}]},{\"subject_ref\":\"m3\",\"object_ref\":\"m6\",\"type\":\"权势压迫\",\"evidence\":[{\"quote\":\"秀才對于阿Q的態度也很不平，于是說，這忘八蛋要提防，或者竟不如吩咐地保，不許他住在未莊。\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 33137,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 896,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 387,
+  "prompt_runes": 1468,
+  "prompt_sha256": "93abdfc0a1078cf098a8ae8ce63658f9bc564f7d95249cbdcf0e4162c9c65d4d",
+  "seq": 99,
+  "usage_known": true
+}

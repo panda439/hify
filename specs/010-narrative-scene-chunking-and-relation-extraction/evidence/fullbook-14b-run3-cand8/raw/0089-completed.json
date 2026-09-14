@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:30:21Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『你們可看見過殺頭麽？』阿Q說，『咳，好看。殺革命黨。唉，好看好看，……』\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a07fff-c52a-7858-8c63-edf39040ab31\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"將唾沫飛在正對面的趙司晨的臉上\"},{\"source_ref\":\"01a07fff-c52a-7858-8c63-edf39040ab31#0\",\"quote\":\"知道的人都說阿Q太荒唐，自己去招打；他大約未必姓趙，卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"\",\"new_group\":\"new_group_1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"王鬍驚得一跳\"},{\"source_ref\":\"chunk\",\"quote\":\"並且再不敢走近阿Q的身邊\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"01a08009-f5dc-7572-b89f-67d59ad2d872\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"雖不敢說超過趙太爺\"},{\"source_ref\":\"01a08009-f5dc-7572-b89f-67d59ad2d872#0\",\"quote\":\"趙太爺\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 49769,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1401,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 482,
+  "prompt_runes": 1943,
+  "prompt_sha256": "7938579f5152870194121afc0322d8ec4d1301090eb3079ff20b21c0358d0d86",
+  "seq": 89,
+  "usage_known": true
+}

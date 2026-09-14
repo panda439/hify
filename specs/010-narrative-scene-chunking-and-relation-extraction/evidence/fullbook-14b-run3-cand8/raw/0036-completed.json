@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:02:47Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"王鬍\"},{\"ref\":\"m3\",\"surface\":\"王癩鬍\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"阿Q卻删去了一個癩字，然而非常渺視他\"},{\"quote\":\"阿Q本不敢大意坐下去\"},{\"quote\":\"看不上眼的王鬍尚且那麽多，自己倒反這樣少，這是怎樣的大失體統的事呵\"},{\"quote\":\"這毛蟲！\"}]},{\"subject_ref\":\"m2\",\"object_ref\":\"m1\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"癩皮狗，你罵誰？\"}]}],\"alias_proposals\":[{\"left\":\"王鬍\",\"right\":\"王癩鬍\",\"quote\":\"別人都叫他王癩鬍，阿Q卻删去了一個癩字\"}]}",
+  "elapsed_ms": 15991,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 975,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 205,
+  "prompt_runes": 1497,
+  "prompt_sha256": "d03a4f46f3088006101bab5adf2533b14e3e28d99fd04167f39690510755c5c6",
+  "seq": 36,
+  "usage_known": true
+}

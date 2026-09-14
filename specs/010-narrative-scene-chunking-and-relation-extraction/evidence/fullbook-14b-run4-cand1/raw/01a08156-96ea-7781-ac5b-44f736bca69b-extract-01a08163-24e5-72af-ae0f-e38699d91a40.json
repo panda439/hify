@@ -1,0 +1,72 @@
+{
+  "ID": "01a08163-24e5-72af-ae0f-e38699d91a40",
+  "ItemID": "01a08156-9761-767c-a21d-0d858666df8c",
+  "ChunkID": "01a08156-96ea-7781-ac5b-44f736bca69b",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "王鬍"
+      },
+      {
+        "ref": "m3",
+        "surface": "王癩鬍"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "阿Q卻删去了一個癩字，然而非常渺視他"
+          },
+          {
+            "quote": "阿Q也脫下破夾襖來，翻檢了一回，不知道因爲新洗呢還是因爲粗心，許多工夫，只捉到三四個。他看那王鬍，卻是一個又一個，兩個又三個，只放在嘴裏畢畢剝剝的響"
+          },
+          {
+            "quote": "阿Q最初是失望，後來卻不平了：看不上眼的王鬍尚且那麽多，自己倒反這樣少，這是怎樣的大失體統的事呵！"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m2",
+        "object_ref": "m1",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "『癩皮狗，你罵誰？』王鬍輕蔑的擡起眼來說"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": [
+      {
+        "left": "m2",
+        "right": "m3",
+        "quote": "別人都叫他王癩鬍，阿Q卻删去了一個癩字"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1067,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 278,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 22402,
+    "Valid": true
+  }
+}

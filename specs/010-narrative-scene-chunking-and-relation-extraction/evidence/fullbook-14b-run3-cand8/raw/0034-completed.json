@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:02:11Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q此後倒得意了許多年。\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a07fff-c52a-7858-8c63-edf39040ab31\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"知道的人都說阿Q太荒唐，自己去招打；他大約未必姓趙，卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的\"},{\"source_ref\":\"01a07fff-c52a-7858-8c63-edf39040ab31#0\",\"quote\":\"趙太爺\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a07fff-c52a-7858-8c63-edf39040ab31\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"知道的人都說阿Q太荒唐，自己去招打；他大約未必姓趙，卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的\"},{\"source_ref\":\"01a07fff-c52a-7858-8c63-edf39040ab31#0\",\"quote\":\"趙太爺\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"01a08002-fde1-76fd-b701-1ae1053119e2\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"},{\"source_ref\":\"01a08002-fde1-76fd-b701-1ae1053119e2#0\",\"quote\":\"趙太爺\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m5\",\"action\":\"link\",\"character_id\":\"01a08002-fde1-76fd-b701-1ae1053119e2\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"},{\"source_ref\":\"01a08002-fde1-76fd-b701-1ae1053119e2#0\",\"quote\":\"趙太爺\"}],\"reason_code\":\"explicit_alias\"}]}",
+  "elapsed_ms": 51348,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1533,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 643,
+  "prompt_runes": 2110,
+  "prompt_sha256": "8dd3288cbba72e1aa39ec067576e49e83316733ecb7f766665e4f51bfb0638fd",
+  "seq": 34,
+  "usage_known": true
+}

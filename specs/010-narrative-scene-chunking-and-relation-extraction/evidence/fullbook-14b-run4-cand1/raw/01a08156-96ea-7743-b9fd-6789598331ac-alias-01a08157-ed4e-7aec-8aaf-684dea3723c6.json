@@ -1,0 +1,59 @@
+{
+  "ID": "01a08157-ed4e-7aec-8aaf-684dea3723c6",
+  "ItemID": "01a08156-9756-79ee-8a17-faf9434ed56d",
+  "ChunkID": "01a08156-96ea-7743-b9fd-6789598331ac",
+  "Phase": "alias",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q並沒有抗辯他確鑿姓趙，只用手摸着左頰，和地保退出去了"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group1",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "外面又被地保訓斥了一番，謝了地保二百文酒錢"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "知道的人都說阿Q太荒唐，自己去招打；他大約未必姓趙，卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的"
+          }
+        ],
+        "reason_code": "insufficient"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 647,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 246,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 20948,
+    "Valid": true
+  }
+}

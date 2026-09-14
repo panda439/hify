@@ -1,0 +1,94 @@
+{
+  "ID": "01a08189-a07c-791f-96d0-620099dd9afe",
+  "ItemID": "01a08156-977e-76d2-b0f7-c7b8026cbfb1",
+  "ChunkID": "01a08156-96ea-783d-a05f-609ca0a01d54",
+  "Phase": "alias",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "new",
+        "character_id": "",
+        "new_group": "new1",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙司晨的妹子眞醜。"
+          }
+        ],
+        "reason_code": "insufficient"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a08172-2197-7cc9-99ff-f749c6dec797",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "鄒七嫂的女兒過幾年再說。"
+          },
+          {
+            "source_ref": "01a08172-2197-7cc9-99ff-f749c6dec797#0",
+            "quote": "鄒七嫂也從旁說："
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "new",
+        "character_id": "",
+        "new_group": "new2",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "假洋鬼子的老婆會和沒有辮子的男人睡覺，嚇，不是好東西！"
+          }
+        ],
+        "reason_code": "insufficient"
+      },
+      {
+        "mention_ref": "m4",
+        "action": "new",
+        "character_id": "",
+        "new_group": "new3",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "秀才的老婆是眼胞上有疤的。"
+          }
+        ],
+        "reason_code": "insufficient"
+      },
+      {
+        "mention_ref": "m5",
+        "action": "new",
+        "character_id": "",
+        "new_group": "new4",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "吳媽長久不見了，不知道在那里，——可惜脚太大。"
+          }
+        ],
+        "reason_code": "insufficient"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 988,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 335,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 30694,
+    "Valid": true
+  }
+}

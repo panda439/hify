@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:39:13Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07fff-c52a-7858-8c63-edf39040ab31\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺卻不甚熱心了。\"},{\"source_ref\":\"01a07fff-c52a-7858-8c63-edf39040ab31#0\",\"quote\":\"知道的人都說阿Q太荒唐，自己去招打；他大約未必姓趙，卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺卻不甚熱心了。\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a08002-fde1-76fd-b701-1ae1053119e2\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"價錢決不會比別家出得少！\"},{\"source_ref\":\"01a08002-fde1-76fd-b701-1ae1053119e2#0\",\"quote\":\"趙太爺\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m4\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group1\"},{\"mention_ref\":\"m5\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group2\"},{\"mention_ref\":\"m6\",\"action\":\"link\",\"character_id\":\"01a07fff-c520-7bc3-a460-23e9b0d61824\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"而且叮囑鄒七嫂，請伊萬不要向人提起這一段話。\"},{\"source_ref\":\"01a07fff-c520-7bc3-a460-23e9b0d61824#1\",\"quote\":\"知道的人都說阿Q太荒唐，自己去招打；他大約未必姓趙，卽使眞姓趙，有趙太爺在這裏，也不該如此胡說的\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m7\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group3\"}]}",
+  "elapsed_ms": 50926,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1594,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 623,
+  "prompt_runes": 2182,
+  "prompt_sha256": "a1de37b3d127e311eb8f37f0dbfb6058010b3f0cf91d5dfccbc7c9594e33ba04",
+  "seq": 102,
+  "usage_known": true
+}

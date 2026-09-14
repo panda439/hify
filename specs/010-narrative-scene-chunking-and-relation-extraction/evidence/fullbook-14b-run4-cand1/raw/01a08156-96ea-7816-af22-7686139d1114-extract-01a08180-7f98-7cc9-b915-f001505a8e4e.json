@@ -1,0 +1,106 @@
+{
+  "ID": "01a08180-7f98-7cc9-b915-f001505a8e4e",
+  "ItemID": "01a08156-9778-71e0-ad9e-131f0979e35a",
+  "ChunkID": "01a08156-96ea-7816-af22-7686139d1114",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "趙太爺"
+      },
+      {
+        "ref": "m2",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m3",
+        "surface": "秀才"
+      },
+      {
+        "ref": "m4",
+        "surface": "秀才娘子"
+      },
+      {
+        "ref": "m5",
+        "surface": "趙太太"
+      },
+      {
+        "ref": "m6",
+        "surface": "地保"
+      },
+      {
+        "ref": "m7",
+        "surface": "鄒七嫂"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "雇佣",
+        "evidence": [
+          {
+            "quote": "趙太爺卻不甚熱心了。『阿Q，你以後有什麽東西的時候，你儘先送來給我們看，……』"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m3",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "秀才對于阿Q的態度也很不平，于是說，這忘八蛋要提防，或者竟不如吩咐地保，不許他住在未莊。"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m3",
+        "type": "权势压迫",
+        "evidence": [
+          {
+            "quote": "秀才聽了這『庭訓』，非常之以爲然，便卽刻撤消了驅逐阿Q的提議"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m6",
+        "type": "权势压迫",
+        "evidence": [
+          {
+            "quote": "秀才對于阿Q的態度也很不平，于是說，這忘八蛋要提防，或者竟不如吩咐地保，不許他住在未莊。"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m3",
+        "object_ref": "m6",
+        "type": "权势压迫",
+        "evidence": [
+          {
+            "quote": "秀才對于阿Q的態度也很不平，于是說，這忘八蛋要提防，或者竟不如吩咐地保，不許他住在未莊。"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 896,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 387,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 33137,
+    "Valid": true
+  }
+}

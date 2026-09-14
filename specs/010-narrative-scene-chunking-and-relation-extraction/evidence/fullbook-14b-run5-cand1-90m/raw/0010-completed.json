@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T15:16:40Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08193-de56-733c-bde8-3ec2f651553e\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"我雖不知道是眞沒有，還是沒有查，然而也再沒有別的方法了。生怕注音字母還未通行，只好用了『洋字』，照英國流行的拼法寫他爲阿Quei，略作阿Q。\"},{\"source_ref\":\"01a08193-de56-733c-bde8-3ec2f651553e#0\",\"quote\":\"阿Q\"}],\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08193-de56-733c-bde8-3ec2f651553e\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"我雖不知道是眞沒有，還是沒有查，然而也再沒有別的方法了。生怕注音字母還未通行，只好用了『洋字』，照英國流行的拼法寫他爲阿Quei，略作阿Q。\"},{\"source_ref\":\"01a08193-de56-733c-bde8-733c-bde8-3ec2f651553e#0\",\"quote\":\"阿Q\"}],\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a08193-de56-733c-bde8-3ec2f651553e\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"先前，我也曾問過趙太爺的兒子茂才先生\"},{\"source_ref\":\"01a08193-de56-733c-bde8-3ec2f651553e#0\",\"quote\":\"阿Q\"}],\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"01a08193-de56-733c-bde8-3ec2f651553e\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"先前，我也曾問過趙太爺的兒子茂才先生\"},{\"source_ref\":\"01a08193-de56-733c-bde8-3ec2f651553e#0\",\"quote\":\"阿Q\"}],\"mention_ref\":\"m5\",\"action\":\"link\",\"character_id\":\"01a08193-de56-733c-bde8-3ec2f651553e\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"但據結論說，是因爲陳獨秀辦了新青年提倡洋字，所以國粹淪亡，無可查考了\"},{\"source_ref\":\"01a08193-de56-733c-bde8-3ec2f651553e#0\",\"quote\":\"阿Q\"}]}",
+  "elapsed_ms": 54811,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1005,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 682,
+  "prompt_runes": 1594,
+  "prompt_sha256": "1086e362297433a00fa864db5fa6235ee2b36c15357a53a805992e56e4420196",
+  "seq": 10,
+  "usage_known": true
+}

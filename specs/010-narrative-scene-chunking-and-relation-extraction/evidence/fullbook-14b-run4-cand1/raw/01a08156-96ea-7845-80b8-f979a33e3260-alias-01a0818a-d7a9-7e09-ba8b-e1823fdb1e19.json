@@ -1,0 +1,93 @@
+{
+  "ID": "01a0818a-d7a9-7e09-ba8b-e1823fdb1e19",
+  "ItemID": "01a08156-977f-7382-ace1-2198b6c15adf",
+  "ChunkID": "01a08156-96ea-7845-80b8-f979a33e3260",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "革命了……你知道？……"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "d9f5f5b9-9f6d-7f5d-916d-9d6f7f5d9f6d",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "老尼姑兩眼通紅的說"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "尼姑待他們走後，定了神來檢點，龍牌固然已經碎在地上了，而且又不見了觀音娘娘座前的一個宣德鑪"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "link",
+        "character_id": "d9f5f5b9-9f6d-7f5d-916d-9d6f7f5d9f6d",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "那秀才和洋鬼子！"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "趙秀才消息靈，一知道革命黨已在夜間進城，便將辮子盤在頂上，一早去拜訪那歷來也不相能的錢洋鬼子"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m4",
+        "action": "link",
+        "character_id": "d9f5f5b9-9f6d-7f5d-916d-9d6f7f5d9f6d",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "那秀才和洋鬼子！"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "趙秀才消息靈，一知道革命黨已在夜間進城，便將辮子盤在頂上，一早去拜訪那歷來也不相能的錢洋鬼子"
+          }
+        ],
+        "reason_code": "context_identity"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 970,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 501,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 43622,
+    "Valid": true
+  }
+}

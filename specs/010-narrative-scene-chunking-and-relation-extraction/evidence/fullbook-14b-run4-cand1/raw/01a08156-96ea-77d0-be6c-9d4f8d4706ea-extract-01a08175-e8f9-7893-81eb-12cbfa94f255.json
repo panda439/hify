@@ -1,0 +1,130 @@
+{
+  "ID": "01a08175-e8f9-7893-81eb-12cbfa94f255",
+  "ItemID": "01a08156-976d-7d07-9314-3dd76c5ad262",
+  "ChunkID": "01a08156-96ea-77d0-be6c-9d4f8d4706ea",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "未莊的女人們"
+      },
+      {
+        "ref": "m3",
+        "surface": "鄒七嫂"
+      },
+      {
+        "ref": "m4",
+        "surface": "小姐"
+      },
+      {
+        "ref": "m5",
+        "surface": "娼婦們"
+      },
+      {
+        "ref": "m6",
+        "surface": "老頭子"
+      },
+      {
+        "ref": "m7",
+        "surface": "老主顧"
+      },
+      {
+        "ref": "m8",
+        "surface": "趙府"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "未莊的女人們忽然都怕了羞，伊們一見阿Q走來，便個個躲進門裏去"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m3",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "將近五十歲的鄒七嫂，也跟着別人亂鑽"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m4",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "這些東西忽然都學起小姐模樣來了"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m5",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "這些東西忽然都學起小姐模樣來了。這娼婦們……"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m6",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "管土穀祠的老頭子說些廢話，似乎叫他走"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m7",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "他只好到老主顧的家裏去探問，——但獨不許踏進趙府的門檻，——然而情形也異樣：一定走出一個男人來，現了十分煩厭的相貌，像回覆乞丐一般的搖手道：——"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m8",
+        "object_ref": "m7",
+        "type": "同伙",
+        "evidence": [
+          {
+            "quote": "他只好到老主顧的家裏去探問，——但獨不許踏進趙府的門檻，——然而情形也異樣：一定走出一個男人來，現了十分煩厭的相貌，像回覆乞丐一般的搖手道：——"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 962,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 477,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 40827,
+    "Valid": true
+  }
+}

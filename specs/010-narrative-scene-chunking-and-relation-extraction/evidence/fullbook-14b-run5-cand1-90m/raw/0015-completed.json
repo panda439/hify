@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T15:18:17Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"趙太爺\"},{\"ref\":\"m3\",\"surface\":\"錢太爺\"},{\"ref\":\"m4\",\"surface\":\"文童\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"所有未莊的居民，全不在他眼睛裏，甚而至于對于兩位『文童』也有以爲不值一笑的神情\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"所有未莊的居民，全不在他眼睛裏，甚而至于對于兩位『文童』也有以爲不值一笑的神情\"}]},{\"subject_ref\":\"m2\",\"object_ref\":\"m4\",\"type\":\"亲属\",\"evidence\":[{\"quote\":\"夫文童者，將來恐怕要變秀才者也；趙太爺、錢太爺大受居民的尊敬，除有錢之外，就因爲都是文童的爹爹\"}]},{\"subject_ref\":\"m3\",\"object_ref\":\"m4\",\"type\":\"亲属\",\"evidence\":[{\"quote\":\"夫文童者，將來恐怕要變秀才者也；趙太爺、錢太爺大受居民的尊敬，除有錢之外，就因爲都是文童的爹爹\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 25925,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 844,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 296,
+  "prompt_runes": 1395,
+  "prompt_sha256": "b0c26fbbba35851548b0566ed0868c32ff16bd7eeba3bac6f956c97a8d4c4ec4",
+  "seq": 15,
+  "usage_known": true
+}

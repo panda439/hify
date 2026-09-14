@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:20:24Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"小Don\"},{\"ref\":\"m3\",\"surface\":\"小D\"},{\"ref\":\"m4\",\"surface\":\"王鬍\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"這小D，是一個窮小子，又瘦又乏，在阿Q的眼睛裏，位置是在王鬍之下的，誰料這小子竟謀了他的飯盌去\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"『畜生！』阿Q怒目而視的說，嘴角上飛出唾沫來\"},{\"quote\":\"『我是蟲豸，好麽？……』小D說\"},{\"quote\":\"這謙遜反使阿Q更加憤怒起來\"},{\"quote\":\"阿Q便也將空着的一隻手護住了自己的辮根，從先前的阿Q看來，小D本來是不足齒數的，但他近來挨了餓，又瘦又乏已經不下于小D，所以便成了勢均力敵的現象，四隻手拔着兩顆頭，都彎了腰，在錢家粉牆上映出一個藍色的虹形，至于半點鐘之久了\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 26537,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 973,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 293,
+  "prompt_runes": 1504,
+  "prompt_sha256": "e3c706c7ffa6c6dae7a22dbd48bf5783cdd9cf32d5a77ee51ce798717bad7c72",
+  "seq": 68,
+  "usage_known": true
+}

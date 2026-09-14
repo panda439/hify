@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:33:02Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"ambiguous1\"},{\"mention_ref\":\"m2\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"ambiguous2\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a08157-cc2e-7128-966f-a236745fb11d\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"吳媽，是趙太爺家裏唯一的女僕\"},{\"source_ref\":\"01a08157-cc2e-7128-966f-a236745fb11d#0\",\"quote\":\"趙太爺\"}]},{\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"01a08157-cc2e-7128-966f-a236745fb11d\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"},{\"source_ref\":\"01a08157-cc2e-7128-966f-a236745fb11d#0\",\"quote\":\"趙太爺\"}]},{\"mention_ref\":\"m5\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"ambiguous3\"},{\"mention_ref\":\"m6\",\"action\":\"link\",\"character_id\":\"01a08157-cc2e-7128-966f-a236745fb11d\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"},{\"source_ref\":\"01a08157-cc2e-7128-966f-a236745fb11d#0\",\"quote\":\"趙太爺\"}]},{\"mention_ref\":\"m7\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"ambiguous4\"}]}",
+  "elapsed_ms": 33416,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1063,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 422,
+  "prompt_runes": 1637,
+  "prompt_sha256": "ece895c9772e5919b4c02bbe07e123cab60991bc804e48e62740c7ecb9f2f923",
+  "seq": 59,
+  "usage_known": true
+}

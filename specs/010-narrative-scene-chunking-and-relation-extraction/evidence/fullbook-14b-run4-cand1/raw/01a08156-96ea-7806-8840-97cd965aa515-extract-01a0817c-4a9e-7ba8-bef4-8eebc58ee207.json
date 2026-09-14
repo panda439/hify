@@ -1,0 +1,83 @@
+{
+  "ID": "01a0817c-4a9e-7ba8-bef4-8eebc58ee207",
+  "ItemID": "01a08156-9775-7bfa-b451-19b3a0fa219e",
+  "ChunkID": "01a08156-96ea-7806-8840-97cd965aa515",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "趙司晨"
+      },
+      {
+        "ref": "m3",
+        "surface": "王鬍"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "他搖搖頭，將唾沫飛在正對面的趙司晨的臉上"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m3",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "照着伸長𩓐子聽得出神的王鬍的後項窩上直劈下去道"
+          },
+          {
+            "quote": "王鬍驚得一跳，同時電光石火似的趕快縮了頭"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m3",
+        "object_ref": "m1",
+        "type": "权势压迫",
+        "evidence": [
+          {
+            "quote": "並且再不敢走近阿Q的身邊"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "权势压迫",
+        "evidence": [
+          {
+            "quote": "謂之差不多，大約也就沒有什麽語病的了"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 821,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 232,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 20224,
+    "Valid": true
+  }
+}

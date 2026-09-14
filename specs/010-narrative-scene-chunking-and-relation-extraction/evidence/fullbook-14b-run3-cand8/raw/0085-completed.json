@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:27:57Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"但阿Q這回的回來，卻與先前大不同，確乎很值得驚異。\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"堂倌、掌櫃、酒客、路人，便自然顯出一種疑而且敬的形態來。\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m3\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group2\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"掌櫃旣先之以點頭，又繼之以談話：\"},{\"source_ref\":\"chunk\",\"quote\":\"掌櫃旣先之以點頭，又繼之以談話：『嚄，阿Q，你回來了！』\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m4\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group3\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"堂倌、掌櫃、酒客、路人，便自然顯出一種疑而且敬的形態來。\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m5\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group4\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"堂倌、掌櫃、酒客、路人，便自然顯出一種疑而且敬的形態來。\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 32174,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1521,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 403,
+  "prompt_runes": 2053,
+  "prompt_sha256": "4eef302c849f473edd6f2c62e4069329f3e0c58efd5fe44c18384c96797d947a",
+  "seq": 85,
+  "usage_known": true
+}

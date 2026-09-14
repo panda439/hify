@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:35:35Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q奔入舂米場，一個人站着，還覺得指頭痛，還記得『忘八蛋』，因爲這話是未莊的鄉下人從來不用，專是見過官府的闊人用的，所以格外怕，而印象也格外深。\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group01\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙府一家連兩日不喫飯的太太也在內，還有間壁的鄒七嫂，眞正本家的趙白眼，趙司晨。\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m3\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group02\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"鄒七嫂也從旁說：\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m4\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group03\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"吳媽只是哭，夾些話，卻不甚聽得分明。\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 31811,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 903,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 353,
+  "prompt_runes": 1394,
+  "prompt_sha256": "55f9f28addc4265093d223d5025212b6df2f8dc1a6486c4f482916c48697f041",
+  "seq": 65,
+  "usage_known": true
+}

@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:25:45Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"小尼姑\"},{\"ref\":\"m3\",\"surface\":\"酒店裏的人\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"『這斷子絕孫的阿Q！』\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"得意\",\"evidence\":[{\"quote\":\"阿Q十分得意的笑\"},{\"quote\":\"酒店裏的人也九分得意的笑\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 12937,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 982,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 121,
+  "prompt_runes": 1582,
+  "prompt_sha256": "23f06cc3b37c0612bd228c436903a5638b7057c3a449f01fc5b24746d27c87d5",
+  "seq": 45,
+  "usage_known": true
+}

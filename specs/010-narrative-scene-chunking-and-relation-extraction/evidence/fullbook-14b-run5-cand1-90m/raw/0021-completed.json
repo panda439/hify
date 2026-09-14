@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T15:20:07Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08193-de56-733c-bde8-3ec2f651553e\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"但雖然是蟲豸，閒人也並不放，仍舊在就近什麽地方給他碰了五六個響頭，這纔心滿意足的得勝的走了，他以爲阿Q這回可遭了瘟。\"},{\"source_ref\":\"01a08193-de56-733c-bde8-3ec2f651553e#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08193-de56-733c-bde8-3ec2f651553e\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"樁家揭開盒子蓋，也是汗流滿面的唱。『天門啦～～角回啦！人和穿堂空在那裏啦～～！阿Q的銅錢拿過來～～！』\"},{\"source_ref\":\"01a08193-de56-733c-bde8-3ec2f651553e#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 29972,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 951,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 322,
+  "prompt_runes": 1439,
+  "prompt_sha256": "58113381bb68ecd7f22db405b388127f033528bb02fad0901f2ddd6697602b5f",
+  "seq": 21,
+  "usage_known": true
+}

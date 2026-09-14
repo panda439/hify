@@ -1,0 +1,80 @@
+{
+  "ID": "01a08156-f374-7b79-a823-4a36dd51cbe2",
+  "ItemID": "01a08156-9755-7c50-9909-8478485a4c01",
+  "ChunkID": "01a08156-96ea-773b-b4eb-3a2ca357d077",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m2",
+        "surface": "趙太爺"
+      },
+      {
+        "ref": "m3",
+        "surface": "趙太爺的兒子"
+      },
+      {
+        "ref": "m4",
+        "surface": "地保"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m1",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "阿Q，你這渾小子！你說我是你的本家麽？"
+          },
+          {
+            "quote": "你敢胡說！我怎麽會有你這樣的本家？"
+          },
+          {
+            "quote": "你怎麽會姓趙！——你那裏配姓趙！"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m1",
+        "object_ref": "m3",
+        "type": "亲属",
+        "evidence": [
+          {
+            "quote": "這于他也很光采，因爲他和趙太爺原來是本家，細細的排起來他還比秀才長三輩呢"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m4",
+        "object_ref": "m1",
+        "type": "权势压迫",
+        "evidence": [
+          {
+            "quote": "那知道第二天，地保便叫阿Q到趙太爺家裏去"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 922,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 233,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 27499,
+    "Valid": true
+  }
+}

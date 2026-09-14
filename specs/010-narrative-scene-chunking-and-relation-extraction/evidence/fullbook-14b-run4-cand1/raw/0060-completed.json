@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:33:21Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"吳媽\"},{\"ref\":\"m2\",\"surface\":\"阿Q\"},{\"ref\":\"m3\",\"surface\":\"秀才\"}],\"relations\":[{\"subject_ref\":\"m2\",\"object_ref\":\"m1\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"『我和你睏覺，我和你睏覺！』阿Q忽然搶上去，對伊跪下了。\"},{\"quote\":\"『阿呀！』吳媽楞了一息，突然發抖，大叫着往外跑，且跑且嚷，似乎後來帶哭了。\"}]},{\"subject_ref\":\"m3\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"那秀才便拿了一枝大竹槓站在他面前。\"},{\"quote\":\"大竹槓又向他劈下來了。\"},{\"quote\":\"『忘八蛋！』秀才在後面用了官話這樣罵。\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 18461,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 909,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 198,
+  "prompt_runes": 1483,
+  "prompt_sha256": "1b2cd65a375d3de5c2a6faa363b0734db9fc06a2b42e2811ad13786f84f0e71b",
+  "seq": 60,
+  "usage_known": true
+}

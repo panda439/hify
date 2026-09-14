@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T15:01:46Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"new1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙司晨的妹子眞醜。\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08172-2197-7cc9-99ff-f749c6dec797\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"鄒七嫂的女兒過幾年再說。\"},{\"source_ref\":\"01a08172-2197-7cc9-99ff-f749c6dec797#0\",\"quote\":\"鄒七嫂也從旁說：\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"new2\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"假洋鬼子的老婆會和沒有辮子的男人睡覺，嚇，不是好東西！\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m4\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"new3\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"秀才的老婆是眼胞上有疤的。\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m5\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"new4\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"吳媽長久不見了，不知道在那里，——可惜脚太大。\"}],\"reason_code\":\"insufficient\"}]}",
+  "elapsed_ms": 30694,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 988,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 335,
+  "prompt_runes": 1480,
+  "prompt_sha256": "d5c5b8a6adb05e5876c07b82f8f3f4940f48c81ef253ba930ba50631e696b024",
+  "seq": 117,
+  "usage_known": true
+}

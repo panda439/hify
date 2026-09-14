@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:58:31Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"趙太爺\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"蒙趙太爺打他嘴巴之後\"},{\"quote\":\"兒子打老子\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 7889,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 805,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 71,
+  "prompt_runes": 1337,
+  "prompt_sha256": "1ee79ea57f4f38bfb78b88d56a6f6a07719ab59869852e715f01469dc0183c19",
+  "seq": 29,
+  "usage_known": true
+}

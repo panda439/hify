@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:49:57Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q還不到\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙府的全眷都很焦急\"},{\"source_ref\":\"chunk\",\"quote\":\"趙府的全眷\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m3\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group2\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太太還怕\"},{\"source_ref\":\"chunk\",\"quote\":\"趙太太\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m4\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group3\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺以爲\"},{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m5\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"或怨鄒七嫂不上緊\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"ambiguous\"}]}",
+  "elapsed_ms": 35452,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 974,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 393,
+  "prompt_runes": 1486,
+  "prompt_sha256": "22ec0b4e935cab13317eb668f165f4307ea93fe9ce9a5972a7a62a1a34e726ab",
+  "seq": 96,
+  "usage_known": true
+}

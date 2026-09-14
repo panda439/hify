@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:52:05Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"未莊的人们\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"同乡邻里\",\"evidence\":[{\"quote\":\"未莊的人們之於阿Q，只要他幫忙，只拿他玩笑，從來沒有留心他的『行狀』的\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 10102,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 908,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 90,
+  "prompt_runes": 1441,
+  "prompt_sha256": "50ce5f17ec180b49f27f3a4b7ec97484f2d6effd8d9f2eb9313bf069dbf8e6b2",
+  "seq": 10,
+  "usage_known": true
+}

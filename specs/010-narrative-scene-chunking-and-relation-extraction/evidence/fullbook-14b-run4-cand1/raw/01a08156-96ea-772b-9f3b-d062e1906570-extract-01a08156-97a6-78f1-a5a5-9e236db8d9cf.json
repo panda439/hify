@@ -1,0 +1,31 @@
+{
+  "ID": "01a08156-97a6-78f1-a5a5-9e236db8d9cf",
+  "ItemID": "01a08156-9752-7c58-ac71-3fa6eb624845",
+  "ChunkID": "01a08156-96ea-772b-9f3b-d062e1906570",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "阿Q"
+      }
+    ],
+    "relations": [],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 698,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 23,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 17543,
+    "Valid": true
+  }
+}

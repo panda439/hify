@@ -1,0 +1,59 @@
+{
+  "ID": "01a0828a-7f34-7dda-9538-a22e13fc2e58",
+  "ItemID": "01a08284-3698-776e-b6c1-1639754f507a",
+  "ChunkID": "01a08284-3610-7dac-89c0-bd07284dfab9",
+  "Phase": "alias",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08284-5cd9-782d-9a9b-b578eb134cd1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q"
+          },
+          {
+            "source_ref": "01a08284-5cd9-782d-9a9b-b578eb134cd1#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a08284-5cd9-782d-9a9b-b578eb134cd1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "樁家"
+          },
+          {
+            "source_ref": "01a08284-5cd9-782d-9a9b-b578eb134cd1#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1214,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 229,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 22495,
+    "Valid": true
+  }
+}

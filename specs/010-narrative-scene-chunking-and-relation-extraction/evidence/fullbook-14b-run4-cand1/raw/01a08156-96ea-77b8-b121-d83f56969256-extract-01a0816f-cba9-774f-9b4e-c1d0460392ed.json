@@ -1,0 +1,69 @@
+{
+  "ID": "01a0816f-cba9-774f-9b4e-c1d0460392ed",
+  "ItemID": "01a08156-9769-7a9e-94ee-3648ba956891",
+  "ChunkID": "01a08156-96ea-77b8-b121-d83f56969256",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "吳媽"
+      },
+      {
+        "ref": "m2",
+        "surface": "阿Q"
+      },
+      {
+        "ref": "m3",
+        "surface": "秀才"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m2",
+        "object_ref": "m1",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "『我和你睏覺，我和你睏覺！』阿Q忽然搶上去，對伊跪下了。"
+          },
+          {
+            "quote": "『阿呀！』吳媽楞了一息，突然發抖，大叫着往外跑，且跑且嚷，似乎後來帶哭了。"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m3",
+        "object_ref": "m2",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "那秀才便拿了一枝大竹槓站在他面前。"
+          },
+          {
+            "quote": "大竹槓又向他劈下來了。"
+          },
+          {
+            "quote": "『忘八蛋！』秀才在後面用了官話這樣罵。"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 909,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 198,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 18461,
+    "Valid": true
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:42:18Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"趙太爺\"},{\"ref\":\"m2\",\"surface\":\"老Q\"},{\"ref\":\"m3\",\"surface\":\"阿Q\"},{\"ref\":\"m4\",\"surface\":\"秀才\"},{\"ref\":\"m5\",\"surface\":\"趙白眼\"}],\"relations\":[{\"subject_ref\":\"m2\",\"object_ref\":\"m3\",\"type\":\"同伙\",\"evidence\":[{\"quote\":\"『老Q』，趙太爺怯怯的迎着低聲的叫。\"},{\"quote\":\"『老Q，……現在……』\"},{\"quote\":\"『阿……Q哥，像我們這樣窮朋友是不要緊的……』\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"『阿Q！』秀才只得直呼其名了。\"},{\"quote\":\"『老Q，……現在……』\"}]},{\"subject_ref\":\"m4\",\"object_ref\":\"m3\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"『阿Q！』秀才只得直呼其名了。\"}]},{\"subject_ref\":\"m5\",\"object_ref\":\"m3\",\"type\":\"同伙\",\"evidence\":[{\"quote\":\"『阿……Q哥，像我們這樣窮朋友是不要緊的……』\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 25189,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 963,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 267,
+  "prompt_runes": 1493,
+  "prompt_sha256": "5ee2c28514ff0ed05b1f5001abc5a18a445c0211f2d408467009a61e9ac7a138",
+  "seq": 109,
+  "usage_known": true
+}

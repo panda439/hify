@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:46:18Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"舉人老爺\"},{\"ref\":\"m3\",\"surface\":\"假洋鬼子\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"雇佣\",\"evidence\":[{\"quote\":\"他是在舉人老爺家裏幫忙\"},{\"quote\":\"他卻不高興再幫忙了，因爲這舉人老爺實在太『媽媽的』了\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"什麽假洋鬼子，只要放在城裏的十幾歲的小烏龜子的手裏，也就立刻是『小鬼見閻王』\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 15651,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 935,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 164,
+  "prompt_runes": 1513,
+  "prompt_sha256": "65a2c0ac5ebe2c8a4b36368e91633c6a1ff640cbd997c63a18d9765fa150dd6d",
+  "seq": 88,
+  "usage_known": true
+}

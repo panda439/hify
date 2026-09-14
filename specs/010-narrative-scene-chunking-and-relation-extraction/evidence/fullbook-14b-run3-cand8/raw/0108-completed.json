@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:41:53Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"革命黨\"},{\"ref\":\"m3\",\"surface\":\"舉人老爺\"},{\"ref\":\"m4\",\"surface\":\"未莊人\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"殊不料這卻使百里聞名的舉人老爺有這樣怕，于是他未免也有些『神往』了，況且未莊的一羣鳥男女的慌張的神情，也使阿Q更快意\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"权势压迫\",\"evidence\":[{\"quote\":\"革命也好罷，阿Q想，革這夥媽媽的命，太可惡！太可恨！……便是我，也要投​降革命黨了\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m4\",\"type\":\"欺凌\",\"evidence\":[{\"quote\":\"未莊人都用了驚懼的眼光對他看。這一種可憐的眼光，是阿Q從來沒有見過的，一見之下，又使他舒服得如六月裏喝了雪水。他更加高興的走而且喊道\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 25289,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 973,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 272,
+  "prompt_runes": 1503,
+  "prompt_sha256": "435f343a2be3897071a82101da0ae762906007717d04b93a5f9504c671fbc7fa",
+  "seq": 108,
+  "usage_known": true
+}

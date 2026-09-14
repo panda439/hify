@@ -1,0 +1,144 @@
+{
+  "ID": "01a08188-8087-70ab-9240-30b30b99d5a6",
+  "ItemID": "01a08156-977d-781e-9b92-78824870cb36",
+  "ChunkID": "01a08156-96ea-7839-81c3-9b4a24be51de",
+  "Phase": "alias",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺父子回家"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙白眼回家"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q飄飄然的飛了一通"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m4",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "小D和趙太爺"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m5",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group1",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "還有秀才"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "秀才娘子的一張寧式牀先搬到土穀祠"
+          }
+        ],
+        "reason_code": "insufficient"
+      },
+      {
+        "mention_ref": "m6",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group2",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "還有假洋鬼子"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "假洋鬼子"
+          }
+        ],
+        "reason_code": "insufficient"
+      },
+      {
+        "mention_ref": "m7",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group3",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "王鬍本來還可留"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "王鬍"
+          }
+        ],
+        "reason_code": "insufficient"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1024,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 639,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 54855,
+    "Valid": true
+  }
+}

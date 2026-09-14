@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:25:12Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"小尼姑\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"他迎上去，大聲的吐一口唾沫\"},{\"quote\":\"阿Q走近伊身旁，突然伸出手去摩着伊新剃的頭皮，獃笑着，說\"},{\"quote\":\"尼姑滿臉通紅的說，一面趕快走\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"欺凌\",\"evidence\":[{\"quote\":\"阿Q走近伊身旁，突然伸出手去摩着伊新剃的頭皮，獃笑着，說\"},{\"quote\":\"尼姑滿臉通紅的說，一面趕快走\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 17458,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 982,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 176,
+  "prompt_runes": 1584,
+  "prompt_sha256": "9a1c8b5536c422c11211c65b5099196e4d499bf45bf1f2971ba3aba76fcb5ec4",
+  "seq": 43,
+  "usage_known": true
+}

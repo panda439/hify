@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T19:42:12Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08284-5cd9-782d-9a9b-b578eb134cd1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q\"},{\"source_ref\":\"01a08284-5cd9-782d-9a9b-b578eb134cd1#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08284-5cd9-782d-9a9b-b578eb134cd1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"樁家\"},{\"source_ref\":\"01a08284-5cd9-782d-9a9b-b578eb134cd1#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 22495,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1214,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 229,
+  "prompt_runes": 2128,
+  "prompt_sha256": "9696e58f51de05ef83de6bad818831b96be373977715dfc4a71f1366c2cdbba3",
+  "seq": 25,
+  "usage_known": true
+}

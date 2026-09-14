@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:23:21Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07fdb-e106-7b56-ba4a-8c2dd0cd8d71\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q\"},{\"source_ref\":\"01a07fdb-e106-7b56-ba4a-8c2dd0cd8d71#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a07fdd-8646-7599-9297-2d516eb70273\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"},{\"source_ref\":\"01a07fdd-8646-7599-9297-2d516eb70273#0\",\"quote\":\"趙太爺\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m3\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺的父親\"},{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"01a07fdd-8646-7599-9297-2d516eb70273\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"},{\"source_ref\":\"01a07fdd-8646-7599-9297-2d516eb70273#0\",\"quote\":\"趙太爺\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m5\",\"action\":\"link\",\"character_id\":\"01a07fdd-8646-7599-9297-2d516eb70273\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"趙太爺\"},{\"source_ref\":\"01a07fdd-8646-7599-9297-2d516eb70273#0\",\"quote\":\"趙太爺\"}],\"reason_code\":\"explicit_alias\"}]}",
+  "elapsed_ms": 53222,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1577,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 516,
+  "prompt_runes": 2150,
+  "prompt_sha256": "174b68e519842005266ad3b5ec1876360a6cbebc2a155f6c82e9a0c9a422d9de",
+  "seq": 30,
+  "usage_known": true
+}

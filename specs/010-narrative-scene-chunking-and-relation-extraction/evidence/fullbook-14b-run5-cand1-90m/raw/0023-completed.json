@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T15:20:44Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08193-de56-733c-bde8-3ec2f651553e\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"但眞所謂『塞翁失馬安知非福』罝，阿Q不幸而贏了一回，他倒幾乎失敗了。\"},{\"source_ref\":\"01a08193-de56-733c-bde8-3ec2f651553e#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group1\"},{\"mention_ref\":\"m3\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group2\"}]}",
+  "elapsed_ms": 18307,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 905,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 183,
+  "prompt_runes": 1382,
+  "prompt_sha256": "8a1eb771afa2bb16cd403dce502930070abf62f6a1899f99876ee1b494b2cd39",
+  "seq": 23,
+  "usage_known": true
+}

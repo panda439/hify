@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:38:20Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"趙府\"},{\"ref\":\"m3\",\"surface\":\"趙家\"},{\"ref\":\"m4\",\"surface\":\"吳媽\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"雇佣\",\"evidence\":[{\"quote\":\"三、阿Q從此不准踏進趙府的門檻。\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m4\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"四、吳媽此後倘有不測，惟阿Q是問。\"}]},{\"subject_ref\":\"m2\",\"object_ref\":\"m1\",\"type\":\"权势压迫\",\"evidence\":[{\"quote\":\"三、阿Q從此不准踏進趙府的門檻。\"},{\"quote\":\"四、吳媽此後倘有不測，惟阿Q是問。\"},{\"quote\":\"五、阿Q不准再去索取工錢和布衫。\"}]},{\"subject_ref\":\"m3\",\"object_ref\":\"m4\",\"type\":\"亲属\",\"evidence\":[{\"quote\":\"那破布衫是大半做了少奶奶八月間生下來的孩子的襯尿布，那小半破爛的便都做了吳媽的鞋底。\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 24676,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 909,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 273,
+  "prompt_runes": 1483,
+  "prompt_sha256": "e8d8ebe8cae915d7133b4548c038db60bf1c18bbcc56d2631b35d5501bd998e5",
+  "seq": 70,
+  "usage_known": true
+}

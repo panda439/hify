@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:39:20Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"趙太爺\"},{\"ref\":\"m3\",\"surface\":\"趙府一家\"},{\"ref\":\"m4\",\"surface\":\"兩日不喫飯的太太\"},{\"ref\":\"m5\",\"surface\":\"鄒七嫂\"},{\"ref\":\"m6\",\"surface\":\"眞正本家的趙白眼\"},{\"ref\":\"m7\",\"surface\":\"趙司晨\"},{\"ref\":\"m8\",\"surface\":\"少奶奶\"},{\"ref\":\"m9\",\"surface\":\"吳媽\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"阿Q奔入舂米場，一個人站着，還覺得指頭痛\"}]},{\"subject_ref\":\"m5\",\"object_ref\":\"m4\",\"type\":\"同乡邻里\",\"evidence\":[{\"quote\":\"趙府一家連兩日不喫飯的太太也在內，還有間壁的鄒七嫂\"}]},{\"subject_ref\":\"m4\",\"object_ref\":\"m2\",\"type\":\"亲属\",\"evidence\":[{\"quote\":\"趙府一家連兩日不喫飯的太太也在內\"}]},{\"subject_ref\":\"m6\",\"object_ref\":\"m2\",\"type\":\"亲属\",\"evidence\":[{\"quote\":\"眞正本家的趙白眼\"}]},{\"subject_ref\":\"m7\",\"object_ref\":\"m2\",\"type\":\"亲属\",\"evidence\":[{\"quote\":\"趙司晨\"}]}],\"alias_proposals\":[{\"left\":\"兩日不喫飯的太太\",\"right\":\"趙府一家\",\"quote\":\"趙府一家連兩日不喫飯的太太也在內\"}]}",
+  "elapsed_ms": 39563,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 895,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 341,
+  "prompt_runes": 1418,
+  "prompt_sha256": "b937fe10584e5ba6b926170cef097633d6eb3fef1a8e7bac048c2f09832434a6",
+  "seq": 58,
+  "usage_known": true
+}

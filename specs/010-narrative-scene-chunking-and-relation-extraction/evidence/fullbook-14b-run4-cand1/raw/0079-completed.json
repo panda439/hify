@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:43:11Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『媽媽的……』阿Q回過頭去說。\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『媽媽的，記着罷……』小D也回過頭來說。\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『媽媽的……』阿Q回過頭去說。\"},{\"source_ref\":\"chunk\",\"quote\":\"『媽媽的，記着罷……』小D也回過頭來說。\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 31607,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 833,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 360,
+  "prompt_runes": 1310,
+  "prompt_sha256": "0725427269dd81ff0530936152d1c8fcb0f67e5a162147afa0ae9401a029e5fd",
+  "seq": 79,
+  "usage_known": true
+}

@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:22:07Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07fdb-e106-7b56-ba4a-8c2dd0cd8d71\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"然而阿Q雖然常優勝，卻直待蒙趙太爺打他嘴巴之後，這纔出了名。\"},{\"source_ref\":\"01a07fdb-e106-7b56-ba4a-8c2dd0cd8d71#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a07fdd-8646-7599-9297-2d516eb70273\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"然而阿Q雖然常優勝，卻直待蒙趙太爺打他嘴巴之後，這纔出了名。\"},{\"source_ref\":\"01a07fdd-8646-7599-9297-2d516eb70273#0\",\"quote\":\"趙太爺\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 33835,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1541,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 277,
+  "prompt_runes": 2124,
+  "prompt_sha256": "a2731c51876952f89dd0f34477a72782b1f349c11c0834031ae4b867363ea83a",
+  "seq": 28,
+  "usage_known": true
+}

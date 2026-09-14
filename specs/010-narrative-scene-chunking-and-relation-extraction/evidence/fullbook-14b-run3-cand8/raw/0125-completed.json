@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:52:54Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"茂才公\"},{\"ref\":\"m2\",\"surface\":\"趙司晨\"},{\"ref\":\"m3\",\"surface\":\"趙白眼\"},{\"ref\":\"m4\",\"surface\":\"阿Q\"},{\"ref\":\"m5\",\"surface\":\"趙司晨\"},{\"ref\":\"m6\",\"surface\":\"小D\"}],\"relations\":[{\"subject_ref\":\"m4\",\"object_ref\":\"m2\",\"type\":\"同伙\",\"evidence\":[{\"quote\":\"阿Q聽到了很羨慕。他雖然早知道秀才盤辮的大新聞，但總沒有想到自己可以照樣做，現在看見趙司晨也如此，纔有了學樣的意思，定下實行的決心。\"}]},{\"subject_ref\":\"m4\",\"object_ref\":\"m6\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"況且有一回看見小D，愈使他氣破肚皮了。\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 27206,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 928,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 196,
+  "prompt_runes": 1462,
+  "prompt_sha256": "f5a63ee405adae84cd7966ed84c3ad72ed25203486e90921fa9a4dbfae1bf770",
+  "seq": 125,
+  "usage_known": true
+}

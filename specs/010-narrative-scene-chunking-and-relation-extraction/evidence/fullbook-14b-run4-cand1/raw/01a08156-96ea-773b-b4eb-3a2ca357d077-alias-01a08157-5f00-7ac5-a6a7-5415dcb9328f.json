@@ -1,0 +1,93 @@
+{
+  "ID": "01a08157-5f00-7ac5-a6a7-5415dcb9328f",
+  "ItemID": "01a08156-9755-7c50-9909-8478485a4c01",
+  "ChunkID": "01a08156-96ea-773b-b4eb-3a2ca357d077",
+  "Phase": "alias",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group1",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺"
+          }
+        ],
+        "reason_code": "insufficient"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group2",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺的兒子"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺"
+          }
+        ],
+        "reason_code": "insufficient"
+      },
+      {
+        "mention_ref": "m4",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group3",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "地保"
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "地保"
+          }
+        ],
+        "reason_code": "insufficient"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 889,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 267,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 27899,
+    "Valid": true
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T15:05:12Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group1\"},{\"mention_ref\":\"m3\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group2\"},{\"mention_ref\":\"m4\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group3\"},{\"mention_ref\":\"m5\",\"action\":\"ambiguous\",\"character_id\":\"\",\"new_group\":\"group4\"},{\"mention_ref\":\"m6\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group5\"}]}",
+  "elapsed_ms": 19968,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 858,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 212,
+  "prompt_runes": 1360,
+  "prompt_sha256": "9b613a7f612a40f0d3f14652ed50a3ebb203f11ec7f92d19883c36171aac12fa",
+  "seq": 124,
+  "usage_known": true
+}

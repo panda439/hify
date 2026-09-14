@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:19:57Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"赤膊之\"},{\"ref\":\"m3\",\"surface\":\"伊們\"},{\"ref\":\"m4\",\"surface\":\"鄒七嫂\"},{\"ref\":\"m5\",\"surface\":\"這些東西\"},{\"ref\":\"m6\",\"surface\":\"娼婦們\"},{\"ref\":\"m7\",\"surface\":\"酒店\"},{\"ref\":\"m8\",\"surface\":\"管土穀祠的老頭子\"},{\"ref\":\"m9\",\"surface\":\"老頭子\"},{\"ref\":\"m10\",\"surface\":\"趙府\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m7\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"酒店不肯賒欠了\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m8\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"管土穀祠的老頭子說些廢話，似乎叫他走\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m9\",\"type\":\"同伙\",\"evidence\":[{\"quote\":\"老頭子催他走，嚕囌一通也就算了\"}]},{\"subject_ref\":\"m4\",\"object_ref\":\"m5\",\"type\":\"同伙\",\"evidence\":[{\"quote\":\"伊們一見阿Q走來，便個個躲進門裏去。甚而至於將近五十歲的鄒七嫂，也跟着別人亂鑽\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 27072,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 918,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 296,
+  "prompt_runes": 1449,
+  "prompt_sha256": "6206e17e0dc5270f2e93bb0d6a28ebb7c7ccd34109a1f1b249e79d176a4383ca",
+  "seq": 67,
+  "usage_known": true
+}

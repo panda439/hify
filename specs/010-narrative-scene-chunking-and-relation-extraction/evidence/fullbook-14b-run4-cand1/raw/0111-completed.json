@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:58:37Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『老Q。』\"},{\"source_ref\":\"chunk\",\"quote\":\"『老Q，……現在……』\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『老Q』，趙太爺怯怯的迎着低聲的叫。\"},{\"source_ref\":\"chunk\",\"quote\":\"『老Q，……現在……』\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q這纔站住，歪着頭問道：『什麽？』\"},{\"source_ref\":\"chunk\",\"quote\":\"『阿Q哥，像我們這樣窮朋友是不要緊的……』\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『阿Q！』秀才只得直呼其名了。\"},{\"source_ref\":\"chunk\",\"quote\":\"『阿Q哥，像我們這樣窮朋友是不要緊的……』\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m5\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"『阿……Q哥，像我們這樣窮朋友是不要緊的……』趙白眼惴惴的說，似乎想探革命黨的口風。\"},{\"source_ref\":\"chunk\",\"quote\":\"『老Q，……現在……』\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 58469,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 981,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 736,
+  "prompt_runes": 1482,
+  "prompt_sha256": "24a622209b0e6728c57a59d8673423d2f5799458e566e18858c7d30be776807e",
+  "seq": 111,
+  "usage_known": true
+}

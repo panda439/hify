@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T19:41:26Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08284-5cd9-782d-9a9b-b578eb134cd1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q\"},{\"source_ref\":\"01a08284-5cd9-782d-9a9b-b578eb134cd1#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"閒人們\"},{\"source_ref\":\"01a08284-5cd9-782d-9a9b-b578eb134cd1#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 19466,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1169,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 198,
+  "prompt_runes": 2062,
+  "prompt_sha256": "3abb67642012a14f986834a0ea0239b5022e73602406e244e430aab96b77cf08",
+  "seq": 22,
+  "usage_known": true
+}

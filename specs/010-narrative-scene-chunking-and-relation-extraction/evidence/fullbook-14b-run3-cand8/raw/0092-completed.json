@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T08:32:08Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"鄒七嫂\"},{\"ref\":\"m3\",\"surface\":\"趙白眼的母親\"},{\"ref\":\"m4\",\"surface\":\"趙司晨的母親\"},{\"ref\":\"m5\",\"surface\":\"趙太太\"},{\"ref\":\"m6\",\"surface\":\"趙太爺\"},{\"ref\":\"m7\",\"surface\":\"秀才大爺\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"同伙\",\"evidence\":[{\"quote\":\"鄒七嫂在阿Q那裏買了一條藍綢裙\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m5\",\"type\":\"同伙\",\"evidence\":[{\"quote\":\"趙太太也正想買一件價廉物美的皮背心\"}]},{\"subject_ref\":\"m5\",\"object_ref\":\"m6\",\"type\":\"亲属\",\"evidence\":[{\"quote\":\"趙太太又告訴了趙太爺\"}]},{\"subject_ref\":\"m3\",\"object_ref\":\"m4\",\"type\":\"alias_proposal\",\"evidence\":[{\"quote\":\"趙白眼的母親——一說是趙司晨的母親，待考\"}]}],\"alias_proposals\":[{\"left\":\"m3\",\"right\":\"m4\",\"quote\":\"趙白眼的母親——一說是趙司晨的母親，待考\"}]}",
+  "elapsed_ms": 27293,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 969,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 278,
+  "prompt_runes": 1485,
+  "prompt_sha256": "22c2c07b29fc632c144dcfd82b720d6b3196d771fd3570bbdb264ccd867e7ae8",
+  "seq": 92,
+  "usage_known": true
+}

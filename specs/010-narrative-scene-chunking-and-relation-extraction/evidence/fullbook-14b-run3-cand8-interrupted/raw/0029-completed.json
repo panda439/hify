@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:22:27Z",
+  "content": "{\"mentions\":[{\"ref\":\"m1\",\"surface\":\"阿Q\"},{\"ref\":\"m2\",\"surface\":\"趙太爺\"},{\"ref\":\"m3\",\"surface\":\"趙太爺的父親\"},{\"ref\":\"m4\",\"surface\":\"趙太爺\"},{\"ref\":\"m5\",\"surface\":\"趙太爺\"}],\"relations\":[{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"冲突\",\"evidence\":[{\"quote\":\"倘如阿七打阿八，或者李四打張三，向來本不算一件事，必須與一位名人如趙太爺者相關，這纔載上他們的口碑。\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m2\",\"type\":\"权势压迫\",\"evidence\":[{\"quote\":\"至于錯在阿Q，那自然是不必說。所以者何？就因爲趙太爺是不會錯的。\"}]},{\"subject_ref\":\"m1\",\"object_ref\":\"m3\",\"type\":\"亲属\",\"evidence\":[{\"quote\":\"或者以爲因爲他是趙太爺的父親，而其實也不然。\"}]}],\"alias_proposals\":[]}",
+  "elapsed_ms": 20068,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 806,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 226,
+  "prompt_runes": 1318,
+  "prompt_sha256": "a325c00c59ae8ee7d287b707f8b3ab9bd9cea98e4ed2fdf147cbafe28a993ea8",
+  "seq": 29,
+  "usage_known": true
+}

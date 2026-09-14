@@ -1,0 +1,32 @@
+{
+  "model": "qwen2.5:14b",
+  "chunk_id": "ch02-007",
+  "phase": "extract",
+  "attempt": 1,
+  "request_sha256": "7ca4ac33c7f8b502a5c98f643d8024cea9d62523d9a1a68cbba7b99a13e34861",
+  "request_runes": 1258,
+  "http_status": 200,
+  "latency_ms": 2065,
+  "response": {
+    "id": "chatcmpl-966",
+    "object": "chat.completion",
+    "created": 1788859581,
+    "model": "qwen2.5:14b",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"mentions\":[],\"relations\":[],\"alias_proposals\":[]}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 701,
+      "completion_tokens": 13,
+      "total_tokens": 714
+    }
+  }
+}

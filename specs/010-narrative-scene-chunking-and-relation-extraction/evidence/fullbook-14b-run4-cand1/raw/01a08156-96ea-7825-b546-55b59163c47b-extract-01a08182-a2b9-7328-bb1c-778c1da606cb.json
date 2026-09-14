@@ -1,0 +1,78 @@
+{
+  "ID": "01a08182-a2b9-7328-bb1c-778c1da606cb",
+  "ItemID": "01a08156-9779-7d69-85c7-4c58bb7598c0",
+  "ChunkID": "01a08156-96ea-7825-b546-55b59163c47b",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [
+      {
+        "ref": "m1",
+        "surface": "趙白眼"
+      },
+      {
+        "ref": "m2",
+        "surface": "趙府"
+      },
+      {
+        "ref": "m3",
+        "surface": "趙太爺"
+      },
+      {
+        "ref": "m4",
+        "surface": "趙秀才"
+      },
+      {
+        "ref": "m5",
+        "surface": "鄒七嫂"
+      }
+    ],
+    "relations": [
+      {
+        "subject_ref": "m3",
+        "object_ref": "m2",
+        "type": "亲属",
+        "evidence": [
+          {
+            "quote": "趙府上的河埠頭"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m3",
+        "object_ref": "m4",
+        "type": "冲突",
+        "evidence": [
+          {
+            "quote": "舉人老爺和趙秀才素不相能"
+          }
+        ]
+      },
+      {
+        "subject_ref": "m5",
+        "object_ref": "m2",
+        "type": "同乡邻里",
+        "evidence": [
+          {
+            "quote": "鄒七嫂又和趙家是鄰居"
+          }
+        ]
+      }
+    ],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 969,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 170,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 16953,
+    "Valid": true
+  }
+}

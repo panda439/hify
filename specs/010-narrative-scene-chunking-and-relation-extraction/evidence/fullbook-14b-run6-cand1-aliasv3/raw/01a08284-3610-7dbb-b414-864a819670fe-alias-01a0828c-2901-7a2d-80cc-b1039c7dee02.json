@@ -1,0 +1,48 @@
+{
+  "ID": "01a0828c-2901-7a2d-80cc-b1039c7dee02",
+  "ItemID": "01a08284-369a-7839-80a0-249ebedfd7e5",
+  "ChunkID": "01a08284-3610-7dbb-b414-864a819670fe",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "ambiguous",
+        "character_id": "",
+        "new_group": "ambiguous1"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a08284-5cd9-782d-9a9b-b578eb134cd1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "然而阿Q雖然常優勝，卻直待蒙趙太爺打他嘴巴之後，這纔出了名。"
+          },
+          {
+            "source_ref": "01a08284-5cd9-782d-9a9b-b578eb134cd1#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1100,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 160,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 12920,
+    "Valid": true
+  }
+}

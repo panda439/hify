@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T15:03:18Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"革命了……你知道？……\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"link\",\"character_id\":\"d9f5f5b9-9f6d-7f5d-916d-9d6f7f5d9f6d\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"老尼姑兩眼通紅的說\"},{\"source_ref\":\"chunk\",\"quote\":\"尼姑待他們走後，定了神來檢點，龍牌固然已經碎在地上了，而且又不見了觀音娘娘座前的一個宣德鑪\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"d9f5f5b9-9f6d-7f5d-916d-9d6f7f5d9f6d\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"那秀才和洋鬼子！\"},{\"source_ref\":\"chunk\",\"quote\":\"趙秀才消息靈，一知道革命黨已在夜間進城，便將辮子盤在頂上，一早去拜訪那歷來也不相能的錢洋鬼子\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m4\",\"action\":\"link\",\"character_id\":\"d9f5f5b9-9f6d-7f5d-916d-9d6f7f5d9f6d\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"那秀才和洋鬼子！\"},{\"source_ref\":\"chunk\",\"quote\":\"趙秀才消息靈，一知道革命黨已在夜間進城，便將辮子盤在頂上，一早去拜訪那歷來也不相能的錢洋鬼子\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 43622,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 970,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 501,
+  "prompt_runes": 1478,
+  "prompt_sha256": "3e006e2325342a71ebfadbb30e2fbd6e6acb0aca356238b4dc9bcde80f68bf72",
+  "seq": 120,
+  "usage_known": true
+}

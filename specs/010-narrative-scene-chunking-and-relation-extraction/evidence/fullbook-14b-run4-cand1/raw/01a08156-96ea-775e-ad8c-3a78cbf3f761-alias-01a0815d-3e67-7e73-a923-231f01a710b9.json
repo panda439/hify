@@ -1,0 +1,59 @@
+{
+  "ID": "01a0815d-3e67-7e73-a923-231f01a710b9",
+  "ItemID": "01a08156-975b-73c8-a0d0-f666ace1ce9f",
+  "ChunkID": "01a08156-96ea-775e-ad8c-3a78cbf3f761",
+  "Phase": "alias",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q『先前闊』，見識高，而且『眞能做』，"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "new",
+        "character_id": "",
+        "new_group": "group1",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "未莊的閒人們便愈喜歡玩笑他，一見面，他們便假作喫驚的說："
+          },
+          {
+            "source_ref": "chunk",
+            "quote": "『噲，亮起來了。』"
+          }
+        ],
+        "reason_code": "context_identity"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 908,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 213,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 20570,
+    "Valid": true
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T19:37:12Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08284-5cd9-782d-9a9b-b578eb134cd1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q並沒有抗辯他確鑿姓趙，只用手摸着左頰，和地保退出去了\"},{\"source_ref\":\"01a08284-5cd9-782d-9a9b-b578eb134cd1#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"外面又被地保訓斥了一番\"},{\"source_ref\":\"chunk\",\"quote\":\"謝了地保二百文酒錢\"}]}]",
+  "elapsed_ms": 17164,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 908,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 196,
+  "prompt_runes": 1784,
+  "prompt_sha256": "c4069821eff23dc5b5c24fda16d32115cf0681a179a6c76e2e28c9ca83a5a710",
+  "seq": 8,
+  "usage_known": true
+}

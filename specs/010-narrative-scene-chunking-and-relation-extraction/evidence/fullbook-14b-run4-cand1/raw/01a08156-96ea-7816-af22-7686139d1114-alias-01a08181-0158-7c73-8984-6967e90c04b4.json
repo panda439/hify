@@ -1,0 +1,124 @@
+{
+  "ID": "01a08181-0158-7c73-8984-6967e90c04b4",
+  "ItemID": "01a08156-9778-71e0-ad9e-131f0979e35a",
+  "ChunkID": "01a08156-96ea-7816-af22-7686139d1114",
+  "Phase": "alias",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太爺"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "context_identity"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "01a08156-dc6f-7036-b022-2c66c154ecd9",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q"
+          },
+          {
+            "source_ref": "01a08156-dc6f-7036-b022-2c66c154ecd9#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "new",
+        "character_id": "",
+        "new_group": "new1",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "秀才"
+          }
+        ],
+        "reason_code": "insufficient"
+      },
+      {
+        "mention_ref": "m4",
+        "action": "new",
+        "character_id": "",
+        "new_group": "new2",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "秀才娘子"
+          }
+        ],
+        "reason_code": "insufficient"
+      },
+      {
+        "mention_ref": "m5",
+        "action": "new",
+        "character_id": "",
+        "new_group": "new3",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "趙太太"
+          }
+        ],
+        "reason_code": "insufficient"
+      },
+      {
+        "mention_ref": "m6",
+        "action": "new",
+        "character_id": "",
+        "new_group": "new4",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "地保"
+          }
+        ],
+        "reason_code": "insufficient"
+      },
+      {
+        "mention_ref": "m7",
+        "action": "new",
+        "character_id": "",
+        "new_group": "new5",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "鄒七嫂"
+          }
+        ],
+        "reason_code": "insufficient"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 890,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 423,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 37291,
+    "Valid": true
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T07:55:36Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"阿Q『先前闊』，見識高，而且『眞能做』，本來幾乎是一個『完人』了，但可惜他​體質上還有一些缺點，最惱人的是在他頭皮上，頗有幾處不知于何時的癩瘡疤。\"},{\"source_ref\":\"01a07ffe-087b-7d6d-a2be-3f5c569ca830#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"explicit_alias\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"閒人們便愈喜歡玩笑他，一見面，他們便假作喫驚的說：\"},{\"source_ref\":\"chunk\",\"quote\":\"阿Q照例的發了怒，他怒目而視了。\"}],\"reason_code\":\"insufficient\"}]",
+  "elapsed_ms": 20846,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 1520,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 263,
+  "prompt_runes": 2080,
+  "prompt_sha256": "d9781c7a9a25f4c1089ae401f2db546d48b27d1f3d69ddd6788678da8dcf3ff2",
+  "seq": 20,
+  "usage_known": true
+}

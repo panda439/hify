@@ -1,0 +1,15 @@
+{
+  "at": "2026-09-08T14:39:43Z",
+  "content": "{\"decisions\":[{\"mention_ref\":\"m1\",\"action\":\"link\",\"character_id\":\"01a08156-dc6f-7036-b022-2c66c154ecd9\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"三、阿Q從此不准踏進趙府的門檻。\"},{\"source_ref\":\"01a08156-dc6f-7036-b022-2c66c154ecd9#0\",\"quote\":\"阿Q\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m2\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group1\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"三、阿Q從此不准踏進趙府的門檻。\"},{\"source_ref\":\"chunk\",\"quote\":\"因爲太太拜佛的時候可以用，留着了。\"}],\"reason_code\":\"insufficient\"},{\"mention_ref\":\"m3\",\"action\":\"link\",\"character_id\":\"group1\",\"new_group\":\"\",\"supports\":[{\"source_ref\":\"m2\",\"quote\":\"趙府\"},{\"source_ref\":\"chunk\",\"quote\":\"因爲太太拜佛的時候可以用，留着了。\"}],\"reason_code\":\"context_identity\"},{\"mention_ref\":\"m4\",\"action\":\"new\",\"character_id\":\"\",\"new_group\":\"group2\",\"supports\":[{\"source_ref\":\"chunk\",\"quote\":\"四、吳媽此後倘有不測，惟阿Q是問。\"},{\"source_ref\":\"chunk\",\"quote\":\"便都做了吳媽的鞋底。\"}],\"reason_code\":\"context_identity\"}]}",
+  "elapsed_ms": 26166,
+  "error_code": "",
+  "finish_reason": "stop",
+  "input_tokens": 918,
+  "model": "qwen2.5:14b",
+  "outcome": "completed",
+  "output_tokens": 332,
+  "prompt_runes": 1451,
+  "prompt_sha256": "afc98c0ad1a3f0b6c533ed21341b4f6707fd7733c37736060dfdffbec76a0d7d",
+  "seq": 73,
+  "usage_known": true
+}

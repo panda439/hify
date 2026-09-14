@@ -1,0 +1,76 @@
+{
+  "ID": "01a08290-fc9e-77b4-a42f-b0719c49befc",
+  "ItemID": "01a08284-369d-7d3e-9e11-75a6b94c5d26",
+  "ChunkID": "01a08284-3610-7dc3-826b-c4dbe1252f42",
+  "Phase": "alias",
+  "State": "failed",
+  "ErrorCode": "invalid_output",
+  "Raw": {
+    "decisions": [
+      {
+        "mention_ref": "m1",
+        "action": "link",
+        "character_id": "01a08284-5cd9-782d-9a9b-b578eb134cd1",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "阿Q"
+          },
+          {
+            "source_ref": "01a08284-5cd9-782d-9a9b-b578eb134cd1#0",
+            "quote": "阿Q"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m2",
+        "action": "link",
+        "character_id": "d9d9f56e-9f6d-4f6d-9d9f-6d9f6d9f6d9f",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "王鬍"
+          },
+          {
+            "source_ref": "d9d9f56e-9f6d-4f6d-9d9f-6d9f6d9f6d9f#0",
+            "quote": "王鬍"
+          }
+        ],
+        "reason_code": "explicit_alias"
+      },
+      {
+        "mention_ref": "m3",
+        "action": "link",
+        "character_id": "d9d9f56e-9f6d-4f6d-9d9f-6d9f6d9f6d9f",
+        "new_group": "",
+        "supports": [
+          {
+            "source_ref": "chunk",
+            "quote": "王癩鬍"
+          },
+          {
+            "source_ref": "d9d9f56e-9f6d-4f6d-9d9f-6d9f6d9f6d9f#0",
+            "quote": "王鬍"
+          }
+        ],
+        "reason_code": "context_identity"
+      }
+    ]
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 1283,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 361,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 28502,
+    "Valid": true
+  }
+}

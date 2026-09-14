@@ -1,0 +1,26 @@
+{
+  "ID": "01a08284-5cf3-755b-92b6-4107384e2800",
+  "ItemID": "01a08284-368e-744d-94c9-5c97bef61fb1",
+  "ChunkID": "01a08284-3610-7d79-a50f-55ada109b789",
+  "Phase": "extract",
+  "State": "completed",
+  "ErrorCode": "",
+  "Raw": {
+    "mentions": [],
+    "relations": [],
+    "alias_proposals": []
+  },
+  "UsageKnown": true,
+  "In": {
+    "Int64": 978,
+    "Valid": true
+  },
+  "Out": {
+    "Int64": 13,
+    "Valid": true
+  },
+  "Elapsed": {
+    "Int64": 5799,
+    "Valid": true
+  }
+}
