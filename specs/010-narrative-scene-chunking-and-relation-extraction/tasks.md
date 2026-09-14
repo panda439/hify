@@ -44,26 +44,37 @@ T006～T008 未在本轮逐项重新审计迁移/生成代码，保持未勾选�
 - [ ] T019 实现500不同item/3000调用/7200s活跃预算、单次60s、12000输入rune/2048输出token/64KiB响应限制；先写边界测试，检查别名输入和输出也受控。
 - [ ] T020 实现成功item/人物/关系/证据/计数同事务、空结果成功、原始响应回放；验证重复消息/提交后丢ACK/响应落盘后崩溃不重复发模型，未知结果窗口如实记账。
 - [x] T021 实现ReconcileRelationExtractions和asynq handlers；cmd/hify/config/wire注册，每分钟分页扫描待处理/丢入队/过期lease；重启和Redis失效恢复，不自动恢复用户暂停/预算耗尽。
-- [ ] T022 实现模型/源版本固定、superseded与删除守卫；锁document→job→item。数据库故障注入覆盖PG发布后未建job、删除期间响应返回、旧epoch晚到写入。
+- [x] T022 实现模型/源版本固定、superseded与删除守卫；锁document→job→item。数据库故障注入覆盖PG发布后未建job、删除期间响应返回、旧epoch晚到写入。
 补录说明（2026-09-07 第七轮）：T021 已闭合——TaskTypeRunRelationExtraction
 落地、main.go 注册、恢复扫描把扫出来的作业交给 Service 入队、预算耗尽与
 连续失败停成 paused（不自动恢复用户暂停）。T014～T020 的功能都已提交，
 但本轮没有逐条重新验证它们的全部验收点，按"只勾本轮核实的项目"的规矩
-保持未勾选。T022（模型/源版本固定、删除守卫、故障注入）和 T023 未做。
+保持未勾选。T022/T023 当时未做；后续补录见各自条目与审查记录。
 
-- [ ] T023 实现清理与账目归档：失效派生记录分批清理、attempt30天归档后删除；聚合/游标同事务，不重复累计、不让文档费用因清理归零。
+- [x] T023 实现清理与账目归档：失效派生记录分批清理、attempt30天归档后删除；聚合/游标同事务，不重复累计、不让文档费用因清理归零。
+T023 补录（2026-09-08）：复用关系抽取 reconcile 的批处理入口。失效 run 清理
+evidence/relations/aliases/characters/items；attempt 超过 30 天时先累计
+`archived_ledger_summary.unknown_usage_attempts` 再删除，状态读取合并归档值与
+未归档明细。文档已删除且审计 attempts 全部到期后，才最终删除 job；正常
+superseded run 的账目不删除。
 
 ## Phase 4：关系与别名
 
 - [x] T024 先写严格JSON/引用校验测试，再实现extract_prompt.go；覆盖重复key、尾随JSON、未知字段、空/过大/截断输出、非法ref/type、quote occurrence与原文不匹配、空合法数组。
 - [x] T025 实现mentions与关系候选源位置映射，保留多证据，overlap按原文区间去重；按契约生成有限输入，不把网页版权模板当正文进入实验。
 - [x] T026 先写别名反例再实现alias.go：两侧身份支持、明确别名new_group、候选上限32/每人2条证据、同名/泛称歧义、阿贵否定例、跨书不合；禁止只按surface合并。
-- [ ] T027 实现已存第一阶段响应复用、独立归一重试、模型配置不变、合法ambiguous保存独立人物；归一非法不部分发布。无提案/候选不发第二次调用。
-T027 只完成一半：第一阶段成功响应的复用、归一独立重试、合法 ambiguous
-保留独立人物、归一非法整次拒绝、无提案/候选零调用都已实现并验证；
-"模型配置不变"依赖 Phase 5 的 resume/restart 接口，尚未做。
+- [x] T027 实现已存第一阶段响应复用、独立归一重试、模型配置不变、合法ambiguous保存独立人物；归一非法不部分发布。无提案/候选不发第二次调用。
+T027 补录（2026-09-08）：Phase 5 的 resume/restart 已证明同一 run 不可更改
+模型或 prompt，切换模型必建新 run。复验第一阶段响应回放、归一独立重试、合法
+ambiguous 独立保留、无提案/候选零调用；并修正了一个与本任务相悖的降级分支：
+归一响应非法时当前 item 标记 `alias_invalid`，人物和关系整体不发布。
 
-- [ ] T028 验证FR-014依据可查询、同一响应回放稳定、同章关系变化不覆盖、章节可空、倒叙按原文排序；固定正反例验证归一成功与零误合并，真实误差另算。
+- [x] T028 验证FR-014依据可查询、同一响应回放稳定、同章关系变化不覆盖、章节可空、倒叙按原文排序；固定正反例验证归一成功与零误合并，真实误差另算。
+T028 补录（2026-09-08）：真实数据库测试已复验 `TestIdentityEvidenceIsPersisted`、
+`TestReplayedResponseIsNotCalledAgain`、`TestQueryReturnsEveryChapterRecord`、
+`TestNarrativeChunkCarriesChapterMetadata`、`TestExplicitAliasProposalLetsTwoMentionsShareAGroup`、
+`TestHedgedAliasProposalCannotMerge`、`TestSurfaceOnlyMergeIsRejected` 与
+`TestAmbiguousMentionsStayIndependent`。这些是确定性工程守卫，不构成真实模型语义误差数字。
 
 ## Phase 5：操作接口与聊天
 
@@ -98,8 +109,8 @@ found/歧义两条 UI 路径——那需要真实模型，归 Phase 6。
 
 - [ ] T037 按annotation-guideline对全9章AI稿人工逐段补漏/纠错/裁定，记录真实审阅人和范围。Codex当前已交AI候选，但此项人工验收尚未完成；不得把初稿搬进truth就打勾。
 - [ ] T038 冻结人工语料/口径/标注哈希和开发/验收隔离声明；若用验收答案调prompt则改为开发集并另设未用于调优的验收范围。未审阅只跑AI一致性，FR-016保持未完成。
-- [ ] T039 先用构造预测测试计分：章节单位、一对一TP、无向规范化、重复引用、失败块FN、空分母N/A、额外错误引用率；身份归一端到端与人工别名条件指标分报。
-- [ ] T040 实现cmd/narrativeeval与Makefile目标：受控本地运行/读取原始响应和账目快照/纯指标重算；禁止调用模型裁判替代人工真值。配置/价格版本与hash写报告。
+- [x] T039 先用构造预测测试计分：章节单位、一对一TP、无向规范化、重复引用、失败块FN、空分母N/A、额外错误引用率；身份归一端到端与人工别名条件指标分报。实现位于 `internal/eval/narrative`；两种身份口径混用会被拒绝。
+- [x] T040 实现cmd/narrativeeval与Makefile目标：受控本地运行/读取原始响应和账目快照/纯指标重算；禁止调用模型裁判替代人工真值。配置/价格版本与hash写报告。命令默认拒绝未冻结真值；仅显式 reference-only 模式可评 AI 草稿，报告不能作为验收。
 - [x] T041 先用独立开发短样本预检14B/7B模型可用性、实际吞吐、usage返回与60s上限；不从本机硬件猜性能。额度不足由用户显式追加，不能自动绕过预算。
 T041 补录（2026-09-07，Codex 执行 + Claude 复核两轮）：产物在
 `evidence/precheck/`（26 条原始响应 + summary.json + README），复核记录见

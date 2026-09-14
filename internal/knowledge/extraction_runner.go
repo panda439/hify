@@ -310,7 +310,6 @@ func (r *extractionRunner) runItem(ctx context.Context, job RelationExtractionJo
 
 	var aliasRaw []byte
 	var assign identityAssignment
-	degraded := false
 	if !needsAliasPhase(in) {
 		// 零调用路径：没有候选也没有提案，各 mention 独立成身份。
 		assign = independentIdentities(in)
@@ -338,36 +337,16 @@ func (r *extractionRunner) runItem(ctx context.Context, job RelationExtractionJo
 				_, perr = resolveAliasDecisions(in, parsed)
 				return perr
 			})
-		switch {
-		case err == nil:
-			parsed, perr := parseAliasResponse(aliasRaw)
-			if perr != nil {
-				return runItemResult{}, perr
-			}
-			assign, perr = resolveAliasDecisions(in, parsed)
-			if perr != nil {
-				return runItemResult{}, perr
-			}
-		case aliasFailureIsDegradable(err):
-			// ⭐ 归一失败**不再让整个 item 失败**，退回"每个称呼各自独立成
-			// 人物"照常发布关系。依据是全书实跑：归一阶段 11 失败 / 5 成功，
-			// 而按旧行为这 11 块的关系全被丢掉——那些关系每一条都有真实的
-			// 原文支持，丢掉它们损失的是召回，换来的只是"人物没被合并"。
-			//
-			// ⚠️ 这是**保守但有代价**的降级，代价是人物碎片化（同一个人的
-			// 几个称呼变成几个人物），而碎片化会直接压低召回率。所以：
-			//   - 降级要落进数据（items.alias_degraded），不能只写日志；
-			//   - 那次失败的归一调用照常记账，钱是真花了。
-			slog.Warn("knowledge: alias phase failed, publishing with independent identities",
-				"job_id", job.ID, "item_id", item.ID, "err", err)
-			degraded = true
-			assign = independentIdentities(in)
-			aliasRaw = nil
-		default:
-			// 预算耗尽、epoch 失效、ctx 取消这些**不能降级**：
-			// 它们说的是"这一轮不该再继续"，而不是"归一没做成"。
-			// 把它们也降级掉，等于在预算已经耗尽之后还继续发布结果。
+		if err != nil {
 			return runItemResult{}, err
+		}
+		parsed, perr := parseAliasResponse(aliasRaw)
+		if perr != nil {
+			return runItemResult{}, perr
+		}
+		assign, perr = resolveAliasDecisions(in, parsed)
+		if perr != nil {
+			return runItemResult{}, perr
 		}
 	}
 
@@ -378,35 +357,31 @@ func (r *extractionRunner) runItem(ctx context.Context, job RelationExtractionJo
 	err = r.repo.publishItemOutcome(ctx, publishInput{
 		JobID: job.ID, ItemID: item.ID, Epoch: epoch, Outcome: outcome,
 		ExtractResponse: extractRaw, AliasResponse: aliasRaw,
-		AliasDegraded: degraded,
 	})
 	return runItemResult{
 		AmbiguousPositions: resolved.AmbiguousPositions,
 		AmbiguousEvidence:  resolved.AmbiguousEvidence,
-		AliasDegraded:      degraded,
 	}, err
 }
 
-// aliasFailureIsDegradable 判断一次归一失败能不能降级发布。
-//
-// ⭐ 能降级的只有"模型这次没做成"这一类：响应不合法、合并依据不足、
-// 三次尝试都没拿到可用结果。它们的共同点是——**关系本身是好的**，
-// 只是身份没能合并，退回独立身份仍然是一个诚实、保守的结果。
-//
-// ⚠️ 不能降级的是"这一轮不该再继续"：预算耗尽、epoch 失效、ctx 取消。
-// 把它们也降级掉，等于在钱已经花完、或者作业已经被别人接管之后，
-// 还在继续发布结果。
-func aliasFailureIsDegradable(err error) bool {
-	switch {
-	case errors.Is(err, errAliasResponseInvalid),
-		errors.Is(err, errAliasMergeUnsupported),
-		errors.Is(err, errQuoteNotFound),
-		errors.Is(err, errQuoteNotCitable),
-		errors.Is(err, errModelGaveUp):
-		return true
-	default:
-		return false
+// validationRepairPrompt 只反馈稳定的校验类别，不把模型原始输出或正文片段塞回
+// 下一次请求。前者足够让模型修复格式，后者会放大上下文并让一次失败的内容反复
+// 进入请求；完整原始输出仍只保存在 attempt 账本中供复核。
+func validationRepairPrompt(rendered, phase string, validationErr error) string {
+	if validationErr == nil {
+		return rendered
 	}
+
+	feedback := "请只输出一个完整、合法的 JSON 对象，并遵守提示词中的所有字段和引用约束。"
+	switch {
+	case errors.Is(validationErr, errQuoteNotFound), errors.Is(validationErr, errQuoteNotCitable):
+		feedback = "所有 quote 必须从本段原文逐字连续摘录；不要改写、拼接或补全原文。"
+	case phase == phaseExtract:
+		feedback = "输出必须含 mentions、relations、alias_proposals 三个数组；关系和别名端点必须引用 mentions 中的 ref。"
+	case phase == phaseAlias:
+		feedback = "输出必须含 decisions 数组；每项必须引用提示词给出的 mention ref、候选 id 和依据 ref。"
+	}
+	return rendered + "\n\n【校验反馈】上次输出未通过校验。" + feedback + "请重新输出完整 JSON，不要解释。"
 }
 
 // runPhaseWithValidation 跑一个阶段，把**校验失败也当成这次尝试失败**。
@@ -434,7 +409,6 @@ func (r *extractionRunner) runPhaseWithValidation(ctx context.Context, job Relat
 		return raw, nil
 	}
 
-	requestHash := sha256.Sum256([]byte(rendered))
 	var accepted []byte
 	// ⚠️ 记住最后一次校验错误：三次输出都不合法时，"模型放弃了"这个说法
 	// 掩盖了真正的原因（协议对不上）。两者的下一步完全不同——前者调模型
@@ -443,11 +417,18 @@ func (r *extractionRunner) runPhaseWithValidation(ctx context.Context, job Relat
 	var lastValidationErr error
 	res, err := r.phases.runPhase(ctx, phaseInput{
 		JobID: job.ID, ItemID: itemID, Epoch: epoch, Phase: phase,
-		RequestHash: requestHash[:], MaxOutputTokens: maxOutputTokens,
+		RequestHashForAttempt: func(_ int) []byte {
+			prompt := validationRepairPrompt(rendered, phase, lastValidationErr)
+			hash := sha256.Sum256([]byte(prompt))
+			return hash[:]
+		},
+		MaxOutputTokens: maxOutputTokens,
 	}, func(ctx context.Context, attemptNumber int) (provider.ChatAttemptResult, error) {
+		prompt := validationRepairPrompt(rendered, phase, lastValidationErr)
 		out, err := r.model.ChatOnce(ctx, job.ModelID, provider.ChatRequest{
-			Messages:  []provider.Message{{Role: "user", Content: rendered}},
+			Messages:  []provider.Message{{Role: "user", Content: prompt}},
 			MaxTokens: maxOutputTokens,
+			JSONMode:  true,
 		}, extractionCallTimeout)
 		if err != nil {
 			return out, err

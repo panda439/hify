@@ -183,6 +183,10 @@ func classifyAttemptError(err error, elapsed int64) ChatAttemptResult {
 	if errors.As(err, &ae) && ae.status != 0 {
 		res.Outcome, res.Dispatched = AttemptFailed, true
 		res.ErrorCode = "http_" + strconv.Itoa(ae.status)
+		// Attempt archives need the provider's diagnostic body to distinguish a
+		// bad request parameter from a model-quality failure. Keep it bounded;
+		// adapter errors never include Authorization headers or decrypted keys.
+		res.Message.Content = truncateAttemptError(err.Error())
 		return res
 	}
 
@@ -197,4 +201,13 @@ func classifyAttemptError(err error, elapsed int64) ChatAttemptResult {
 		res.ErrorCode = "transport"
 	}
 	return res
+}
+
+func truncateAttemptError(message string) string {
+	const maxRunes = 500
+	runes := []rune(message)
+	if len(runes) <= maxRunes {
+		return message
+	}
+	return string(runes[:maxRunes]) + "..."
 }

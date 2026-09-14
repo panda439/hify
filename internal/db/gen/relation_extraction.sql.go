@@ -416,6 +416,78 @@ func (q *Queries) CreateRelationExtractionJob(ctx context.Context, arg CreateRel
 	return err
 }
 
+const deleteExtractionAttempt = `-- name: DeleteExtractionAttempt :exec
+DELETE FROM relation_extraction_attempts WHERE id = ?
+`
+
+func (q *Queries) DeleteExtractionAttempt(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteExtractionAttempt, id)
+	return err
+}
+
+const deleteExtractionJobIfDocumentMissingAndNoAttempts = `-- name: DeleteExtractionJobIfDocumentMissingAndNoAttempts :execrows
+DELETE j
+FROM relation_extraction_jobs j
+LEFT JOIN documents d ON d.id = j.document_id
+WHERE j.id = ? AND d.id IS NULL
+  AND NOT EXISTS (SELECT 1 FROM relation_extraction_attempts a WHERE a.job_id = j.id)
+`
+
+// 只删除已经失去 document parent 且没有任何审计 attempt 的 job。正常的
+// superseded run 仍保留账目；已删除文档也要等 30 天审计期结束才可最终删除。
+func (q *Queries) DeleteExtractionJobIfDocumentMissingAndNoAttempts(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteExtractionJobIfDocumentMissingAndNoAttempts, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteJobAliases = `-- name: DeleteJobAliases :exec
+DELETE FROM narrative_aliases WHERE job_id = ?
+`
+
+func (q *Queries) DeleteJobAliases(ctx context.Context, jobID string) error {
+	_, err := q.db.ExecContext(ctx, deleteJobAliases, jobID)
+	return err
+}
+
+const deleteJobCharacters = `-- name: DeleteJobCharacters :exec
+DELETE FROM narrative_characters WHERE job_id = ?
+`
+
+func (q *Queries) DeleteJobCharacters(ctx context.Context, jobID string) error {
+	_, err := q.db.ExecContext(ctx, deleteJobCharacters, jobID)
+	return err
+}
+
+const deleteJobItems = `-- name: DeleteJobItems :exec
+DELETE FROM relation_extraction_items WHERE job_id = ?
+`
+
+func (q *Queries) DeleteJobItems(ctx context.Context, jobID string) error {
+	_, err := q.db.ExecContext(ctx, deleteJobItems, jobID)
+	return err
+}
+
+const deleteJobRelationEvidence = `-- name: DeleteJobRelationEvidence :exec
+DELETE FROM narrative_relation_evidence WHERE job_id = ?
+`
+
+func (q *Queries) DeleteJobRelationEvidence(ctx context.Context, jobID string) error {
+	_, err := q.db.ExecContext(ctx, deleteJobRelationEvidence, jobID)
+	return err
+}
+
+const deleteJobRelations = `-- name: DeleteJobRelations :exec
+DELETE FROM narrative_relations WHERE job_id = ?
+`
+
+func (q *Queries) DeleteJobRelations(ctx context.Context, jobID string) error {
+	_, err := q.db.ExecContext(ctx, deleteJobRelations, jobID)
+	return err
+}
+
 const failRelationExtractionJob = `-- name: FailRelationExtractionJob :execrows
 UPDATE relation_extraction_jobs
 SET state = 'failed', stop_reason = ?, finished_at = ?, lease_until = NULL,
@@ -544,6 +616,19 @@ func (q *Queries) FindReplayableAttempt(ctx context.Context, arg FindReplayableA
 		&i.FinishReason,
 	)
 	return i, err
+}
+
+const getArchivedUnknownUsageAttempts = `-- name: GetArchivedUnknownUsageAttempts :one
+SELECT COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(archived_ledger_summary,
+    '$.unknown_usage_attempts')) AS UNSIGNED), 0)
+FROM relation_extraction_jobs WHERE id = ?
+`
+
+func (q *Queries) GetArchivedUnknownUsageAttempts(ctx context.Context, id string) (interface{}, error) {
+	row := q.db.QueryRowContext(ctx, getArchivedUnknownUsageAttempts, id)
+	var coalesce interface{}
+	err := row.Scan(&coalesce)
+	return coalesce, err
 }
 
 const getDocumentExtractionState = `-- name: GetDocumentExtractionState :one
@@ -868,6 +953,25 @@ func (q *Queries) GetRelationExtractionJobPayload(ctx context.Context, id string
 	return i, err
 }
 
+const incrementArchivedUnknownUsageAttempts = `-- name: IncrementArchivedUnknownUsageAttempts :exec
+UPDATE relation_extraction_jobs
+SET archived_ledger_summary = JSON_SET(COALESCE(archived_ledger_summary, JSON_OBJECT()),
+    '$.unknown_usage_attempts',
+    COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(archived_ledger_summary,
+        '$.unknown_usage_attempts')) AS UNSIGNED), 0) + CAST(? AS UNSIGNED))
+WHERE id = ?
+`
+
+type IncrementArchivedUnknownUsageAttemptsParams struct {
+	Delta int64  `json:"delta"`
+	JobID string `json:"job_id"`
+}
+
+func (q *Queries) IncrementArchivedUnknownUsageAttempts(ctx context.Context, arg IncrementArchivedUnknownUsageAttemptsParams) error {
+	_, err := q.db.ExecContext(ctx, incrementArchivedUnknownUsageAttempts, arg.Delta, arg.JobID)
+	return err
+}
+
 const listEvidenceForRelations = `-- name: ListEvidenceForRelations :many
 SELECT e.id, e.relation_id, e.chunk_id, e.document_version, e.source_order,
        e.source_start, e.source_end, e.quote
@@ -930,6 +1034,42 @@ func (q *Queries) ListEvidenceForRelations(ctx context.Context, arg ListEvidence
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listExpiredExtractionAttemptIDs = `-- name: ListExpiredExtractionAttemptIDs :many
+SELECT id
+FROM relation_extraction_attempts
+WHERE created_at < ? AND state <> 'reserved'
+ORDER BY created_at, id
+LIMIT ?
+`
+
+type ListExpiredExtractionAttemptIDsParams struct {
+	CreatedAt time.Time `json:"created_at"`
+	Limit     int32     `json:"limit"`
+}
+
+func (q *Queries) ListExpiredExtractionAttemptIDs(ctx context.Context, arg ListExpiredExtractionAttemptIDsParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listExpiredExtractionAttemptIDs, arg.CreatedAt, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -1198,6 +1338,38 @@ func (q *Queries) ListRelationsBetweenCharacters(ctx context.Context, arg ListRe
 	return items, nil
 }
 
+const listStaleRelationExtractionJobs = `-- name: ListStaleRelationExtractionJobs :many
+SELECT j.id
+FROM relation_extraction_jobs j
+LEFT JOIN documents d ON d.id = j.document_id
+WHERE j.state = 'superseded' OR d.id IS NULL OR d.version <> j.document_version
+ORDER BY j.id
+LIMIT ?
+`
+
+func (q *Queries) ListStaleRelationExtractionJobs(ctx context.Context, limit int32) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listStaleRelationExtractionJobs, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listStaleReservedAttempts = `-- name: ListStaleReservedAttempts :many
 SELECT id, job_id, item_id, created_at
 FROM relation_extraction_attempts
@@ -1246,6 +1418,70 @@ func (q *Queries) ListStaleReservedAttempts(ctx context.Context, arg ListStaleRe
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockDocumentExtractionState = `-- name: LockDocumentExtractionState :one
+SELECT id, status, version, active_relation_job_id
+FROM documents WHERE id = ? FOR UPDATE
+`
+
+type LockDocumentExtractionStateRow struct {
+	ID                  string         `json:"id"`
+	Status              string         `json:"status"`
+	Version             int64          `json:"version"`
+	ActiveRelationJobID sql.NullString `json:"active_relation_job_id"`
+}
+
+// 发布结果前先锁 document，再锁 job、item。删除/restart 走相同的 document
+// 锁时，晚到的模型响应只能有一方先完成：若删除已提交，本查询无行；若发布
+// 先提交，删除会在它之后清掉整份派生数据，绝不会在删除后重新发布。
+func (q *Queries) LockDocumentExtractionState(ctx context.Context, id string) (LockDocumentExtractionStateRow, error) {
+	row := q.db.QueryRowContext(ctx, lockDocumentExtractionState, id)
+	var i LockDocumentExtractionStateRow
+	err := row.Scan(
+		&i.ID,
+		&i.Status,
+		&i.Version,
+		&i.ActiveRelationJobID,
+	)
+	return i, err
+}
+
+const lockExtractionAttemptForArchive = `-- name: LockExtractionAttemptForArchive :one
+SELECT job_id, usage_known
+FROM relation_extraction_attempts WHERE id = ? FOR UPDATE
+`
+
+type LockExtractionAttemptForArchiveRow struct {
+	JobID      string `json:"job_id"`
+	UsageKnown bool   `json:"usage_known"`
+}
+
+func (q *Queries) LockExtractionAttemptForArchive(ctx context.Context, id string) (LockExtractionAttemptForArchiveRow, error) {
+	row := q.db.QueryRowContext(ctx, lockExtractionAttemptForArchive, id)
+	var i LockExtractionAttemptForArchiveRow
+	err := row.Scan(&i.JobID, &i.UsageKnown)
+	return i, err
+}
+
+const lockRelationExtractionItem = `-- name: LockRelationExtractionItem :one
+SELECT state
+FROM relation_extraction_items
+WHERE id = ? AND job_id = ? FOR UPDATE
+`
+
+type LockRelationExtractionItemParams struct {
+	ID    string `json:"id"`
+	JobID string `json:"job_id"`
+}
+
+// document 与 job 已锁后，最后锁 item。发布前先拿到这把锁，避免两条重复
+// 消息同时把同一 item 当成未完成并各自写出一套派生记录。
+func (q *Queries) LockRelationExtractionItem(ctx context.Context, arg LockRelationExtractionItemParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, lockRelationExtractionItem, arg.ID, arg.JobID)
+	var state string
+	err := row.Scan(&state)
+	return state, err
 }
 
 const lockRelationExtractionJob = `-- name: LockRelationExtractionJob :one

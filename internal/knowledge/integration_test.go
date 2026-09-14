@@ -1016,20 +1016,26 @@ func TestIntegrationReconcileRecoversPublishNeverAttempted(t *testing.T) {
 
 func TestIntegrationReconcileRecoversPublishSucceededBeforeReadyCrash(t *testing.T) {
 	repo := setupIntegration(t)
-	svc := newTestService(repo, newFakeProvider(), t.TempDir())
+	// 关系抽取已启用时，发布恢复不仅要把文档推进到 ready；还必须补上
+	// 原 worker 在 ready 之后本应创建的作业。这里使用真实 Redis client，
+	// 使 StartRelationExtraction 的入队路径也和生产一致。
+	svc := NewService(repo, newFakeProvider(), newTestAsynqClient(t), t.TempDir(), false, "", 1500*time.Millisecond, false, "relation-test-model").(*service)
 	ctx := context.Background()
 
 	seedKB(t, repo, "kb-pubcrash", "m3", "u1", true)
 	if err := repo.createDocument(ctx, Document{ID: "doc-pubcrash", KnowledgeBaseID: "kb-pubcrash",
-		FileName: "f.txt", FileType: FileTypeTxt, FileSize: 1, StoragePath: "/dev/null", CreatedBy: "u1"}); err != nil {
+		FileName: "f.txt", FileType: FileTypeTxt, FileSize: 1, StoragePath: "/dev/null", CreatedBy: "u1",
+		IsNarrative: true, IsRelationExtractionEnabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	if claimed, err := repo.claimDocumentProcessing(ctx, "doc-pubcrash", 1, time.Now().Add(leaseDuration)); err != nil || !claimed {
 		t.Fatalf("claim setup = %v, %v", claimed, err)
 	}
+	piece := chunkNarrative("第一章　题\n正文。正文。正文。\n", 500, 0)[0]
 	if err := repo.createChunks(ctx, []Chunk{{
 		ID: "pc-c1", KnowledgeBaseID: "kb-pubcrash", DocumentID: "doc-pubcrash", ChunkIndex: 0,
-		Content: "c1", ContentLength: 2, Embedding: []float32{1, 0, 0}, EmbeddingDimension: 3,
+		Content: piece.Content, ContentLength: len([]rune(piece.Content)), Embedding: []float32{1, 0, 0}, EmbeddingDimension: 3,
+		NarrativeMetadata: piece.Narrative,
 	}}, 1); err != nil {
 		t.Fatalf("createChunks setup: %v", err)
 	}
@@ -1066,6 +1072,17 @@ func TestIntegrationReconcileRecoversPublishSucceededBeforeReadyCrash(t *testing
 	}
 	if n := countAllChunksForDocument(t, repo, "doc-pubcrash"); n != 1 {
 		t.Fatalf("total chunk rows = %d, want 1 (idempotent republish must not duplicate)", n)
+	}
+	if got.ActiveRelationJobID == "" {
+		t.Fatal("recovery left a ready extraction-enabled document without an active relation job")
+	}
+	job, err := repo.queries.GetRelationExtractionJob(ctx, got.ActiveRelationJobID)
+	if err != nil {
+		t.Fatalf("recovery relation job: %v", err)
+	}
+	if job.DocumentID != got.ID || job.TotalItems != 1 || !job.InitializationComplete {
+		t.Fatalf("recovery relation job = document=%s total=%d initialized=%v, want doc-pubcrash/1/true",
+			job.DocumentID, job.TotalItems, job.InitializationComplete)
 	}
 }
 

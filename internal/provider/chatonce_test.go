@@ -129,6 +129,9 @@ func TestChatOnceClassifiesDispatch(t *testing.T) {
 		if res.ErrorCode != tc.wantErrorCode {
 			t.Errorf("%s：ErrorCode = %q, want %q", tc.name, res.ErrorCode, tc.wantErrorCode)
 		}
+		if tc.wantDispatch && tc.err != nil && res.Message.Content == "" {
+			t.Errorf("%s：HTTP failure must retain a safe error message for attempt archival", tc.name)
+		}
 	}
 }
 

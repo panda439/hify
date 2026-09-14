@@ -7,7 +7,7 @@ export
 DOCKER_BUILDKIT ?= 0
 export DOCKER_BUILDKIT
 
-.PHONY: dev build test test-race migrate-up migrate-down sqlc check-deps db-up db-down web-dev web-build eval eval-retrieval-gate eval-context-gate app-build app-up app-down app-logs app-seed-admin
+.PHONY: dev build test test-race migrate-up migrate-down sqlc check-deps db-up db-down web-dev web-build eval narrative-eval eval-retrieval-gate eval-context-gate app-build app-up app-down app-logs app-seed-admin
 
 dev:
 	air
@@ -81,6 +81,13 @@ web-build:
 # JUDGE_MODEL_ID/EVAL_USER_ID 两个环境变量（裁判模型和跑测试用的现有用户）。
 eval:
 	go run ./cmd/evalrunner --testset eval/testset.yaml --judge-model-id $(JUDGE_MODEL_ID) --user-id $(EVAL_USER_ID) --baseline eval/baseline.json
+
+# Phase 6：从已保存的人工真值和模型预测快照重算关系指标。此目标绝不调用
+# 模型或 LLM 裁判；默认拒绝未冻结的 AI 草稿。仅开发对照时显式追加
+# NARRATIVE_REFERENCE_ONLY=1，报告会带 reference_only 标记，不能用于验收。
+narrative-eval:
+	test -n "$(NARRATIVE_TRUTH)" && test -n "$(NARRATIVE_PREDICTIONS)" && test -n "$(NARRATIVE_EVAL_OUT)"
+	go run ./cmd/narrativeeval --truth $(NARRATIVE_TRUTH) --predictions $(NARRATIVE_PREDICTIONS) --out $(NARRATIVE_EVAL_OUT) $(if $(NARRATIVE_REFERENCE_ONLY),--allow-reference-only)
 
 # Phase 6：确定性检索回归门禁。真实 MySQL+PostgreSQL/pgvector/pg_trgm +
 # fake embedding，走公开 knowledge.Service.Retrieve，不依赖 LLM/Judge，也

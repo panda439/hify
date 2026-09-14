@@ -89,6 +89,9 @@ type ChatRequest struct {
 	MaxTokens   int
 	TopP        float64
 	Tools       []ToolDefinition
+	// JSONMode requests OpenAI-compatible JSON-object output. Callers must still
+	// validate the response against their own schema.
+	JSONMode bool
 }
 
 // ChatChunk is one increment of a streamed response. Err terminates the

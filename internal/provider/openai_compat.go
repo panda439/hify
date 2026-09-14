@@ -564,6 +564,11 @@ func toOpenAIRequest(req ChatRequest, stream bool) openai.ChatCompletionRequest 
 	if req.Temperature != nil {
 		out.Temperature = float32(*req.Temperature)
 	}
+	if req.JSONMode {
+		out.ResponseFormat = &openai.ChatCompletionResponseFormat{
+			Type: openai.ChatCompletionResponseFormatTypeJSONObject,
+		}
+	}
 	if stream {
 		// Requests the trailing usage-only chunk ChatStream reads above.
 		// Providers that don't understand the option just ignore it.

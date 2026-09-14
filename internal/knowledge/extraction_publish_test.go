@@ -115,6 +115,29 @@ func TestEmptyOutcomeIsStillSuccess(t *testing.T) {
 	}
 }
 
+// TestDeletedDocumentRejectsLatePublish：模型调用已经发出时文档可能被删除。
+// 删除后的响应只能照实结算到账本，绝不能再发布人物和关系；否则一个已经不可
+// 查询的文档会留下可被错误复用的派生数据。
+func TestDeletedDocumentRejectsLatePublish(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	job, epoch, item := publishFixture(t, repo, "doc-pub-deleted", "job-pub-deleted")
+	if err := repo.queries.DeleteDocument(ctx, job.DocumentID); err != nil {
+		t.Fatal(err)
+	}
+
+	err := repo.publishItemOutcome(ctx, publishInput{
+		JobID: job.ID, ItemID: item, Epoch: epoch, Outcome: sampleOutcome(),
+		ExtractResponse: []byte(`{"ok":true}`),
+	})
+	if !errors.Is(err, ErrExtractionEpochLost) {
+		t.Fatalf("publish after deletion = %v, want ErrExtractionEpochLost", err)
+	}
+	if n := countRows(t, repo, `SELECT COUNT(*) FROM narrative_relations WHERE job_id=?`, job.ID); n != 0 {
+		t.Fatalf("late response published %d relations after document deletion", n)
+	}
+}
+
 // TestPublishTwiceDoesNotDoubleCount——⭐ 重复投递（asynq 重发、
 // 提交后丢 ACK）不得把计数加两遍。
 func TestPublishTwiceDoesNotDoubleCount(t *testing.T) {

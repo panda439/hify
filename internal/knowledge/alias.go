@@ -27,7 +27,7 @@ import (
 const (
 	// aliasPromptVersion 与 extractPromptVersion 分开：两阶段的指令各自演进，
 	// 混成一个版本号会让"只改了归一措辞"的实验无法与上一次对比。
-	aliasPromptVersion = "alias/v2"
+	aliasPromptVersion = "alias/v3"
 
 	// 候选窗口（plan §6）。⚠️ 超出窗口的候选**不是"就当不存在"**：
 	// 被删掉多少必须回传给调用方标 candidate_truncated，否则一次因为候选
@@ -214,16 +214,27 @@ func buildAliasInstruction(in aliasInput) string {
 每个称呼恰好一条决策，不能多也不能少。
 
 action 三选一：
-  link  —— 就是末尾候选人物中的某一个，character_id 填那个人的 id，new_group 留空;
+  link  —— 就是末尾候选人物中的某一个，character_id 必须逐字填候选行 id= 后的完整人物 id，new_group 留空;
   new   —— 本段里新出现的人物，character_id 留空，new_group 填一个你自定的组号;
   ambiguous —— 拿不准，character_id 留空，new_group 填一个**只属于它自己**的组号。
 只有原文明确写出是同一个人的称呼，才可以填同一个 new_group。
 
 supports 给 1～4 条依据，每条 {"source_ref","quote"}：
   source_ref 填 "chunk" 表示引自下面的原文，或填某个候选依据的 ref（形如 xxx#0）；
+
+  #序号仅是 supports 的候选依据引用，不能填 character_id；例如 id=abc 的
+  候选依据可以写 abc#0，但 link 的 character_id 必须写 abc，绝不能写 abc#0 或 abc#1。
   quote 逐字复制即可，不需要指出是第几次出现，位置由系统在原文里查。
 link 需要两侧都有依据（原文一条 + 该候选的依据一条），
 或者原文里有一句同时写出两个称呼、明确说明是同一个人的话。
+对每个 link，supports 必须恰好两条：第一条 source_ref="chunk"，第二条填该候选的
+xxx#序号依据引用。少任何一侧都会被拒绝。格式示例：
+{"source_ref":"chunk","quote":"当前原文中的称呼"}，
+{"source_ref":"候选人物id#0","quote":"候选身份依据"}。
+supports 的文字字段只能叫 quote，不能写 text、content 或其他字段名。
+link 的 new_group 必须是空字符串 ""，不能是 null、false 或省略。link 的 reason_code
+只能是 explicit_alias 或 context_identity；不能另造 reason_code。完整 link 模板：
+{"mention_ref":"m1","action":"link","character_id":"候选人物id","new_group":"","supports":[{"source_ref":"chunk","quote":"当前原文"},{"source_ref":"候选人物id#0","quote":"候选依据"}],"reason_code":"explicit_alias"}。
 
 reason_code 四选一：
   explicit_alias —— 原文明写"某某就是某某";

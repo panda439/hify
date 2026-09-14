@@ -41,6 +41,18 @@ func validResponseJSON() string {
 	         "alias_proposals":[]}`
 }
 
+func TestExtractInstructionAliasProposalsUseMentionRefs(t *testing.T) {
+	instruction := buildExtractInstruction()
+	for _, want := range []string{
+		"left 和 right 必须填 mentions 数组里的 ref（如 m1、m2），不是人物称呼",
+		`{"left":"m1","right":"m2","quote":"..."}`,
+	} {
+		if !strings.Contains(instruction, want) {
+			t.Fatalf("alias proposal instruction missing %q", want)
+		}
+	}
+}
+
 func mustParse(t *testing.T, raw string) extractResponse {
 	t.Helper()
 	resp, err := parseExtractionResponse([]byte(raw))

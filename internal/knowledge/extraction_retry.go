@@ -109,12 +109,23 @@ func shouldStopAfterConsecutiveFailures(n int) bool {
 
 // phaseInput 是跑一个阶段需要的全部输入。
 type phaseInput struct {
-	JobID           string
-	ItemID          string
-	Epoch           int
-	Phase           string
-	RequestHash     []byte
-	MaxOutputTokens int
+	JobID                 string
+	ItemID                string
+	Epoch                 int
+	Phase                 string
+	RequestHash           []byte
+	RequestHashForAttempt func(attemptNumber int) []byte
+	MaxOutputTokens       int
+}
+
+// requestHashForAttempt 返回本次实际发出的请求的哈希。重试可以改变提示词，
+// 因而不能把第一次的哈希套到后续 attempt 上；那会让账本无法回放真实输入。
+// RequestHash 保留给提示词不变的调用方，避免它们重复生成同一个哈希。
+func (in phaseInput) requestHashForAttempt(attemptNumber int) []byte {
+	if in.RequestHashForAttempt != nil {
+		return in.RequestHashForAttempt(attemptNumber)
+	}
+	return in.RequestHash
 }
 
 // attemptCaller 发出第 attemptNumber 次调用。
@@ -172,7 +183,7 @@ func (p *phaseRunner) runPhase(ctx context.Context, in phaseInput, call attemptC
 
 		att, err := p.repo.reserveExtractionAttempt(ctx, attemptReservation{
 			JobID: in.JobID, ItemID: in.ItemID, Epoch: in.Epoch, Phase: in.Phase,
-			AttemptNumber: attemptNumber, RequestHash: in.RequestHash,
+			AttemptNumber: attemptNumber, RequestHash: in.requestHashForAttempt(attemptNumber),
 			MaxOutputTokens: in.MaxOutputTokens,
 		})
 		if err != nil {

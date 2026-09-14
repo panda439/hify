@@ -114,6 +114,20 @@ SELECT id, status, version, is_narrative, is_relation_extraction_enabled,
        relation_model_id, active_relation_job_id
 FROM documents WHERE id = ?;
 
+-- name: LockDocumentExtractionState :one
+-- 发布结果前先锁 document，再锁 job、item。删除/restart 走相同的 document
+-- 锁时，晚到的模型响应只能有一方先完成：若删除已提交，本查询无行；若发布
+-- 先提交，删除会在它之后清掉整份派生数据，绝不会在删除后重新发布。
+SELECT id, status, version, active_relation_job_id
+FROM documents WHERE id = ? FOR UPDATE;
+
+-- name: LockRelationExtractionItem :one
+-- document 与 job 已锁后，最后锁 item。发布前先拿到这把锁，避免两条重复
+-- 消息同时把同一 item 当成未完成并各自写出一套派生记录。
+SELECT state
+FROM relation_extraction_items
+WHERE id = ? AND job_id = ? FOR UPDATE;
+
 -- ---------------------------------------------------------------------
 -- attempt 账目：这张表是"成本数字可信"的全部依据
 -- ---------------------------------------------------------------------
@@ -412,6 +426,65 @@ WHERE id = ?;
 -- 用量我们没测到"，直接影响成本数字的可信度，合并之后这件事就看不见了。
 SELECT COUNT(*) FROM relation_extraction_attempts
 WHERE job_id = ? AND state IN ('completed', 'unknown') AND usage_known = 0;
+
+-- name: GetArchivedUnknownUsageAttempts :one
+SELECT COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(archived_ledger_summary,
+    '$.unknown_usage_attempts')) AS UNSIGNED), 0)
+FROM relation_extraction_jobs WHERE id = ?;
+
+-- name: ListExpiredExtractionAttemptIDs :many
+SELECT id
+FROM relation_extraction_attempts
+WHERE created_at < ? AND state <> 'reserved'
+ORDER BY created_at, id
+LIMIT ?;
+
+-- name: LockExtractionAttemptForArchive :one
+SELECT job_id, usage_known
+FROM relation_extraction_attempts WHERE id = ? FOR UPDATE;
+
+-- name: IncrementArchivedUnknownUsageAttempts :exec
+UPDATE relation_extraction_jobs
+SET archived_ledger_summary = JSON_SET(COALESCE(archived_ledger_summary, JSON_OBJECT()),
+    '$.unknown_usage_attempts',
+    COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(archived_ledger_summary,
+        '$.unknown_usage_attempts')) AS UNSIGNED), 0) + CAST(sqlc.arg(delta) AS UNSIGNED))
+WHERE id = sqlc.arg(job_id);
+
+-- name: DeleteExtractionAttempt :exec
+DELETE FROM relation_extraction_attempts WHERE id = ?;
+
+-- name: ListStaleRelationExtractionJobs :many
+SELECT j.id
+FROM relation_extraction_jobs j
+LEFT JOIN documents d ON d.id = j.document_id
+WHERE j.state = 'superseded' OR d.id IS NULL OR d.version <> j.document_version
+ORDER BY j.id
+LIMIT ?;
+
+-- name: DeleteJobRelationEvidence :exec
+DELETE FROM narrative_relation_evidence WHERE job_id = ?;
+
+-- name: DeleteJobRelations :exec
+DELETE FROM narrative_relations WHERE job_id = ?;
+
+-- name: DeleteJobAliases :exec
+DELETE FROM narrative_aliases WHERE job_id = ?;
+
+-- name: DeleteJobCharacters :exec
+DELETE FROM narrative_characters WHERE job_id = ?;
+
+-- name: DeleteJobItems :exec
+DELETE FROM relation_extraction_items WHERE job_id = ?;
+
+-- name: DeleteExtractionJobIfDocumentMissingAndNoAttempts :execrows
+-- 只删除已经失去 document parent 且没有任何审计 attempt 的 job。正常的
+-- superseded run 仍保留账目；已删除文档也要等 30 天审计期结束才可最终删除。
+DELETE j
+FROM relation_extraction_jobs j
+LEFT JOIN documents d ON d.id = j.document_id
+WHERE j.id = ? AND d.id IS NULL
+  AND NOT EXISTS (SELECT 1 FROM relation_extraction_attempts a WHERE a.job_id = j.id);
 
 -- name: GetJobWallClock :one
 -- 墙钟时长：从开跑到结束（还没结束就到现在）。

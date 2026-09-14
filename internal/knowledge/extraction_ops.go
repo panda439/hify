@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"hify/internal/db/gen"
@@ -346,8 +347,28 @@ func (r *Repository) extractionStatus(ctx context.Context, doc Document) (Extrac
 	if err != nil {
 		return st, fmt.Errorf("knowledge: count usage-unknown attempts: %w", err)
 	}
-	st.UnknownUsageAttempts = int(unknownUsage)
+	archivedUnknown, err := r.queries.GetArchivedUnknownUsageAttempts(ctx, job.ID)
+	if err != nil {
+		return st, fmt.Errorf("knowledge: load archived usage-unknown attempts: %w", err)
+	}
+	archivedCount, err := archivedUnknownUsageCount(archivedUnknown)
+	if err != nil {
+		return st, err
+	}
+	st.UnknownUsageAttempts = int(unknownUsage) + archivedCount
 	return st, nil
+}
+
+func archivedUnknownUsageCount(value any) (int, error) {
+	text := fmt.Sprint(value)
+	if raw, ok := value.([]byte); ok {
+		text = string(raw)
+	}
+	n, err := strconv.Atoi(text)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("knowledge: invalid archived unknown usage count")
+	}
+	return n, nil
 }
 
 // supersedeExtractionJob 把旧 run 标成被取代（restart 用）。

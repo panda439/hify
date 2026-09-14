@@ -1,6 +1,7 @@
 package knowledge
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -22,15 +23,17 @@ import (
 
 // fakeModel 是一个可编程的单次调用模型。
 type fakeModel struct {
-	mu      sync.Mutex
-	calls   int
-	byPhase func(call int, prompt string) provider.ChatAttemptResult
+	mu       sync.Mutex
+	calls    int
+	byPhase  func(call int, prompt string) provider.ChatAttemptResult
+	requests []provider.ChatRequest
 }
 
 func (f *fakeModel) ChatOnce(_ context.Context, _ string, req provider.ChatRequest, _ time.Duration) (provider.ChatAttemptResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
+	f.requests = append(f.requests, req)
 	return f.byPhase(f.calls, req.Messages[0].Content), nil
 }
 
@@ -153,6 +156,71 @@ func runnerFor(t *testing.T, repo *Repository, model singleAttemptModel) *extrac
 	// 退避在测试里不真的睡：3 次尝试之间的 1s+2s 会让每个失败用例慢 3 秒。
 	r.phases.sleep = func(context.Context, time.Duration) error { return nil }
 	return r
+}
+
+// TestValidationRetryRepairsPromptAndRecordsItsOwnHash：结构校验失败后的重试
+// 必须带上可执行的修复反馈，且账本里的 request_hash 必须对应这一次真正发出的
+// 提示词。否则审计回放会错误地显示两次调用用了同一份输入。
+func TestValidationRetryRepairsPromptAndRecordsItsOwnHash(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	job, epoch := ledgerJob(t, repo, "doc-validation-repair", "job-validation-repair")
+	itemID := firstItemID(t, repo, job.ID)
+
+	var prompts []string
+	model := &fakeModel{byPhase: func(call int, prompt string) provider.ChatAttemptResult {
+		prompts = append(prompts, prompt)
+		if call == 1 {
+			return completedWith(`{"mentions":[]}`) // 缺少必填数组，触发结构校验失败。
+		}
+		return completedWith(`{"mentions":[],"relations":[],"alias_proposals":[]}`)
+	}}
+	runner := runnerFor(t, repo, model)
+	got, err := runner.runPhaseWithValidation(ctx, RelationExtractionJob{ID: job.ID, ModelID: "m-1"}, epoch,
+		itemID, phaseExtract, "原始抽取提示词", func(raw []byte) error {
+			_, err := parseExtractionResponse(raw)
+			return err
+		})
+	if err != nil {
+		t.Fatalf("runPhaseWithValidation: %v", err)
+	}
+	if string(got) != `{"mentions":[],"relations":[],"alias_proposals":[]}` {
+		t.Fatalf("accepted response = %s", got)
+	}
+	if len(prompts) != 2 {
+		t.Fatalf("model calls = %d, want 2", len(prompts))
+	}
+	for i, request := range model.requests {
+		if !request.JSONMode {
+			t.Fatalf("request %d must require JSON mode", i+1)
+		}
+	}
+	if strings.Contains(prompts[0], "上次输出未通过校验") {
+		t.Fatal("first attempt must keep the original prompt")
+	}
+	if !strings.Contains(prompts[1], "上次输出未通过校验") {
+		t.Fatalf("repair prompt missing validation feedback: %q", prompts[1])
+	}
+
+	rows, err := repo.db.QueryContext(ctx, `SELECT request_hash FROM relation_extraction_attempts WHERE item_id=? ORDER BY attempt_number`, itemID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var hashes [][]byte
+	for rows.Next() {
+		var hash []byte
+		if err := rows.Scan(&hash); err != nil {
+			t.Fatal(err)
+		}
+		hashes = append(hashes, hash)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(hashes) != 2 || bytes.Equal(hashes[0], hashes[1]) {
+		t.Fatalf("request hashes = %x / %x, want two distinct attempt inputs", hashes[0], hashes[1])
+	}
 }
 
 func jobCounts(t *testing.T, repo *Repository, jobID string) (succeeded, failed int, state string) {
@@ -462,16 +530,10 @@ func TestIdentityEvidenceIsPersisted(t *testing.T) {
 	}
 }
 
-// TestAliasFailureDegradesInsteadOfFailingTheItem：归一失败退回独立身份，
-// item 照常成功，关系照常发布，**而且"没归一过"这件事落进了数据库**。
-//
-// ⭐ 依据是全书实跑：归一阶段 11 失败 / 5 成功，按旧行为这 11 块的关系全被
-// 丢掉——那些关系每一条都有真实原文支持，丢掉它们损失的是召回，
-// 换来的只是"人物没被合并"。
-//
-// ⚠️ 降级是有代价的（人物碎片化会压低召回率），所以它必须**可查**：
-// 只写日志的降级就是静默降级，指标已经变了而报告读不出来。
-func TestAliasFailureDegradesInsteadOfFailingTheItem(t *testing.T) {
+// TestAliasInvalidDoesNotPartiallyPublishItem：归一响应非法时，该 item 的
+// 人物、关系与别名必须整体不发布。否则同一次抽取会混入一份未通过身份校验的
+// 半成品，违反 T027 和 FR-009 的原子性要求。
+func TestAliasInvalidDoesNotPartiallyPublishItem(t *testing.T) {
 	repo := extractionRepo(t)
 	ctx := t.Context()
 	seedRunnerDocument(t, repo, "doc-degrade", 2)
@@ -492,50 +554,22 @@ func TestAliasFailureDegradesInsteadOfFailingTheItem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runJob: %v", err)
 	}
-	if res.ItemsSucceeded != 2 || res.ItemsFailed != 0 {
-		t.Fatalf("归一失败不该让 item 失败：%+v", res)
+	if res.ItemsSucceeded != 1 || res.ItemsFailed != 1 {
+		t.Fatalf("归一非法必须只让当前 item 失败：%+v", res)
 	}
-	if !res.AliasDegraded {
-		t.Error("runJobResult 没有报出降级")
+	if res.AliasDegraded {
+		t.Error("归一非法不应降级发布")
 	}
-	// 关系照常发布——它们本来就有原文支持。
-	if n := countRows(t, repo, `SELECT COUNT(*) FROM narrative_relations WHERE job_id=?`, job.ID); n == 0 {
-		t.Error("降级之后一条关系都没发布，那就白跑了")
+	// 第一块没有候选或提案，允许独立成功；第二块的派生结果不得落库。
+	if n := countRows(t, repo, `SELECT COUNT(*) FROM narrative_relations WHERE job_id=?`, job.ID); n != 1 {
+		t.Errorf("relations = %d, want 1（非法归一的第二块不得发布）", n)
 	}
-	// ⭐ 标记必须落库，不能只在日志里。
-	//
-	// ⚠️ 只有第二块会被标上：第一块跑的时候候选池还是空的，按 needsAliasPhase
-	// 的规则**根本不发归一调用**，也就无所谓降不降级。这个 1 不是漏标，
-	// 恰恰说明"没必要的调用不发"和"发了失败就降级"两条规则是配合着生效的。
 	n := countRows(t, repo,
 		`SELECT COUNT(*) FROM relation_extraction_items WHERE job_id=? AND alias_degraded=1`, job.ID)
-	if n != 1 {
-		t.Errorf("落库的降级标记 = %d，应当只有第二块被标上（第一块没发归一调用）", n)
+	if n != 0 {
+		t.Errorf("非法归一留下了 %d 个降级发布标记", n)
 	}
-	// 没发归一调用的那一块不该被标成降级——降级说的是"归一做了但没做成"。
-	clean := countRows(t, repo,
-		`SELECT COUNT(*) FROM relation_extraction_items WHERE job_id=? AND alias_degraded=0 AND state='succeeded'`, job.ID)
-	if clean != 1 {
-		t.Errorf("未标降级且成功的块 = %d，应当是 1", clean)
-	}
-}
-
-// TestBudgetExhaustionDoesNotDegrade：预算耗尽**不能**当成归一失败降级掉。
-//
-// ⚠️ 两者看起来都是"归一没做成"，但意思相反：一个是模型这次没做好（可以退
-// 而求其次），一个是"这一轮不该再继续"。把后者也降级，等于在钱已经花完之后
-// 还在继续发布结果。
-func TestBudgetExhaustionDoesNotDegrade(t *testing.T) {
-	if aliasFailureIsDegradable(ErrExtractionCallBudgetExhausted) {
-		t.Error("预算耗尽被当成了可降级的归一失败")
-	}
-	if aliasFailureIsDegradable(ErrExtractionActiveTimeExhausted) {
-		t.Error("活跃时间耗尽被当成了可降级的归一失败")
-	}
-	if aliasFailureIsDegradable(ErrExtractionEpochLost) {
-		t.Error("epoch 失效被当成了可降级的归一失败")
-	}
-	if !aliasFailureIsDegradable(errAliasResponseInvalid) {
-		t.Error("归一响应不合法应当可以降级")
+	if n := countRows(t, repo, `SELECT COUNT(*) FROM narrative_characters WHERE job_id=?`, job.ID); n != 2 {
+		t.Errorf("characters = %d, want 2（非法归一的第二块不得发布）", n)
 	}
 }

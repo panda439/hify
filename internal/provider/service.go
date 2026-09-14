@@ -251,5 +251,13 @@ func (s *service) ChatOnce(ctx context.Context, modelID string, req ChatRequest,
 		return ChatAttemptResult{}, fmt.Errorf(
 			"provider: client for %s does not support single-attempt chat", model.ProviderID)
 	}
-	return sac.ChatOnce(ctx, req, timeout)
+	return sac.ChatOnce(ctx, chatOnceRequest(model, req), timeout)
+}
+
+// chatOnceRequest binds the persisted model configuration at the same point
+// it resolves the provider. Callers pass Hify's model ID to ChatOnce; that ID
+// is not a provider-facing model name and must never be sent as the wire value.
+func chatOnceRequest(model Model, req ChatRequest) ChatRequest {
+	req.Model = model.ModelName
+	return req
 }

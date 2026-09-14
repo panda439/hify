@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,8 @@ import (
 	"testing"
 	"time"
 
+	"hify/internal/config"
+	"hify/internal/platform"
 	"hify/internal/provider"
 )
 
@@ -38,6 +41,58 @@ type fullBookModel struct {
 	rawDir string
 	// seq 给文件名排序，让中断后也能看出调用发生的先后。
 	seq int
+}
+
+const defaultFullBookWallClockLimit = 60 * time.Minute
+
+func fullBookModelID() string {
+	if id := strings.TrimSpace(os.Getenv("HIFY_FULLBOOK_PROVIDER_MODEL_ID")); id != "" {
+		return id
+	}
+	return strings.TrimSpace(os.Getenv("HIFY_FULLBOOK_MODEL"))
+}
+
+// fullBookConfiguredProvider reuses an already encrypted provider credential
+// from the running Hify database. It is intentionally read-only: extraction
+// state remains in setupIntegration's isolated test database.
+func fullBookConfiguredProvider(t *testing.T, modelID string) (singleAttemptModel, string) {
+	t.Helper()
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("load Hify config for configured provider: %v", err)
+	}
+	db, err := platform.NewMySQLPool(cfg.MySQLDSN)
+	if err != nil {
+		t.Fatalf("connect configured provider database: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	redisCfg := platform.RedisConfig{Addr: cfg.RedisAddr, Password: cfg.RedisPassword, DB: cfg.RedisDB}
+	rdb := platform.NewRedisClient(redisCfg)
+	t.Cleanup(func() { _ = rdb.Close() })
+	svc, err := provider.NewService(provider.NewRepository(db), cfg.EncryptionKey, rdb)
+	if err != nil {
+		t.Fatalf("build configured provider service: %v", err)
+	}
+	model, err := svc.GetModel(t.Context(), modelID)
+	if err != nil {
+		t.Fatalf("get configured provider model %q: %v", modelID, err)
+	}
+	return svc, model.ModelName
+}
+
+// fullBookWallClockLimit keeps the conservative 60-minute default while
+// allowing an explicitly requested longer controlled experiment. The test
+// timeout must still be set above this value by the caller.
+func fullBookWallClockLimit() (time.Duration, error) {
+	raw := strings.TrimSpace(os.Getenv("HIFY_FULLBOOK_WALL_CLOCK"))
+	if raw == "" {
+		return defaultFullBookWallClockLimit, nil
+	}
+	limit, err := time.ParseDuration(raw)
+	if err != nil || limit <= 0 {
+		return 0, fmt.Errorf("HIFY_FULLBOOK_WALL_CLOCK must be a positive Go duration, got %q", raw)
+	}
+	return limit, nil
 }
 
 // archive 把一次调用的现场立刻落盘。任何写盘失败都只警告不中断——
@@ -137,18 +192,46 @@ func (m *fullBookModel) ChatOnce(ctx context.Context, modelID string, req provid
 	return result, nil
 }
 
-func TestFullBook14B(t *testing.T) {
-	modelID := strings.TrimSpace(os.Getenv("HIFY_FULLBOOK_MODEL"))
-	if modelID == "" {
-		t.Skip("HIFY_FULLBOOK_MODEL 未设置，跳过全书真实模型门禁")
+func fullBookOutputDir(root string) string {
+	configured := strings.TrimSpace(os.Getenv("HIFY_FULLBOOK_OUTPUT_DIR"))
+	if configured == "" {
+		configured = "specs/010-narrative-scene-chunking-and-relation-extraction/evidence/fullbook-14b"
 	}
-	if modelID != "qwen2.5:14b" {
+	if filepath.IsAbs(configured) {
+		return filepath.Clean(configured)
+	}
+	return filepath.Join(root, configured)
+}
+
+func fullBookRunAccepted(runErr, contextErr error) bool {
+	if runErr == nil {
+		return true
+	}
+	if errors.Is(runErr, ErrExtractionCallBudgetExhausted) || errors.Is(runErr, ErrExtractionActiveTimeExhausted) {
+		return true
+	}
+	return errors.Is(contextErr, context.DeadlineExceeded) && errors.Is(runErr, context.DeadlineExceeded)
+}
+
+func TestFullBook14B(t *testing.T) {
+	modelID := fullBookModelID()
+	if modelID == "" {
+		t.Skip("HIFY_FULLBOOK_MODEL 或 HIFY_FULLBOOK_PROVIDER_MODEL_ID 未设置，跳过全书真实模型门禁")
+	}
+	providerModelID := strings.TrimSpace(os.Getenv("HIFY_FULLBOOK_PROVIDER_MODEL_ID"))
+	if providerModelID == "" && modelID != "qwen2.5:14b" {
 		t.Fatalf("T042 只允许 qwen2.5:14b，实际 %q", modelID)
 	}
+	modelLabel := modelID
 	started := time.Now()
-	ctx := t.Context()
+	wallLimit, err := fullBookWallClockLimit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), wallLimit)
+	defer cancel()
 	root := fullBookRoot(t)
-	outDir := filepath.Join(root, "specs/010-narrative-scene-chunking-and-relation-extraction/evidence/fullbook-14b")
+	outDir := fullBookOutputDir(root)
 	if err := os.MkdirAll(filepath.Join(outDir, "raw"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +268,11 @@ func TestFullBook14B(t *testing.T) {
 	if err := repo.db.QueryRowContext(ctx, `SELECT active_relation_job_id FROM documents WHERE id=?`, doc.ID).Scan(&jobID); err != nil {
 		t.Fatal(err)
 	}
-	runner := runnerFor(t, repo, &fullBookModel{client: &http.Client{}, baseURL: envOr("HIFY_OLLAMA_BASE_URL", "http://127.0.0.1:11434"), rawDir: filepath.Join(outDir, "raw")})
+	var runnerModel singleAttemptModel = &fullBookModel{client: &http.Client{}, baseURL: envOr("HIFY_OLLAMA_BASE_URL", "http://127.0.0.1:11434"), rawDir: filepath.Join(outDir, "raw")}
+	if providerModelID != "" {
+		runnerModel, modelLabel = fullBookConfiguredProvider(t, providerModelID)
+	}
+	runner := runnerFor(t, repo, runnerModel)
 	// ⚠️ 只有实验才设这个；不设就是契约里的 32。
 	if v := strings.TrimSpace(os.Getenv("HIFY_FULLBOOK_ALIAS_CANDIDATES")); v != "" {
 		n, err := strconv.Atoi(v)
@@ -196,18 +283,79 @@ func TestFullBook14B(t *testing.T) {
 		t.Logf("实验：归一候选窗口设为 %d（契约默认 %d）", n, maxAliasCandidates)
 	}
 	res, runErr := runner.runJob(ctx, jobID)
-	writeFullBookArtifacts(t, repo, jobID, doc.ID, res, outDir, time.Since(started), modelID)
-	if runErr != nil && runErr != ErrExtractionCallBudgetExhausted && runErr != ErrExtractionActiveTimeExhausted {
+	writeFullBookArtifacts(t, repo, jobID, doc.ID, res, outDir, time.Since(started), modelLabel, providerModelID != "")
+	if !fullBookRunAccepted(runErr, ctx.Err()) {
 		t.Fatalf("runJob: %v", runErr)
 	}
 }
 
-func writeFullBookArtifacts(t *testing.T, repo *Repository, jobID, docID string, res runJobResult, outDir string, wall time.Duration, model string) {
+func TestFullBookOutputDir(t *testing.T) {
+	root := t.TempDir()
+	defaultDir := filepath.Join(root, "specs/010-narrative-scene-chunking-and-relation-extraction/evidence/fullbook-14b")
+	if got := fullBookOutputDir(root); got != defaultDir {
+		t.Fatalf("default output dir = %q, want %q", got, defaultDir)
+	}
+
+	t.Setenv("HIFY_FULLBOOK_OUTPUT_DIR", "specs/010-narrative-scene-chunking-and-relation-extraction/evidence/fullbook-14b-run3-cand8")
+	want := filepath.Join(root, "specs/010-narrative-scene-chunking-and-relation-extraction/evidence/fullbook-14b-run3-cand8")
+	if got := fullBookOutputDir(root); got != want {
+		t.Fatalf("configured output dir = %q, want %q", got, want)
+	}
+}
+
+func TestFullBookWallClockLimit(t *testing.T) {
+	t.Setenv("HIFY_FULLBOOK_WALL_CLOCK", "")
+	if got, err := fullBookWallClockLimit(); err != nil || got != 60*time.Minute {
+		t.Fatalf("default limit = %v, %v; want 60m, nil", got, err)
+	}
+	t.Setenv("HIFY_FULLBOOK_WALL_CLOCK", "90m")
+	if got, err := fullBookWallClockLimit(); err != nil || got != 90*time.Minute {
+		t.Fatalf("configured limit = %v, %v; want 90m, nil", got, err)
+	}
+	t.Setenv("HIFY_FULLBOOK_WALL_CLOCK", "not-a-duration")
+	if _, err := fullBookWallClockLimit(); err == nil {
+		t.Fatal("invalid configured wall clock must fail")
+	}
+}
+
+func TestFullBookModelIDPrefersConfiguredProviderModel(t *testing.T) {
+	t.Setenv("HIFY_FULLBOOK_MODEL", "qwen2.5:14b")
+	t.Setenv("HIFY_FULLBOOK_PROVIDER_MODEL_ID", "")
+	if got := fullBookModelID(); got != "qwen2.5:14b" {
+		t.Fatalf("default model = %q", got)
+	}
+	t.Setenv("HIFY_FULLBOOK_PROVIDER_MODEL_ID", "deepseek-model-id")
+	if got := fullBookModelID(); got != "deepseek-model-id" {
+		t.Fatalf("provider model = %q", got)
+	}
+}
+
+func TestFullBookArtifactRawPreservesPlainTextError(t *testing.T) {
+	got := archiveAttemptRaw("provider: status 400: bad parameter")
+	text, ok := got.(string)
+	if !ok || text != "provider: status 400: bad parameter" {
+		t.Fatalf("plain-text raw = %#v, want original string", got)
+	}
+}
+
+func TestFullBookRunAccepted(t *testing.T) {
+	if !fullBookRunAccepted(nil, nil) {
+		t.Fatal("a completed full-book run should be accepted")
+	}
+	if !fullBookRunAccepted(context.DeadlineExceeded, context.DeadlineExceeded) {
+		t.Fatal("wall-clock deadline should preserve artifacts without failing the experiment")
+	}
+	if fullBookRunAccepted(context.DeadlineExceeded, nil) {
+		t.Fatal("an unexpected deadline error must not be accepted")
+	}
+}
+
+func writeFullBookArtifacts(t *testing.T, repo *Repository, jobID, docID string, res runJobResult, outDir string, wall time.Duration, model string, viaProvider bool) {
 	t.Helper()
 	ctx := t.Context()
 	type attempt struct {
 		ID, ItemID, ChunkID, Phase, State, ErrorCode string
-		Raw                                          json.RawMessage
+		Raw                                          any
 		UsageKnown                                   bool
 		In, Out                                      sql.NullInt64
 		Elapsed                                      sql.NullInt64
@@ -229,7 +377,7 @@ func writeFullBookArtifacts(t *testing.T, repo *Repository, jobID, docID string,
 		}
 		a.UsageKnown = uk != 0
 		if raw.Valid {
-			a.Raw = json.RawMessage(raw.String)
+			a.Raw = archiveAttemptRaw(raw.String)
 		}
 		all = append(all, a)
 		states[a.State]++
@@ -266,10 +414,25 @@ func writeFullBookArtifacts(t *testing.T, repo *Repository, jobID, docID string,
 	}
 	writeJSON(t, filepath.Join(outDir, "quality.json"), map[string]any{"legal_rate": float64(states["completed"]) / float64(denom), "verifiable_quote_rate": nil, "ambiguous_positions": res.AmbiguousPositions, "ambiguous_evidence": res.AmbiguousEvidence, "other_error_codes": other})
 	writeJSON(t, filepath.Join(outDir, "results.json"), map[string]any{"characters": count(t, repo, `SELECT COUNT(*) FROM narrative_characters WHERE job_id=?`, jobID), "relations": count(t, repo, `SELECT COUNT(*) FROM narrative_relations WHERE job_id=?`, jobID), "evidence": count(t, repo, `SELECT COUNT(*) FROM narrative_relation_evidence WHERE job_id=?`, jobID)})
-	readme := fmt.Sprintf("# T042 full book\\n\\n- model: %s\\n- wall clock ms: %d\\n- active ms: %d\\n- cost_kind: not_applicable (local model; no monetary amount)\\n- extractPromptVersion: %s\\n- extractionSchemaVersion: %d\\n- direct Ollama OpenAI-compatible HTTP was used; provider.ChatOnce was bypassed\\n- prompt, schema, validation, and eval annotations were unchanged\\n- no accuracy, precision, or recall: human truth is not available\\n", model, wall.Milliseconds(), active, extractPromptVersion, extractionSchemaVersion)
+	// ⚠️ 调用路径必须如实写：配置的 Provider 走 provider.Service（限流/熔断/账目），
+	// 直连 Ollama 才是绕过 ChatOnce 的本地调用，两者不能共用一句描述。
+	costLine := "- cost_kind: not_applicable (local model; no monetary amount)"
+	pathLine := "- direct Ollama OpenAI-compatible HTTP was used; provider.ChatOnce was bypassed"
+	if viaProvider {
+		costLine = "- cost_kind: hosted provider; monetary amount not computed here, see token usage in ledger.json"
+		pathLine = "- configured provider via provider.Service ChatOnce (rate limit / breaker / ledger applied)"
+	}
+	readme := fmt.Sprintf("# T042 full book\n\n- model: %s\n- wall clock ms: %d\n- active ms: %d\n%s\n- extractPromptVersion: %s\n- extractionSchemaVersion: %d\n%s\n- prompt, schema, validation, and eval annotations were unchanged\n- no accuracy, precision, or recall: human truth is not available\n", model, wall.Milliseconds(), active, costLine, extractPromptVersion, extractionSchemaVersion, pathLine)
 	if err := os.WriteFile(filepath.Join(outDir, "README.md"), []byte(readme), 0644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func archiveAttemptRaw(raw string) any {
+	if json.Valid([]byte(raw)) {
+		return json.RawMessage(raw)
+	}
+	return raw
 }
 
 func writeJSON(t *testing.T, path string, v any) {

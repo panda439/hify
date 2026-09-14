@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"hify/internal/provider"
 )
 
 // extraction_reconcile_test.go 守恢复扫描（010 T021）。
@@ -149,6 +151,89 @@ func TestReconcileAlsoFixesStaleReservations(t *testing.T) {
 	}
 	if state != "unknown" {
 		t.Errorf("state = %q, want unknown", state)
+	}
+}
+
+func TestArchiveExpiredAttemptKeepsUnknownUsageLedger(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	job, epoch := ledgerJob(t, repo, "doc-archive", "job-archive")
+	att, err := repo.reserveExtractionAttempt(ctx, attemptReservation{JobID: job.ID,
+		ItemID: firstItemID(t, repo, job.ID), Epoch: epoch, Phase: phaseExtract,
+		AttemptNumber: 1, RequestHash: make([]byte, 32), MaxOutputTokens: 64})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.settleExtractionAttempt(ctx, att, provider.ChatAttemptResult{
+		Outcome: provider.AttemptCompleted, Dispatched: true, ElapsedMs: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.db.ExecContext(ctx, `UPDATE relation_extraction_attempts SET created_at=? WHERE id=?`,
+		time.Now().UTC().Add(-31*24*time.Hour), att.ID); err != nil {
+		t.Fatal(err)
+	}
+	n, err := repo.archiveExpiredExtractionAttempts(ctx, time.Now().UTC().Add(-30*24*time.Hour), 100)
+	if err != nil || n != 1 {
+		t.Fatalf("archive = %d, %v; want 1, nil", n, err)
+	}
+	if got := countRows(t, repo, `SELECT COUNT(*) FROM relation_extraction_attempts WHERE id=?`, att.ID); got != 0 {
+		t.Fatalf("expired attempt remains: %d", got)
+	}
+	var archived int
+	if err := repo.db.QueryRowContext(ctx, `SELECT CAST(JSON_UNQUOTE(JSON_EXTRACT(archived_ledger_summary, '$.unknown_usage_attempts')) AS UNSIGNED) FROM relation_extraction_jobs WHERE id=?`, job.ID).Scan(&archived); err != nil {
+		t.Fatal(err)
+	}
+	if archived != 1 {
+		t.Fatalf("archived unknown usage = %d, want 1", archived)
+	}
+	doc, err := repo.getDocument(ctx, job.DocumentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := repo.extractionStatus(ctx, doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.UnknownUsageAttempts != 1 {
+		t.Fatalf("status unknown usage = %d, want 1 after attempt deletion", status.UnknownUsageAttempts)
+	}
+}
+
+func TestCleanupSupersededJobRemovesDerivedDataOnly(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	job, epoch, item := publishFixture(t, repo, "doc-clean-stale", "job-clean-stale")
+	if err := repo.publishItemOutcome(ctx, publishInput{JobID: job.ID, ItemID: item, Epoch: epoch,
+		Outcome: sampleOutcome(), ExtractResponse: []byte(`{"ok":true}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.supersedeExtractionJob(ctx, job.ID); err != nil {
+		t.Fatal(err)
+	}
+	n, err := repo.cleanupStaleExtractionJobs(ctx, 100)
+	if err != nil || n < 1 {
+		t.Fatalf("cleanup = %d, %v; want at least this fixture, nil", n, err)
+	}
+	for _, table := range []string{"narrative_relation_evidence", "narrative_relations", "narrative_aliases", "narrative_characters", "relation_extraction_items"} {
+		if got := countRows(t, repo, "SELECT COUNT(*) FROM "+table+" WHERE job_id=?", job.ID); got != 0 {
+			t.Fatalf("%s still has %d stale rows", table, got)
+		}
+	}
+}
+
+func TestCleanupDeletedDocumentRemovesJobAfterAuditIsGone(t *testing.T) {
+	repo := extractionRepo(t)
+	ctx := t.Context()
+	job, _, _ := publishFixture(t, repo, "doc-clean-deleted", "job-clean-deleted")
+	if err := repo.queries.DeleteDocument(ctx, job.DocumentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.cleanupStaleExtractionJobs(ctx, 100); err != nil {
+		t.Fatal(err)
+	}
+	if got := countRows(t, repo, `SELECT COUNT(*) FROM relation_extraction_jobs WHERE id=?`, job.ID); got != 0 {
+		t.Fatalf("deleted document's job remains after its audit rows are gone: %d", got)
 	}
 }
 

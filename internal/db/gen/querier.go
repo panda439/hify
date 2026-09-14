@@ -142,6 +142,15 @@ type Querier interface {
 	DeleteAgentMCPTools(ctx context.Context, agentID string) error
 	DeleteDocument(ctx context.Context, id string) error
 	DeleteExpiredRefreshTokens(ctx context.Context, revokedAt sql.NullTime) (int64, error)
+	DeleteExtractionAttempt(ctx context.Context, id string) error
+	// 只删除已经失去 document parent 且没有任何审计 attempt 的 job。正常的
+	// superseded run 仍保留账目；已删除文档也要等 30 天审计期结束才可最终删除。
+	DeleteExtractionJobIfDocumentMissingAndNoAttempts(ctx context.Context, id string) (int64, error)
+	DeleteJobAliases(ctx context.Context, jobID string) error
+	DeleteJobCharacters(ctx context.Context, jobID string) error
+	DeleteJobItems(ctx context.Context, jobID string) error
+	DeleteJobRelationEvidence(ctx context.Context, jobID string) error
+	DeleteJobRelations(ctx context.Context, jobID string) error
 	// ⚠️ 只在 job 还没结束时生效。已经 succeeded/failed 的 job 不该被一条迟到的
 	// 失败改写——那条失败属于一个早就被取代的 epoch。
 	FailRelationExtractionJob(ctx context.Context, arg FailRelationExtractionJobParams) (int64, error)
@@ -162,6 +171,7 @@ type Querier interface {
 	FindReplayableAttempt(ctx context.Context, arg FindReplayableAttemptParams) (FindReplayableAttemptRow, error)
 	FinishWorkflowRun(ctx context.Context, arg FinishWorkflowRunParams) error
 	GetAgentByID(ctx context.Context, id string) (Agent, error)
+	GetArchivedUnknownUsageAttempts(ctx context.Context, id string) (interface{}, error)
 	GetConversationByID(ctx context.Context, id string) (Conversation, error)
 	GetDocumentByID(ctx context.Context, id string) (Document, error)
 	GetDocumentExtractionState(ctx context.Context, id string) (GetDocumentExtractionStateRow, error)
@@ -198,6 +208,7 @@ type Querier interface {
 	GetUserByID(ctx context.Context, id string) (User, error)
 	GetWorkflowByID(ctx context.Context, id string) (Workflow, error)
 	GetWorkflowRunByID(ctx context.Context, id string) (WorkflowRun, error)
+	IncrementArchivedUnknownUsageAttempts(ctx context.Context, arg IncrementArchivedUnknownUsageAttemptsParams) error
 	ListActiveModelsByCapability(ctx context.Context, capability string) ([]ProviderModel, error)
 	// Reverse lookup for "which Agents use this knowledge base" — surfaced in
 	// the knowledge base management UI before disabling one.
@@ -240,6 +251,7 @@ type Querier interface {
 	// 一批关系的全部证据。⚠️ **批量**接口：逐条关系查一次是 Phase 7 邻接查询
 	// 踩过的同一个 N+1。
 	ListEvidenceForRelations(ctx context.Context, arg ListEvidenceForRelationsParams) ([]ListEvidenceForRelationsRow, error)
+	ListExpiredExtractionAttemptIDs(ctx context.Context, arg ListExpiredExtractionAttemptIDsParams) ([]string, error)
 	// 归一：本作业内已经建立的人物，作为候选池。
 	//
 	// ⭐ 只在**同一个 job** 内选候选（plan §6）。跨 job 会把上一次实验、
@@ -309,6 +321,7 @@ type Querier interface {
 	// UploadDocument 的注释）导致没有任何任务在处理它。pending 从没有 worker
 	// 持有过租约，"入队丢了"这个问题只能靠 updated_at 阈值判断。
 	ListStalePendingDocuments(ctx context.Context, updatedAt time.Time) ([]Document, error)
+	ListStaleRelationExtractionJobs(ctx context.Context, limit int32) ([]string, error)
 	// 恢复扫描：停留在 reserved 太久的尝试。⚠️ 它们**不是**没发生过——
 	// 进程在收到响应之前崩了，所以要改判 unknown 而不是删掉或标 failed。
 	ListStaleReservedAttempts(ctx context.Context, arg ListStaleReservedAttemptsParams) ([]ListStaleReservedAttemptsRow, error)
@@ -321,6 +334,14 @@ type Querier interface {
 	// output, unlike the shared workflow definition itself).
 	ListWorkflowRunsByCreator(ctx context.Context, arg ListWorkflowRunsByCreatorParams) ([]WorkflowRun, error)
 	ListWorkflows(ctx context.Context, arg ListWorkflowsParams) ([]Workflow, error)
+	// 发布结果前先锁 document，再锁 job、item。删除/restart 走相同的 document
+	// 锁时，晚到的模型响应只能有一方先完成：若删除已提交，本查询无行；若发布
+	// 先提交，删除会在它之后清掉整份派生数据，绝不会在删除后重新发布。
+	LockDocumentExtractionState(ctx context.Context, id string) (LockDocumentExtractionStateRow, error)
+	LockExtractionAttemptForArchive(ctx context.Context, id string) (LockExtractionAttemptForArchiveRow, error)
+	// document 与 job 已锁后，最后锁 item。发布前先拿到这把锁，避免两条重复
+	// 消息同时把同一 item 当成未完成并各自写出一套派生记录。
+	LockRelationExtractionItem(ctx context.Context, arg LockRelationExtractionItemParams) (string, error)
 	// 控制操作（pause/resume/追加额度）的入口：把 job 行锁住再读。
 	//
 	// ⭐ FOR UPDATE 不是"保险起见"。幂等键的判重是**先读后写**：两个请求带着

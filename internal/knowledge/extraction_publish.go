@@ -109,8 +109,53 @@ type publishInput struct {
 
 // publishItemOutcome 在一个事务里写完全部结果。
 func (r *Repository) publishItemOutcome(ctx context.Context, in publishInput) error {
+	// 先只读取 document_id，真正的有效性判断和锁都在下面事务中完成。
+	// job 的 document_id 在创建后不可变；拿它只是为了遵守 document → job →
+	// item 的锁顺序，不能拿这次无锁读取当作当前性判定。
+	job, err := r.queries.GetRelationExtractionJob(ctx, in.JobID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrExtractionEpochLost
+		}
+		return fmt.Errorf("knowledge: load job before publish: %w", err)
+	}
 	return platform.WithTx(ctx, r.db, func(tx *sql.Tx) error {
 		q := r.queries.WithTx(tx)
+		// 锁顺序固定为 document → job → item。删除或 restart 与这一把 document
+		// 锁串行：模型响应晚到时不会在删除/替换之后重新把关系写回来。
+		doc, err := q.LockDocumentExtractionState(ctx, job.DocumentID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrExtractionEpochLost
+			}
+			return fmt.Errorf("knowledge: lock document before publish: %w", err)
+		}
+		if doc.Status != StatusReady || doc.Version != int64(job.DocumentVersion) ||
+			!doc.ActiveRelationJobID.Valid || doc.ActiveRelationJobID.String != in.JobID {
+			return ErrExtractionEpochLost
+		}
+		lockedJob, err := q.LockRelationExtractionJob(ctx, in.JobID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrExtractionEpochLost
+			}
+			return fmt.Errorf("knowledge: lock job before publish: %w", err)
+		}
+		if lockedJob.State != jobStateRunning {
+			return ErrExtractionEpochLost
+		}
+		lockedItem, err := q.LockRelationExtractionItem(ctx, gen.LockRelationExtractionItemParams{
+			ID: in.ItemID, JobID: in.JobID,
+		})
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrExtractionEpochLost
+			}
+			return fmt.Errorf("knowledge: lock item before publish: %w", err)
+		}
+		if lockedItem == itemStateSucceeded {
+			return ErrItemAlreadyPublished
+		}
 
 		// 本地引用 -> 真实人物 ID。
 		// ⚠️ 顺序遍历 Characters 而不是 range 一个 map：ID 是新生成的，

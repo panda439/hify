@@ -13,6 +13,7 @@
 - [疑义与反例](issues.jsonl)：需要裁定或明确排除的记录。
 - [逐段覆盖](coverage.jsonl)：322 个原 ID 的阅读/排除与记录关联。
 - [语料和数据快照](manifest.json)：来源路径、哈希和 AI 标注身份。
+- [来源与许可记录](source-provenance.md)：候选上游 revision、许可与仍待做的逐字匹配边界。
 
 本地语料副本在 `eval/corpus/aq-010/`，正文被该目录的 .gitignore 排除；
 `narrative-only.txt` 排除 8 段杂项。保留版 ch01～ch09 是逐字原始快照，不覆盖用户材料。

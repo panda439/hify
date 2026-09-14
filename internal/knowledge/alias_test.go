@@ -7,6 +7,13 @@ import (
 	"testing"
 )
 
+func TestAliasInstructionSeparatesCharacterIDFromEvidenceReference(t *testing.T) {
+	instruction := buildAliasInstruction(aliasInput{})
+	if !strings.Contains(instruction, "不能填 character_id") || !strings.Contains(instruction, "#序号") || !strings.Contains(instruction, "必须恰好两条") || !strings.Contains(instruction, "不能写 text") || !strings.Contains(instruction, "new_group 必须是空字符串") {
+		t.Fatalf("alias instruction must prohibit evidence refs as character IDs:\n%s", instruction)
+	}
+}
+
 // alias_test.go 守身份归一（010 T026/T027）。
 //
 // ⭐ 用例的重心全在**拒绝**上，因为这一阶段唯一昂贵的错误是误合并：

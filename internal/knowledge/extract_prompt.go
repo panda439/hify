@@ -35,7 +35,7 @@ const (
 	// extractPromptVersion 标识指令文本本身。与 schema 分开是因为两者
 	// 变化频率不同：措辞调整不改结构，但**足以改变结果**，所以也必须
 	// 进快照，否则两次实验的差异无法归因。
-	extractPromptVersion = "extract/v4"
+	extractPromptVersion = "extract/v5"
 )
 
 // 契约 §1 的规模上限。超限整次拒绝，不截断——截断会让"模型只抽到这些"和
@@ -122,7 +122,9 @@ relations：人物之间有原文支持的关系，每项
   evidence 给 1～4 条引用。先在上面的原文中逐字找到支持关系的连续文字，再从原文直接复制到 quote；不要凭记忆或常识补写，不要改写、不要拼接不相邻的句子；如果不能在原文中用眼睛逐字核对 quote，就不要输出这条关系；
   跨越多处的支持请分成多条引用。
 
-alias_proposals：你认为指同一个人的两个称呼，每项 {"left","right","quote"}，
+alias_proposals：你认为指同一个人的两个称呼，每项 {"left","right","quote"}。
+  left 和 right 必须填 mentions 数组里的 ref（如 m1、m2），不是人物称呼；例如
+  {"left":"m1","right":"m2","quote":"..."}。
   quote 是原文中支持这个判断的那句话。只在原文明确写出时提出，
   "可能是"、"也许"、"不知道是不是"这类说法不要提。
 

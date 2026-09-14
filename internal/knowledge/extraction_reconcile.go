@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"hify/internal/db/gen"
+	"hify/internal/platform"
 )
 
 // extraction_reconcile.go 是抽取作业的恢复扫描（010 T021）。
@@ -26,6 +27,9 @@ const (
 
 	// reconcileBatchSize 是一次扫描处理多少条，防止单次运行处理量失控。
 	reconcileBatchSize = 100
+	// extractionAttemptRetention 是原始模型响应的审计保留期。作业级汇总
+	// 永久保留；到期后只清理可再生的逐次明细。
+	extractionAttemptRetention = 30 * 24 * time.Hour
 )
 
 // recoverableJob 是一条等着被接手的作业。
@@ -66,6 +70,8 @@ type ReconcileResult struct {
 	JobsNeedingRecovery  int
 	JobsRequeued         int
 	ReservationsResolved int
+	AttemptsArchived     int
+	StaleJobsCleaned     int
 	// JobIDsNeedingRecovery 交给 Service 去入队。
 	// ⚠️ repository 不该知道 asynq 的存在（分层），所以这里只把 ID 带出去。
 	JobIDsNeedingRecovery []string
@@ -90,6 +96,16 @@ func (r *Repository) reconcileRelationExtractions(ctx context.Context) (Reconcil
 	if err != nil {
 		return res, err
 	}
+	cleaned, err := r.cleanupStaleExtractionJobs(ctx, reconcileBatchSize)
+	res.StaleJobsCleaned = cleaned
+	if err != nil {
+		return res, err
+	}
+	archived, err := r.archiveExpiredExtractionAttempts(ctx, time.Now().UTC().Add(-extractionAttemptRetention), reconcileBatchSize)
+	res.AttemptsArchived = archived
+	if err != nil {
+		return res, err
+	}
 
 	// ⚠️ 逐条走 Debug 而不是 Info：扫描不夺租约，同一条作业在被真正接手
 	// 之前每一轮都会被扫到。按分钟级的周期打 Info，一条卡住的作业就能把
@@ -102,6 +118,84 @@ func (r *Repository) reconcileRelationExtractions(ctx context.Context) (Reconcil
 	})
 	res.JobsNeedingRecovery = n
 	return res, err
+}
+
+// cleanupStaleExtractionJobs 删除不再属于当前文档版本的派生关系数据。attempt
+// 不在这里删：它们仍要保留到审计期届满，由 archiveExpiredExtractionAttempts
+// 单独归档，不能因为关系结果失效就把已发生的调用成本抹掉。
+func (r *Repository) cleanupStaleExtractionJobs(ctx context.Context, limit int) (int, error) {
+	ids, err := r.queries.ListStaleRelationExtractionJobs(ctx, int32(limit))
+	if err != nil {
+		return 0, fmt.Errorf("knowledge: list stale extraction jobs: %w", err)
+	}
+	for _, id := range ids {
+		if err := platform.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+			q := r.queries.WithTx(tx)
+			if err := q.DeleteJobRelationEvidence(ctx, id); err != nil {
+				return err
+			}
+			if err := q.DeleteJobRelations(ctx, id); err != nil {
+				return err
+			}
+			if err := q.DeleteJobAliases(ctx, id); err != nil {
+				return err
+			}
+			if err := q.DeleteJobCharacters(ctx, id); err != nil {
+				return err
+			}
+			if err := q.DeleteJobItems(ctx, id); err != nil {
+				return err
+			}
+			// 只有 parent 已删且所有 attempt 已过审计期时才删 job 本身。
+			// superseded 的旧 run 仍是有效文档的历史成本，不会命中这条删除。
+			_, err := q.DeleteExtractionJobIfDocumentMissingAndNoAttempts(ctx, id)
+			return err
+		}); err != nil {
+			return 0, fmt.Errorf("knowledge: clean stale extraction job %s: %w", id, err)
+		}
+	}
+	return len(ids), nil
+}
+
+// archiveExpiredExtractionAttempts 先把未被 job 汇总覆盖的 usage-unknown 数
+// 累加到 archived_ledger_summary，再删 attempt。两步在同一事务中，事务回滚
+// 时两者一起回滚，重试不会把同一条 attempt 算两遍。
+func (r *Repository) archiveExpiredExtractionAttempts(ctx context.Context, before time.Time, limit int) (int, error) {
+	ids, err := r.queries.ListExpiredExtractionAttemptIDs(ctx, gen.ListExpiredExtractionAttemptIDsParams{
+		CreatedAt: before, Limit: int32(limit),
+	})
+	if err != nil {
+		return 0, fmt.Errorf("knowledge: list expired extraction attempts: %w", err)
+	}
+	archived := 0
+	for _, id := range ids {
+		err := platform.WithTx(ctx, r.db, func(tx *sql.Tx) error {
+			q := r.queries.WithTx(tx)
+			attempt, err := q.LockExtractionAttemptForArchive(ctx, id)
+			if err != nil {
+				if err == sql.ErrNoRows {
+					return nil // 被另一轮清理抢先删除，安全跳过。
+				}
+				return err
+			}
+			if _, err := q.LockRelationExtractionJob(ctx, attempt.JobID); err != nil {
+				return err
+			}
+			if !attempt.UsageKnown {
+				if err := q.IncrementArchivedUnknownUsageAttempts(ctx, gen.IncrementArchivedUnknownUsageAttemptsParams{
+					Delta: 1, JobID: attempt.JobID,
+				}); err != nil {
+					return err
+				}
+			}
+			return q.DeleteExtractionAttempt(ctx, id)
+		})
+		if err != nil {
+			return archived, fmt.Errorf("knowledge: archive extraction attempt %s: %w", id, err)
+		}
+		archived++
+	}
+	return archived, nil
 }
 
 // walkRecoverableJobs 按 id 游标遍历全部待接手的作业。

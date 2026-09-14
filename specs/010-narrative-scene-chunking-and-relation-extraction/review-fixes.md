@@ -441,3 +441,81 @@ T035 收口：聊天页的关系查询表单 + 歧义候选选择器。为此后
 
 **仍然没有验到的 UI 路径**：真实抽取跑完之后的 found / 歧义两条——
 它们需要真实模型，归 Phase 6。
+
+### 第八轮：extract/v5 协议与可回放重试
+
+全书 run3 暴露的 alias proposal 协议冲突已经修复：prompt 过去要求人物名称，
+服务端却要求 mention ref；`extract/v5` 明确要求 `m1/m2`。同时，结构校验失败
+后的第二、三次调用会携带不含正文/原始输出的校验反馈，且每个 attempt 在预留前
+记录自己实际提示词的哈希，回放不再把不同请求误写成同一输入。
+
+14B 只在开发集 `ch01/ch02` 做了隔离验证，详见
+`evidence/precheck-v5-smoke/`：`ch01-005` 已按 `m1/m2` 输出别名提案。13 个
+抽取调用中 11 个完成服务端解析；唯一的 alias 调用在 60 秒超时。因此这说明
+协议问题被修正，但还不能说明全书效果已达标，也不能替代人工真值与 T042 门禁。
+
+### 第九轮：T028 确定性验收
+
+已用真实数据库复验归一依据落库、同一响应回放不再调用模型、同一关系在多章
+保留记录并按原文顺序返回、空章节元数据，以及别名成功、犹疑拒绝、仅同名拒绝、
+歧义独立四个正反例。T028 因此闭合；它验证的是工程可回放性和保守合并规则，
+不提供模型语义准确率。
+
+### 第十轮：T022 删除守卫与 T023 清理归档
+
+发布结果前按 document → job → item 加锁；已删除文档的晚到模型响应会被拒绝，
+不会重新发布派生关系。reconcile 现分批清理 superseded、已删除文档或旧版本
+run 的派生记录；attempt 保留 30 天，删除前将未知 usage 次数累计到 job 的
+归档账本，状态读取把归档与存量合并。已删除文档在没有剩余 attempts 后才删 job；
+仍属于现存文档的 superseded run 保留历史账目。
+
+### 第十一轮：T022 跨库发布恢复验收
+
+补上了 PG 已发布、MySQL `ready` CAS 前 worker 崩溃这一窗口的完整回归：恢复扫描
+重跑幂等发布并完成 `ready` 后，对于已开启关系抽取的叙事文档，必须建立当前
+relation job，并枚举全部已发布的场景片段。测试使用真实 MySQL、PG 与 Redis，
+断言 job 指针、初始化完成标志和 item 数量。
+
+T022 的其余证据分别是：`source_hash` 与 config snapshot 的持久化、文档→job→item
+锁顺序下删除文档拒绝晚到模型响应、旧 epoch 结果事务回滚。它们证明工程状态与
+故障恢复边界；不构成真实模型抽取准确率或人工评测结果。
+
+### 第十二轮：T027 原子发布修正
+
+审查发现运行器曾为了降低 alias 超时带来的覆盖损失，把归一响应非法降级为独立
+人物后继续发布关系。这与 T027 的“归一非法不部分发布”和 FR-009 冲突。现已移除
+该分支：归一阶段三次校验仍失败时，当前 item 以 `alias_invalid` 失败，先前抽取
+响应和调用账目保留以供重试与审计，但本 item 的人物、关系、别名均不发布。
+
+回归用例同时证明同一作业中无需归一的其他 item 可以独立成功；这不是整本书回滚，
+而是以 item 为发布原子边界。完整 `go test ./internal/knowledge -count=1` 通过。
+
+### 第十三轮：T039/T040 可复算评测工具
+
+新增 `internal/eval/narrative` 与 `cmd/narrativeeval`。它按章节、稳定实体 ID、
+关系类型、方向做一对一去重匹配；无向关系端点规范化，重复预测不重复计分，
+缺失预测计 FN，空分母输出 N/A，出处逐条核验并单报有效出处率。
+
+快照必须声明 `identity_mode`：`end_to_end` 与 `gold_alias_assisted` 绝不混算，
+从而分别报告真实端到端能力和“人工别名已给定”条件下的上界。默认只接受
+`HUMAN_GOLD_FROZEN` 的人工真值；若显式 `--allow-reference-only` 对 AI 初稿做
+开发对照，报告固定标为 `reference_only`，不可用作 FR-016/SC-007 验收数字。
+
+命令读取快照所引用的原始响应、账目文件并计算 SHA-256，报告还带模型配置哈希与
+价格版本。它不连接数据库、不发模型请求，也不调用 LLM 裁判；同一批输入可以离线
+重算。验证：`go test ./cmd/narrativeeval ./internal/eval/narrative -count=1` 通过。
+
+补充测试产物：`evidence/reference-eval-smoke/` 以 58 条 AI 初标分别作为参考输入
+和预测输入，已实际运行 `make narrative-eval ... NARRATIVE_REFERENCE_ONLY=1`。
+报告为 `reference_only=true`、`acceptance=false`，预期得到 1.0 自一致性；它只验证
+工具链，绝不代表 14B、7B 或 Hify 的抽取效果。
+
+### 第十四轮：14B 别名协议收紧
+
+run5 的失败现场显示模型把候选依据的 `角色ID#序号` 填进了 `character_id`，或漏掉
+link 必需的当前块依据/使用 `text` 代替 `quote`。`alias/v3` 现在明确区分人物 ID 和
+证据引用、给出完整 link JSON 模板，并强制空 `new_group`、封闭 reason_code、双侧
+supports 与 `quote` 字段。版本号已提升，因此新提示不会在旧 job 上续跑。
+
+真实 14B 最小样本见 `evidence/alias-protocol-v6-smoke/`：27,156 ms 内输出完全符合
+该模板。它仅证明这个单一协议样本，不代表全书效果；归一相关单元测试也已通过。

@@ -49,7 +49,7 @@
   "relation_candidates": 58,
   "issue_records": 32,
   "scope": "可区分的故事人物；8 类封闭关系；疑义另列；本稿不保证穷尽",
-  "source_provenance": "用户指定 scratchpad 章节材料；来源网页及许可未在本轮重新核验，发布前另行核验",
+  "source_provenance": "用户指定九章材料；候选上游与许可见 source-provenance.md。原临时输入目录已失效，候选上游 oldid=2633268 尚未与九章 SHA-256 逐字匹配，不得声称已验证同版。",
   "files_sha256": {
     "issues.jsonl": "16315cb9078b77d1b3c07695a08cac6932743581077bef2507700b71bef3559d",
     "aliases.json": "f392d156d46c2333296276d136206653c14a03f43771940991c0732e8ff33bb5",

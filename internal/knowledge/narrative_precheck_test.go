@@ -76,7 +76,7 @@ type ollamaResponse struct {
 func TestNarrativePrecheck(t *testing.T) {
 	if os.Getenv("HIFY_PRECHECK_RECOMPUTE") == "1" {
 		root := precheckRepoRoot(t)
-		precheckRecompute(t, root, filepath.Join(root, "specs/010-narrative-scene-chunking-and-relation-extraction/evidence/precheck"))
+		precheckRecompute(t, root, precheckOutputDir(root))
 		return
 	}
 	models := strings.Split(strings.TrimSpace(os.Getenv("HIFY_PRECHECK_MODELS")), ",")
@@ -84,7 +84,7 @@ func TestNarrativePrecheck(t *testing.T) {
 		t.Skip("HIFY_PRECHECK_MODELS 未设置，跳过本地模型预检")
 	}
 	root := precheckRepoRoot(t)
-	outDir := filepath.Join(root, "specs/010-narrative-scene-chunking-and-relation-extraction/evidence/precheck")
+	outDir := precheckOutputDir(root)
 	if err := os.MkdirAll(filepath.Join(outDir, "raw"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -118,6 +118,28 @@ func TestNarrativePrecheck(t *testing.T) {
 	}
 	if err := os.WriteFile(filepath.Join(outDir, "summary.json"), append(b, '\n'), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// precheckOutputDir 让一次新的模型实验写入独立目录。预检的 raw 响应是
+// 现有结论的证据，新的 prompt 不能悄悄覆盖旧证据。
+func precheckOutputDir(root string) string {
+	if configured := strings.TrimSpace(os.Getenv("HIFY_PRECHECK_OUTPUT_DIR")); configured != "" {
+		return filepath.Join(root, configured)
+	}
+	return filepath.Join(root, "specs/010-narrative-scene-chunking-and-relation-extraction/evidence/precheck")
+}
+
+func TestPrecheckOutputDir(t *testing.T) {
+	root := t.TempDir()
+	defaultDir := filepath.Join(root, "specs/010-narrative-scene-chunking-and-relation-extraction/evidence/precheck")
+	if got := precheckOutputDir(root); got != defaultDir {
+		t.Fatalf("default output dir = %q, want %q", got, defaultDir)
+	}
+	t.Setenv("HIFY_PRECHECK_OUTPUT_DIR", "specs/010-narrative-scene-chunking-and-relation-extraction/evidence/precheck-v5-smoke")
+	want := filepath.Join(root, "specs/010-narrative-scene-chunking-and-relation-extraction/evidence/precheck-v5-smoke")
+	if got := precheckOutputDir(root); got != want {
+		t.Fatalf("configured output dir = %q, want %q", got, want)
 	}
 }
 
